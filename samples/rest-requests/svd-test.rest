@@ -1,0 +1,427 @@
+POST http://localhost:5000/api/word/create
+content-type: application/json
+
+
+{
+    "templatePath": "https://elisra-docgen.s3.ap-southeast-1.amazonaws.com/test2.dotx",
+    "uploadProperties":
+    {
+    "bucketName": "elisra-docgen-testdocs",
+    "fileName": "newFile2",
+    "AwsAccessKeyId": "AKIAQMTJXUUIWZSBMJMI",
+    "AwsSecretAccessKey": "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",
+    "Region": "ap-southeast-1"
+    },
+    "contentControls": [
+    {
+      "title": "required-states-and-modes",
+      "wordObjects": [
+        {
+          "type": "paragraph",
+          "runs": [
+            {
+              "text": "Artifact name:",
+              "Bold": false,
+              "Italic": false,
+              "Underline": true,
+              "Size": 10,
+              "Uri": null,
+              "Font": "New Times Roman",
+              "InsertLineBreak": true,
+              "InsertSpace": true
+            },
+            {
+              "text": "tests",
+              "Bold": false,
+              "Italic": false,
+              "Underline": false,
+              "Size": 10,
+              "Font": "New Times Roman",
+              "InsertLineBreak": false,
+              "InsertSpace": false
+            }
+          ],
+          "headingLevel": 0
+        },
+        {
+          "type": "table",
+          "headingLevel": 4,
+          "Rows": [
+            {
+              "Cells": [
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "#",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Change #",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Related WI",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Change description",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Committed Date & Time",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Commited by",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Cells": [
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "1",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "4ce7f96f74f10bb60d27d7180a8d1bd44da1ffac",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": "https://dev.azure.com/assafushy/45a48633-890c-42bb-ace3-148d17806857/_apis/git/repositories/68f2aee7-0864-458e-93ce-320303a080ed/commits/4ce7f96f74f10bb60d27d7180a8d1bd44da1ffac",
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Task",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "test-item",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "2021-10-20T17:23:59Z",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "assafushy@gmail.com",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "Cells": [
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "2",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "85f6e00dc6696c5945689adfc208af601782dd7f",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": "https://dev.azure.com/assafushy/45a48633-890c-42bb-ace3-148d17806857/_apis/git/repositories/68f2aee7-0864-458e-93ce-320303a080ed/commits/85f6e00dc6696c5945689adfc208af601782dd7f",
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "Bug",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "test-of dg",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "2018-10-25T12:40:30Z",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "attachments": [],
+                  "Paragraphs": [
+                    {
+                      "Runs": [
+                        {
+                          "text": "assafushy@gmail.com",
+                          "Bold": false,
+                          "Italic": false,
+                          "Underline": false,
+                          "Size": 10,
+                          "Uri": null,
+                          "Font": "New Times Roman",
+                          "InsertLineBreak": false,
+                          "InsertSpace": false
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

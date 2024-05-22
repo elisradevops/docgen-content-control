@@ -1,0 +1,59 @@
+version: "3.9"
+
+x-common-variables: &common-vars
+  MINIOSERVER: "http://s3:9000"
+  MINIO_ROOT_USER: "your-root-user"
+  MINIO_ROOT_PASSWORD: "your-root-password"
+  MINIO_REGION: "ap-southeast-1"
+services:
+  dg-fe:
+    image: elisradevops/docgen-frontend:latest
+    ports:
+      - "80:80"
+    environment:
+      BACKEND-URL-PLACEHOLDER-ContentControl: "http://dg-api-gate:30001"
+  dg-init-job:
+    image: elisradevops/docgen-initializer:latest
+    depends_on:
+      - "s3"
+    environment:
+      <<: *common-vars
+      MINIOROOTUSER: "your-root-user"
+      MINIOROOTPASSWORD: "your-root-password"
+  dg-content-control:
+    build: .
+    command: npm run start
+    volumes:
+      - ./:/usr/src/app
+    ports:
+      - "3000:3000"
+    environment:
+      downloadManagerUrl: "http://python-download-service:8000"
+  dg-api-gate:
+    image: elisradevops/docgen-api-gate:latest
+    ports:
+      - "30001:3000"
+    environment:
+      <<: *common-vars
+      MINIO_ENDPOINT: "s3"
+      dgContentControlUrl: "http://python-download-service:3000"
+      jsonToWordPostUrl: "http://json-to-word:5000"
+      minioPublicEndPoint: "http://localhost:9000" #change with hosted machine hostname
+  json-to-word:
+    image: elisradevops/docgen-json-to-word:latest
+    ports:
+      - "5000:5000"
+  s3:
+    image: minio/minio
+    ports:
+      - "9000:9000"
+      - "4000:4000"
+    volumes:
+      - ./minio:/data
+    environment:
+      <<: *common-vars
+    command: server --address 0.0.0.0:9000  --console-address ":4000" /data
+  python-download-service:
+    image: elisradevops/docgen-download-manager:latest
+    ports:
+      - "8000:8000"
