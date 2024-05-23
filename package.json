@@ -1,6 +1,6 @@
 {
   "name": "dg-content-control",
-  "version": "1.8.22",
+  "version": "1.8.23",
   "description": "TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project.",
   "main": "./bin/index.js",
   "types": "./bin/index.d.ts",
