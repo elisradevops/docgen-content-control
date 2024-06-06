@@ -3,6 +3,7 @@ import RichTextDataFactory from "./RichTextDataFactory";
 import AttachmentsDataFactory from "./AttachmentsDataFactory";
 import TestResultGroupSummaryDataSkinAdapter from "../adapters/TestResultGroupSummaryDataSkinAdapter";
 import logger from "../services/logger";
+import { JSDOM } from 'jsdom';
 
 const styles = {
   isBold: false,
