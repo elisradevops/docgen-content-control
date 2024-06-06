@@ -3,6 +3,7 @@ import RichTextDataFactory from "./RichTextDataFactory";
 import AttachmentsDataFactory from "./AttachmentsDataFactory";
 import TestResultGroupSummaryDataSkinAdapter from "../adapters/TestResultGroupSummaryDataSkinAdapter";
 import logger from "../services/logger";
+import { JSDOM } from 'jsdom';
 
 const styles = {
   isBold: false,
@@ -245,7 +246,25 @@ export default class TestDataFactory {
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null) {
     let adoptedTestData;
-  
+
+    function addBreakAfterParagraphs(html) {
+      const dom = new JSDOM(html);
+      const { document } = dom.window;
+      const paragraphs = document.querySelectorAll('p');
+
+      paragraphs.forEach(p => {
+        const hasBr = p.innerHTML.includes('<br>');
+        const textContent = p.textContent.trim();
+        const containsActualText = textContent !== '' && textContent !== '\u00A0'; // '\u00A0' is the non-breaking space character
+
+        if (!hasBr && containsActualText) {
+          p.insertAdjacentHTML('afterend', '<br>');
+        }
+      });
+
+      return document.body.innerHTML;
+    }
+    
     switch (adapterType) {
       case "test-result-group-summary":
         let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
@@ -264,8 +283,9 @@ export default class TestDataFactory {
             let testCases = await Promise.all(
               suite.testCases.map(async testCase => {
                 let Description = testCase.description || "No description";
+                let cleanedDescription = addBreakAfterParagraphs(Description);
                 let richTextFactory = new RichTextDataFactory(
-                  Description,
+                  cleanedDescription,
                   this.templatePath,
                   this.teamProject
                 );
@@ -285,7 +305,7 @@ export default class TestDataFactory {
                     { name: "ID", value: testCase.id, url: testCase.url },
                     {
                       name: "Test Description",
-                      value: testCase.description || "No description",
+                      value: cleanedDescription || "No description",
                       richText: richText
                     }
                   ],
