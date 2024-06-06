@@ -245,7 +245,9 @@ export default class TestDataFactory {
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null) {
     let adoptedTestData;
-  
+    function addBreakAfterParagraphs(html) {
+      return html.replace(/<\/p>/g, '</p><br>');
+    }
     switch (adapterType) {
       case "test-result-group-summary":
         let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
@@ -264,8 +266,9 @@ export default class TestDataFactory {
             let testCases = await Promise.all(
               suite.testCases.map(async testCase => {
                 let Description = testCase.description || "No description";
+                let cleanedDescription = addBreakAfterParagraphs(Description);
                 let richTextFactory = new RichTextDataFactory(
-                  Description,
+                  cleanedDescription,
                   this.templatePath,
                   this.teamProject
                 );
@@ -285,7 +288,7 @@ export default class TestDataFactory {
                     { name: "ID", value: testCase.id, url: testCase.url },
                     {
                       name: "Test Description",
-                      value: testCase.description || "No description",
+                      value: cleanedDescription || "No description",
                       richText: richText
                     }
                   ],
