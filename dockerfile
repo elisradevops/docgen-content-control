@@ -1,4 +1,4 @@
-FROM node:slim as build
+FROM node:18 as build
 WORKDIR /usr/src/app
 COPY . ./
 RUN npm ci
@@ -7,7 +7,7 @@ RUN npm run build
 
 # --------------BUILD END------------------
 
-FROM  node:slim
+FROM  node:18
 WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm ci
