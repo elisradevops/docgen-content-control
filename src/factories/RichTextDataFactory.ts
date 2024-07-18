@@ -25,10 +25,13 @@ export default class RichTextDataFactory {
   replaceTags = ({ tag, deleteFrom, deleteTo, rangesArr }) => {
     switch (tag.name.toLowerCase()) {
       case `br`:
-        break;
       case `b`:
-        break;
       case `u`:
+      case `ol`:
+      case `ul`:
+      case `li`:
+      case 'div':
+        // Do nothing for these tags, retain the content
         break;
       case 'table':
         if (!tag.slashPresent) {
@@ -53,14 +56,11 @@ export default class RichTextDataFactory {
         rangesArr.push(deleteFrom, deleteFrom, '-----EN-PAR----- -----ST-IMG-----');
         rangesArr.push(deleteTo, deleteTo, '-----EN-IMG----- -----ST-PAR-----');
         break;
-      case `ol`:
-        break;
-      case `ul`:
-        break;
-      case `li`:
-        break;
+
       default:
-        rangesArr.push(deleteFrom, deleteTo, ' ');
+        // Instead of replacing with space, retain the content inside tags
+        rangesArr.push(deleteFrom, deleteFrom, '');
+        rangesArr.push(deleteTo, deleteTo, '');
         break;
     }
   };
