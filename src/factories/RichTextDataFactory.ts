@@ -30,8 +30,6 @@ export default class RichTextDataFactory {
       case `ol`:
       case `ul`:
       case `li`:
-      case 'div':
-        // Do nothing for these tags, retain the content
         break;
       case 'table':
         if (!tag.slashPresent) {
@@ -56,11 +54,8 @@ export default class RichTextDataFactory {
         rangesArr.push(deleteFrom, deleteFrom, '-----EN-PAR----- -----ST-IMG-----');
         rangesArr.push(deleteTo, deleteTo, '-----EN-IMG----- -----ST-PAR-----');
         break;
-
       default:
-        // Instead of replacing with space, retain the content inside tags
-        rangesArr.push(deleteFrom, deleteFrom, '');
-        rangesArr.push(deleteTo, deleteTo, '');
+        rangesArr.push(deleteFrom, deleteTo, '');
         break;
     }
   };
