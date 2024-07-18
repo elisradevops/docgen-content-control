@@ -1,15 +1,15 @@
-import Skins from "@elisra-devops/docgen-skins";
-import DgDataProviderAzureDevOps from "@elisra-devops/docgen-data-provider";
-import TestDataFactory from "../factories/TestDataFactory";
-import TraceDataFactory from "../factories/TraceDataFactory";
-import RichTextDataFactory from "../factories/RichTextDataFactory";
-import ChangeDataFactory from "../factories/ChangeDataFactory";
-import PullRequestDataFactory from "../factories/PullRequestDataFactory";
-import logger from "../services/logger";
-import contentControl from "../models/contentControl";
+import Skins from '@elisra-devops/docgen-skins';
+import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import TestDataFactory from '../factories/TestDataFactory';
+import TraceDataFactory from '../factories/TraceDataFactory';
+import RichTextDataFactory from '../factories/RichTextDataFactory';
+import ChangeDataFactory from '../factories/ChangeDataFactory';
+import PullRequestDataFactory from '../factories/PullRequestDataFactory';
+import logger from '../services/logger';
+import contentControl from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
-
+import { log } from 'console';
 
 let styles = {
   isBold: false,
@@ -17,7 +17,7 @@ let styles = {
   IsUnderline: false,
   Size: 12,
   Uri: null,
-  Font: "Arial",
+  Font: 'Arial',
   InsertLineBreak: false,
   InsertSpace: false,
 };
@@ -35,10 +35,20 @@ export default class DgContentControls {
   minioAccessKey: string;
   minioSecretKey: string;
   minioAttachmentData: any[];
-  attachmentsBucketName:string;
-  jsonFileBucketName:string;
+  attachmentsBucketName: string;
+  jsonFileBucketName: string;
 
-  constructor(uri, PAT, attachmentsBucketName, teamProjectName, outputType, templatePath, minioEndPoint, minioAccessKey, minioSecretKey) {
+  constructor(
+    uri,
+    PAT,
+    attachmentsBucketName,
+    teamProjectName,
+    outputType,
+    templatePath,
+    minioEndPoint,
+    minioAccessKey,
+    minioSecretKey
+  ) {
     this.uri = uri;
     this.PAT = PAT;
     this.attachmentsBucketName = attachmentsBucketName;
@@ -49,24 +59,20 @@ export default class DgContentControls {
     this.minioAccessKey = minioAccessKey;
     this.minioSecretKey = minioSecretKey;
     this.minioAttachmentData = [];
-    this.jsonFileBucketName = "content-controls"
+    this.jsonFileBucketName = 'content-controls';
   }
 
   async init() {
     logger.debug(`Initilizing DGContentControls`);
     //initilizing azureDevops connection
-    this.dgDataProviderAzureDevOps = new DgDataProviderAzureDevOps(
-      this.uri,
-      this.PAT
-      );
-    if (!this.templatePath)
-    {
-      this.templatePath = "template path"
+    this.dgDataProviderAzureDevOps = new DgDataProviderAzureDevOps(this.uri, this.PAT);
+    if (!this.templatePath) {
+      this.templatePath = 'template path';
     }
-    console.log("^^^^^^^^^^this.skins^^^^^^^^^^^^^^^^", this.skins)
-    this.skins = new Skins("json",this.templatePath)
-    console.log("^^^^^^^^^^this.skins2^^^^^^^^^^^^^^^", this.skins)
-    console.log("^^^^^^^^^^templatePath^^^^^^^^^^^^^^^", this.templatePath)
+    console.log('^^^^^^^^^^this.skins^^^^^^^^^^^^^^^^', this.skins);
+    this.skins = new Skins('json', this.templatePath);
+    console.log('^^^^^^^^^^this.skins2^^^^^^^^^^^^^^^', this.skins);
+    console.log('^^^^^^^^^^templatePath^^^^^^^^^^^^^^^', this.templatePath);
 
     logger.debug(`Initilized`);
     return true;
@@ -74,7 +80,7 @@ export default class DgContentControls {
 
   async generateDocTemplate() {
     try {
-      console.log("this.skins.getDocumentSkin()", this.skins.getDocumentSkin())
+      console.log('this.skins.getDocumentSkin()', this.skins.getDocumentSkin());
       return this.skins.getDocumentSkin();
     } catch (error) {
       logger.error(`Error initlizing Skins:
@@ -84,17 +90,17 @@ export default class DgContentControls {
 
   async generateContentControl(contentControlOptions) {
     try {
-      let contentControlData
+      let contentControlData;
       switch (contentControlOptions.type) {
-        case "query":
-          contentControlData =  await this.addQueryBasedContent(
+        case 'query':
+          contentControlData = await this.addQueryBasedContent(
             contentControlOptions.data.queryId,
             contentControlOptions.title,
             contentControlOptions.data.skinType,
             contentControlOptions.headingLevel
           );
           break;
-        case "test-description":
+        case 'test-description':
           contentControlData = await this.addTestDescriptionContent(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
@@ -102,11 +108,13 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
             contentControlOptions.data.includeRequirements,
-            contentControlOptions.data.includeCustomerId
+            contentControlOptions.data.includeCustomerId,
+            contentControlOptions.data.includeBugs,
+            contentControlOptions.data.includeSeverity
           );
 
           break;
-        case "trace-table":
+        case 'trace-table':
           contentControlData = await this.addTraceTableContent(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
@@ -116,7 +124,7 @@ export default class DgContentControls {
             contentControlOptions.headingLevel
           );
           break;
-        case "test-result-test-group-summary-table":
+        case 'test-result-test-group-summary-table':
           contentControlData = await this.addTestResultTestGroupSummaryTable(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
@@ -124,10 +132,12 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
             contentControlOptions.data.includeRequirements,
-            contentControlOptions.data.includeCustomerId
+            contentControlOptions.data.includeCustomerId,
+            contentControlOptions.data.includeBugs,
+            contentControlOptions.data.includeSeverity
           );
           break;
-        case "change-description-table":
+        case 'change-description-table':
           contentControlData = await this.addChangeDescriptionTable(
             contentControlOptions.data.repoId,
             contentControlOptions.data.from,
@@ -140,23 +150,23 @@ export default class DgContentControls {
             contentControlOptions.data.includePullRequests
           );
           break;
-          case "pr-change-description-table":
-            contentControlData = await this.addPullRequestDescriptionTable(
-              contentControlOptions.data.repoId,
-              contentControlOptions.data.prIds,
-              contentControlOptions.data.linkTypeFilterArray,
-              contentControlOptions.title,
-              contentControlOptions.headingLevel
-            );
-            break;
+        case 'pr-change-description-table':
+          contentControlData = await this.addPullRequestDescriptionTable(
+            contentControlOptions.data.repoId,
+            contentControlOptions.data.prIds,
+            contentControlOptions.data.linkTypeFilterArray,
+            contentControlOptions.title,
+            contentControlOptions.headingLevel
+          );
+          break;
       }
-      let jsonLocalData = await this.writeToJson(contentControlData)
-      let jsonData = await this.uploadToMinio(jsonLocalData,this.minioEndPoint,this.jsonFileBucketName)
-      this.deleteFile(jsonLocalData)
+      let jsonLocalData = await this.writeToJson(contentControlData);
+      let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
+      this.deleteFile(jsonLocalData);
       return jsonData;
     } catch (error) {
       logger.error(`Error initlizing Skins:
-      ${(error)}`);
+      ${error}`);
     }
   }
 
@@ -172,12 +182,8 @@ export default class DgContentControls {
       teamProjectName:${this.teamProjectName}`);
     let res: any;
     try {
-      let ticketsDataProvider =
-        await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
-      res = await ticketsDataProvider.GetQueryResultById(
-        queryId,
-        this.teamProjectName
-      );
+      let ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      res = await ticketsDataProvider.GetQueryResultById(queryId, this.teamProjectName);
     } catch (error) {
       logger.error(`Error Quering Azure with query id :${queryId}`);
       console.log(error);
@@ -185,51 +191,47 @@ export default class DgContentControls {
 
     res.forEach((wi, i) => {
       wi.fields.forEach(async (field, t) => {
-        if (
-          field.name === "Description" ||
-          field.name === "Test Description:"
-        ) {
-          console.log("index field", field)
-          console.log("index t", t)
+        if (field.name === 'Description' || field.name === 'Test Description:') {
+          console.log('index field', field);
+          console.log('index t', t);
           let richTextFactory = new RichTextDataFactory(
-            field.value || "No description",
+            field.value || 'No description',
             this.templatePath,
             this.teamProjectName
           );
-          console.log("index richTextFactory", richTextFactory)
+          console.log('index richTextFactory', richTextFactory);
           await richTextFactory.createRichTextContent(
             this.attachmentsBucketName,
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
             this.PAT
-            );
-          this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData)
+          );
+          this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
           res[i].fields[t].richText = richTextFactory.skinDataContentControls;
         }
-        console.log("this.minioAttachmentData inedex", this.minioAttachmentData)
+        console.log('this.minioAttachmentData inedex', this.minioAttachmentData);
       });
     });
     try {
-      if (!contentControl){
+      if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(skinType));
       logger.debug(JSON.stringify(styles));
       logger.debug(JSON.stringify(headingLevel));
-      let skins =  await this.skins.addNewContentToDocumentSkin(
+      let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         skinType,
         res,
         styles,
         headingLevel
       );
-      skins.forEach(skin => {
-      contentControl.wordObjects.push(skin);
+      skins.forEach((skin) => {
+        contentControl.wordObjects.push(skin);
       });
       return contentControl;
-
     } catch (error) {
       logger.error(`Error adding content contorl:`);
       console.log(error.data);
@@ -244,6 +246,8 @@ export default class DgContentControls {
     includeAttachments: boolean = true,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
+    includeBugs?: boolean,
+    includeSeverity?: boolean,
     contentControl?: contentControl
   ) {
     logger.debug(`fetching test data with params:
@@ -260,21 +264,23 @@ export default class DgContentControls {
         includeAttachments,
         includeRequirements,
         includeCustomerId,
+        includeBugs,
+        includeSeverity,
         false,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT,
-      )
+        this.PAT
+      );
       await testDataFactory.fetchTestData();
     } catch (error) {
       logger.error(`Error initilizing test data factory`);
       console.log(error);
     }
     try {
-      if (!contentControl){
+      if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
       logger.debug(JSON.stringify(contentControlTitle));
@@ -282,7 +288,7 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(styles));
       logger.debug(JSON.stringify(headingLevel));
       let attachmentData = await testDataFactory.getAttachmentMinioData();
-      this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData)
+      this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         this.skins.SKIN_TYPE_TEST_PLAN,
@@ -292,13 +298,13 @@ export default class DgContentControls {
         includeAttachments
       );
 
-      skins.forEach(skin => {
+      skins.forEach((skin) => {
         // Check if skin is of type 'paragraph' and contains the text 'Test Description:'
-        if (skin.type === 'paragraph' && skin.runs.some(run => run.text === 'Test Description:')) {
-            return; // Skip this skin
-    }
+        if (skin.type === 'paragraph' && skin.runs.some((run) => run.text === 'Test Description:')) {
+          return; // Skip this skin
+        }
         contentControl.wordObjects.push(skin);
-        });
+      });
       return contentControl;
     } catch (error) {
       logger.error(`Error adding content contorl:`);
@@ -314,7 +320,6 @@ export default class DgContentControls {
     contentControlTitle: string,
     headingLevel?: number,
     contentControl?: contentControl
-
   ) {
     let traceFactory;
     logger.debug(`fetching data with params:
@@ -337,10 +342,10 @@ export default class DgContentControls {
       logger.error(`Error initilizing tracedata factory`);
       console.log(error);
     }
-      try {
-        if (!contentControl){
-          contentControl = { title: contentControlTitle, wordObjects: [] };
-        }
+    try {
+      if (!contentControl) {
+        contentControl = { title: contentControlTitle, wordObjects: [] };
+      }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
       logger.debug(JSON.stringify(styles));
@@ -352,10 +357,10 @@ export default class DgContentControls {
         styles,
         headingLevel
       );
-      skins.forEach(skin => {
+      skins.forEach((skin) => {
         contentControl.wordObjects.push(skin);
-        });
-      return contentControl
+      });
+      return contentControl;
     } catch (error) {
       logger.error(`Error adding content contorl:`);
       console.log(error.data);
@@ -370,6 +375,8 @@ export default class DgContentControls {
     includeAttachments: boolean = true,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
+    includeBugs?: boolean,
+    includeSeverity?: boolean,
     contentControl?: contentControl
   ) {
     let testDataFactory: TestDataFactory;
@@ -386,6 +393,8 @@ export default class DgContentControls {
         includeAttachments,
         includeRequirements,
         includeCustomerId,
+        includeBugs,
+        includeSeverity,
         true,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
@@ -400,7 +409,7 @@ export default class DgContentControls {
       console.log(error);
     }
     try {
-      if (!contentControl){
+      if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
       logger.debug(JSON.stringify(contentControlTitle));
@@ -415,12 +424,12 @@ export default class DgContentControls {
         styles,
         headingLevel
       );
-      skins.forEach(skin => {
+      skins.forEach((skin) => {
         contentControl.wordObjects.push(skin);
-        });
-        let attachmentData = await testDataFactory.getAttachmentMinioData();
-        this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData)
-      return contentControl
+      });
+      let attachmentData = await testDataFactory.getAttachmentMinioData();
+      this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
+      return contentControl;
     } catch (error) {
       logger.error(`Error adding content contorl:`);
       console.log(error.data);
@@ -438,7 +447,6 @@ export default class DgContentControls {
     includePullRequests?: boolean,
     contentControl?: contentControl
   ) {
-    
     let adoptedChangesData;
     logger.debug(`fetching data with params:
       repoId:${repoId}
@@ -448,7 +456,7 @@ export default class DgContentControls {
       linkTypeFilterArray:${linkTypeFilterArray}
       teamProjectName:${this.teamProjectName}
       branchName:${branchName}
-      includePullRequests:${includePullRequests}`)
+      includePullRequests:${includePullRequests}`);
 
     try {
       let changeDataFactory = new ChangeDataFactory(
@@ -470,8 +478,8 @@ export default class DgContentControls {
       console.log(error);
     }
     try {
-      if (!contentControl){
-      contentControl = { title: contentControlTitle, wordObjects: [] };
+      if (!contentControl) {
+        contentControl = { title: contentControlTitle, wordObjects: [] };
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
@@ -494,12 +502,12 @@ export default class DgContentControls {
           styles,
           headingLevel
         );
-        paragraphSkins.forEach(skin => {
+        paragraphSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
-          });
-          tableSkins.forEach(skin => {
+        });
+        tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
-          });
+        });
         return contentControl;
       }
     } catch (error) {
@@ -539,8 +547,8 @@ export default class DgContentControls {
       console.log(error);
     }
     try {
-      if (!contentControl){
-      contentControl = { title: contentControlTitle, wordObjects: [] };
+      if (!contentControl) {
+        contentControl = { title: contentControlTitle, wordObjects: [] };
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
@@ -563,12 +571,12 @@ export default class DgContentControls {
           styles,
           headingLevel
         );
-        paragraphSkins.forEach(skin => {
+        paragraphSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
-          });
-          tableSkins.forEach(skin => {
+        });
+        tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
-          });
+        });
         return contentControl;
       }
     } catch (error) {
@@ -581,63 +589,66 @@ export default class DgContentControls {
     return this.skins.getDocumentSkin();
   }
 
-  async writeToJson(contentControlData){
-    return new Promise((resolve,reject) => {
-        const timeNow = Date.now();
-        let jsonObj = JSON.stringify(contentControlData);
-        let jsonName = this.teamProjectName+ timeNow.toString()+".json";
-        let localJsonPath = `./${this.jsonFileBucketName}/${jsonName}`
-        if (!fs.existsSync(`./${this.jsonFileBucketName}`)){
-          fs.mkdirSync(`./${this.jsonFileBucketName}`);
+  async writeToJson(contentControlData) {
+    return new Promise((resolve, reject) => {
+      const timeNow = Date.now();
+      let jsonObj = JSON.stringify(contentControlData);
+      let jsonName = this.teamProjectName + timeNow.toString() + '.json';
+      let localJsonPath = `./${this.jsonFileBucketName}/${jsonName}`;
+      if (!fs.existsSync(`./${this.jsonFileBucketName}`)) {
+        fs.mkdirSync(`./${this.jsonFileBucketName}`);
       }
-    fs.writeFile(localJsonPath, jsonObj, function (error) {
-      if (error) {
-        logger.error("issue writing to json due to : " + error)
-        reject("issue writing to json due to: " + error)
-      }      console.log(`${jsonName} file was created`);
-      resolve({
-        localJsonPath,
-        jsonName
+      fs.writeFile(localJsonPath, jsonObj, function (error) {
+        if (error) {
+          logger.error('issue writing to json due to : ' + error);
+          reject('issue writing to json due to: ' + error);
+        }
+        console.log(`${jsonName} file was created`);
+        resolve({
+          localJsonPath,
+          jsonName,
+        });
       });
     });
-  });
-}
-  async uploadToMinio(jsonLocalData,minioEndPoint,jsonFileBucketName) {
-    return new Promise((resolve,reject) => {
-      try{
+  }
+  async uploadToMinio(jsonLocalData, minioEndPoint, jsonFileBucketName) {
+    return new Promise((resolve, reject) => {
+      try {
         const minioClient = new Minio.Client({
           endPoint: minioEndPoint.split(':')[0],
           port: 9000,
           useSSL: false,
           accessKey: this.minioAccessKey,
-          secretKey: this.minioSecretKey
+          secretKey: this.minioSecretKey,
         });
         minioClient.fPutObject(
-          jsonFileBucketName, jsonLocalData.jsonName, jsonLocalData.localJsonPath,function(error) {
+          jsonFileBucketName,
+          jsonLocalData.jsonName,
+          jsonLocalData.localJsonPath,
+          function (error) {
             if (error) {
-              logger.error("issue uploading to minio due to : " + error)
-              reject("issue uploading to minio due to : " + error)
+              logger.error('issue uploading to minio due to : ' + error);
+              reject('issue uploading to minio due to : ' + error);
             }
-            logger.info('File uploaded successfully.')
+            logger.info('File uploaded successfully.');
             resolve({
-              jsonPath:`http://${minioEndPoint}/${jsonFileBucketName}/${jsonLocalData.jsonName}`,
-              jsonName: jsonLocalData.jsonName
-            })
-          })
-        }
-        catch(error)
-        {
-          logger.error("issue uploading to minio due to : " + error)
-          reject("issue uploading to minio due to : " + error)
-        }
-      });
-    }
-    deleteFile(jsonLocalData){
-      try {
-        fs.unlinkSync(jsonLocalData.localJsonPath);
-        logger.info(`File removed at :${jsonLocalData.localJsonPath}`);
-      } catch (err) {
-        logger.error(err);
+              jsonPath: `http://${minioEndPoint}/${jsonFileBucketName}/${jsonLocalData.jsonName}`,
+              jsonName: jsonLocalData.jsonName,
+            });
+          }
+        );
+      } catch (error) {
+        logger.error('issue uploading to minio due to : ' + error);
+        reject('issue uploading to minio due to : ' + error);
       }
+    });
+  }
+  deleteFile(jsonLocalData) {
+    try {
+      fs.unlinkSync(jsonLocalData.localJsonPath);
+      logger.info(`File removed at :${jsonLocalData.localJsonPath}`);
+    } catch (err) {
+      logger.error(err);
     }
-  } //class
+  }
+} //class

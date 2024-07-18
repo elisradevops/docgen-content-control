@@ -1,4 +1,4 @@
-import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider'
+import DgDataProviderAzureDevOps from "@elisra-devops/docgen-data-provider";
 import logger from "../services/logger";
 
 const styles = {
@@ -56,22 +56,15 @@ export default class TraceDataFactory {
         await this.fetchTestData();
         let allPlanIds: any[] = await Promise.all(
           this.testDataRaw.suites.map(async (suite) => {
-            return await Promise.all(
-              suite.testCases.map((testCase) => testCase.id)
-            );
+            return await Promise.all(suite.testCases.map((testCase) => testCase.id));
           })
         );
         ids = [].concat.apply([], allPlanIds);
       }
       if (this.queryId) {
-        let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider() 
-        this.testDataRaw = await ticketsDataProvider.GetQueryResultById(
-          this.queryId,
-          this.teamProject
-        );
-        ids = await Promise.all(
-          this.testDataRaw.map((wi) => wi.fields[0].value)
-        );
+        let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
+        this.testDataRaw = await ticketsDataProvider.GetQueryResultById(this.queryId, this.teamProject);
+        ids = await Promise.all(this.testDataRaw.map((wi) => wi.fields[0].value));
       }
     } catch (e) {
       logger.error(`error fetching trace data from azure devops server`);
@@ -79,7 +72,7 @@ export default class TraceDataFactory {
       ids = [];
     }
     try {
-      let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider()
+      let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
       traceData = await ticketsDataProvider.GetLinksByIds(this.teamProject, ids);
       logger.debug(`fetched trace data for ${ids.length} work items`);
     } catch (e) {
@@ -100,9 +93,7 @@ export default class TraceDataFactory {
   async fetchTestData() {
     let filteredPlan;
     let testDataProvider = await this.dgDataProvider.getTestDataProvider();
-    let projectTestPlans: any = await testDataProvider.GetTestPlans(
-      this.teamProject
-    );
+    let projectTestPlans: any = await testDataProvider.GetTestPlans(this.teamProject);
     filteredPlan = projectTestPlans.value.filter((testPlan) => {
       return testPlan.id === this.testPlanId;
     });
@@ -111,9 +102,7 @@ export default class TraceDataFactory {
       `${this.testPlanId}`,
       true
     );
-    logger.debug(
-      `fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}`
-    );
+    logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}`);
     // check if reccurse fetching by plan or per suite
     if (this.isSuiteSpecific == true) {
       await Promise.all(
@@ -129,20 +118,16 @@ export default class TraceDataFactory {
         `${this.testPlanId + 1}`,
         true,
         true,
+        true,
+        true,
         true
       );
 
-      logger.debug(
-        `fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`
-      );
+      logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
       let SuitesAndTestCases: any[] = [];
       testSuites.forEach((suite) => {
-        let testCases = allTestCases.filter(
-          (testCase) => testCase.suit === suite.id
-        );
-        logger.debug(
-          `filtered ${testCases.length} test cases for test suite ${suite.id}`
-        );
+        let testCases = allTestCases.filter((testCase) => testCase.suit === suite.id);
+        logger.debug(`filtered ${testCases.length} test cases for test suite ${suite.id}`);
         SuitesAndTestCases.push({ suite, testCases });
       });
 
@@ -175,8 +160,7 @@ export default class TraceDataFactory {
                   ],
                 };
                 if (isCustomerIdEnabled) {
-                  rowSkin.fields["customer requirement"] =
-                    wi.customerRequirmentId;
+                  rowSkin.fields["customer requirement"] = wi.customerRequirmentId;
                 }
               } else {
                 return null;
@@ -191,12 +175,8 @@ export default class TraceDataFactory {
       })
     );
     allWiRows = [].concat.apply([], allWiRows);
-    allWiRows = await Promise.all(
-      allWiRows.filter((wi) => (wi ? true : false))
-    );
-    logger.debug(
-      `trace table data adopted for json skin conataing -${allWiRows.length} items`
-    );
+    allWiRows = await Promise.all(allWiRows.filter((wi) => (wi ? true : false)));
+    logger.debug(`trace table data adopted for json skin conataing -${allWiRows.length} items`);
     this.adoptedData = allWiRows;
   }
 }
