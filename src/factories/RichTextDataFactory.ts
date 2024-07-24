@@ -23,7 +23,6 @@ export default class RichTextDataFactory {
   }
 
   replaceTags = ({ tag, deleteFrom, deleteTo, rangesArr }) => {
-    tag.attributes = [];
     switch (tag.name.toLowerCase()) {
       case `br`:
       case `b`:
@@ -32,6 +31,11 @@ export default class RichTextDataFactory {
       case `ul`:
       case `li`:
       case `p`:
+        if (!tag.slashPresent) {
+          //Remove all added attributes from the element
+          tag.attributes = [];
+          rangesArr.push(deleteFrom, deleteTo, `<${tag.name.toLowerCase()}>`);
+        }
         break;
       case 'table':
         if (!tag.slashPresent) {
@@ -65,6 +69,7 @@ export default class RichTextDataFactory {
   async htmlStrip() {
     this.stripedString = striphtml(this.richTextString, {
       cb: this.replaceTags,
+      skipHtmlDecoding: true,
     }).result;
     this.stripedString = '-----ST-PAR-----' + this.stripedString;
     this.stripedStringParser();
