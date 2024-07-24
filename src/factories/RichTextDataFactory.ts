@@ -23,6 +23,7 @@ export default class RichTextDataFactory {
   }
 
   replaceTags = ({ tag, deleteFrom, deleteTo, rangesArr }) => {
+    tag.attributes = [];
     switch (tag.name.toLowerCase()) {
       case `br`:
       case `b`:
@@ -30,6 +31,7 @@ export default class RichTextDataFactory {
       case `ol`:
       case `ul`:
       case `li`:
+      case `p`:
         break;
       case 'table':
         if (!tag.slashPresent) {
