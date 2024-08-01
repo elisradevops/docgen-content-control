@@ -1,5 +1,7 @@
 import striphtml from 'string-strip-html';
+import * as cheerio from 'cheerio';
 import DownloadManager from '../services/DownloadManager';
+
 export default class RichTextDataFactory {
   richTextString: string;
   stripedString: string;
@@ -31,11 +33,6 @@ export default class RichTextDataFactory {
       case `ul`:
       case `li`:
       case `p`:
-        if (!tag.slashPresent) {
-          //Remove all added attributes from the element
-          tag.attributes = [];
-          rangesArr.push(deleteFrom, deleteTo, `<${tag.name.toLowerCase()}>`);
-        }
         break;
       case 'table':
         if (!tag.slashPresent) {
@@ -66,8 +63,76 @@ export default class RichTextDataFactory {
     }
   };
 
+  private isEmptyNode($, node: cheerio.Element): boolean {
+    const $node = $(node);
+    // Check if the node is a <br> element or a self-closing tag
+    if ($node.is('br') || this.isSelfClosing($node)) {
+      return false;
+    }
+    // Check if the node has no text and no children (ignoring whitespace)
+    return !$node.text().trim() && !$node.children().length;
+  }
+
+  private isSelfClosing($node: cheerio.Element): boolean {
+    const selfClosingTags = [
+      'area',
+      'base',
+      'br',
+      'col',
+      'embed',
+      'hr',
+      'img',
+      'input',
+      'keygen',
+      'link',
+      'meta',
+      'param',
+      'source',
+      'track',
+      'wbr',
+    ];
+    const nodeName = $node[0]?.name?.toLowerCase();
+    return selfClosingTags.includes(nodeName);
+  }
+
+  private processNode($, node: cheerio.Element): void {
+    const $node = $(node);
+
+    // Recursively process child nodes
+    $node.children().each((_, child) => {
+      this.processNode($, child);
+    });
+
+    // Remove the node if it's empty
+    if (this.isEmptyNode($, $node)) {
+      $node.remove();
+      return;
+    }
+
+    // Remove inline styles
+    if ($node.attr('style')) {
+      $node.removeAttr('style');
+    }
+
+  }
+
+
+  public clean(html: string): string {
+    const $ = cheerio.load(html);
+
+    // Process all nodes starting from the root
+    $.root()
+      .children()
+      .each((_, child) => {
+        this.processNode($, child);
+      });
+
+    return $.html();
+  }
+
   async htmlStrip() {
-    this.stripedString = striphtml(this.richTextString, {
+    const cleanedHtml = this.clean(this.richTextString);
+    this.stripedString = striphtml(cleanedHtml, {
       cb: this.replaceTags,
       skipHtmlDecoding: true,
     }).result;
