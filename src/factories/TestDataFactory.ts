@@ -416,6 +416,9 @@ export default class TestDataFactory {
       default:
         adoptedTestData = await Promise.all(
           this.testDataRaw.suites.map(async (suite: any) => {
+            if (suite?.temp?.name) {
+              logger.info(`Currently reading test suite ${suite.temp.name}`);
+            }
             let suiteSkinData = {
               fields: [
                 { name: 'Title', value: suite.temp.name + ' - ' },
