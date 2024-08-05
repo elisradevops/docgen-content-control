@@ -621,22 +621,27 @@ export default class DgContentControls {
           accessKey: this.minioAccessKey,
           secretKey: this.minioSecretKey,
         });
-        minioClient.fPutObject(
-          jsonFileBucketName,
-          jsonLocalData.jsonName,
-          jsonLocalData.localJsonPath,
-          function (error) {
-            if (error) {
-              logger.error('issue uploading to minio due to : ' + error);
-              reject('issue uploading to minio due to : ' + error);
-            }
+        const metaData = {
+          'Content-Type': 'application/json', // or any other metadata if required
+        };
+        minioClient
+          .fPutObject(
+            jsonFileBucketName,
+            jsonLocalData.jsonName,
+            jsonLocalData.localJsonPath,
+            metaData // this is optional, you can remove it if no metadata is needed
+          )
+          .then(() => {
             logger.info('File uploaded successfully.');
             resolve({
               jsonPath: `http://${minioEndPoint}/${jsonFileBucketName}/${jsonLocalData.jsonName}`,
               jsonName: jsonLocalData.jsonName,
             });
-          }
-        );
+          })
+          .catch((error) => {
+            logger.error('issue uploading to minio due to : ' + error);
+            reject('issue uploading to minio due to : ' + error);
+          });
       } catch (error) {
         logger.error('issue uploading to minio due to : ' + error);
         reject('issue uploading to minio due to : ' + error);
