@@ -78,27 +78,37 @@ export default class TestDataFactory {
     this.attachmentsBucketName = attachmentsBucketName;
   }
   async fetchTestData() {
-    let testfilteredPlan;
-    let testDataProvider = await this.dgDataProvider.getTestDataProvider();
-    let projectTestPlans: any = await testDataProvider.GetTestPlans(this.teamProject);
-    testfilteredPlan = projectTestPlans.value.filter((testPlan) => {
-      return testPlan.id === this.testPlanId;
-    });
-    let testSuites: any[] = await testDataProvider.GetTestSuitesByPlan(
-      this.teamProject,
-      `${this.testPlanId}`,
-      true
-    );
-    logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}`);
-    // check if reccurse fetching by plan or per suite
-    if (this.isSuiteSpecific == true && testSuites.length != 0) {
-      await Promise.all(
-        (testSuites = testSuites.filter((suite) => {
-          return this.testSuiteArray.indexOf(suite.id) !== -1;
-        }))
-      );
-    } //end of if
     try {
+      let testfilteredPlan;
+      let testDataProvider = await this.dgDataProvider.getTestDataProvider();
+      let projectTestPlans: any = await testDataProvider.GetTestPlans(this.teamProject);
+
+      if (projectTestPlans.count === 0) {
+        throw new Error(`No test plans for project ${this.teamProject} were found`);
+      }
+      testfilteredPlan = projectTestPlans.value.filter((testPlan) => {
+        return testPlan.id === this.testPlanId;
+      });
+      let testSuites: any[] = await testDataProvider.GetTestSuitesByPlan(
+        this.teamProject,
+        `${this.testPlanId}`,
+        true
+      );
+      logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}`);
+      // check if reccurse fetching by plan or per suite
+
+      if (testSuites.length === 0) {
+        throw new Error(`No test suites for plan id ${this.testPlanId} were found`);
+      }
+
+      if (this.isSuiteSpecific == true && testSuites.length != 0) {
+        await Promise.all(
+          (testSuites = testSuites.filter((suite) => {
+            return this.testSuiteArray.indexOf(suite.id) !== -1;
+          }))
+        );
+      } //end of if
+
       let allTestCases: any[] = await testDataProvider.GetTestCasesBySuites(
         this.teamProject,
         `${this.testPlanId}`,
@@ -132,9 +142,8 @@ export default class TestDataFactory {
         this.adoptedTestData = await this.jsonSkinDataAdpater(null);
       }
     } catch (err) {
-      console.log(err);
+      throw new Error(`Error occurred during fetching data: ${err}`);
     }
-    return [];
   }
 
   async generateSuiteObject(suite, allTestCases) {
@@ -422,8 +431,6 @@ export default class TestDataFactory {
           //There is a problem when grabbing the data
           adoptedTestData = await Promise.all(
             this.testDataRaw.suites.map(async (suite: any) => {
-              logger.debug('Suite object');
-              logger.debug(JSON.stringify(suite));
               if (suite?.temp?.name) {
                 logger.info(`Currently reading test suite ${suite.temp.name}`);
               }
@@ -437,8 +444,6 @@ export default class TestDataFactory {
               let testCases = await Promise.all(
                 suite.testCases.map(async (testCase) => {
                   try {
-                    logger.debug('Test case object');
-                    logger.debug(JSON.stringify(testCase));
                     let Description = testCase.description || 'No description';
                     let cleanedDescription = this.cleanHtml(Description);
                     let richTextFactory = new RichTextDataFactory(
@@ -670,7 +675,6 @@ export default class TestDataFactory {
             })
           );
           return adoptedTestData;
-          break;
       }
       return adoptedTestData;
     } catch (error) {

@@ -233,8 +233,8 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
 
@@ -274,10 +274,10 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT
       );
+      //init the adopted data
       await testDataFactory.fetchTestData();
     } catch (error) {
-      logger.error(`Error initilizing test data factory`);
-      console.log(error);
+      throw new Error(`Error initializing test data factory ${error}`);
     }
     try {
       if (!contentControl) {
@@ -307,8 +307,8 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
 
@@ -362,8 +362,8 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
 
@@ -405,7 +405,7 @@ export default class DgContentControls {
       );
       await testDataFactory.fetchTestData();
     } catch (error) {
-      logger.error(`Error initilizing test data factory`);
+      logger.error(`Error initilizing test data factory: ${error}`);
       console.log(error);
     }
     try {
@@ -431,8 +431,8 @@ export default class DgContentControls {
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       return contentControl;
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
   async addChangeDescriptionTable(
@@ -474,8 +474,7 @@ export default class DgContentControls {
       await changeDataFactory.jsonSkinDataAdpater();
       adoptedChangesData = changeDataFactory.getAdoptedData();
     } catch (error) {
-      logger.error(`Error initilizing change table factory`);
-      console.log(error);
+      throw new Error(`Error initilizing change table factory ${error}`);
     }
     try {
       if (!contentControl) {
@@ -511,8 +510,8 @@ export default class DgContentControls {
         return contentControl;
       }
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
 
@@ -543,8 +542,7 @@ export default class DgContentControls {
       await pullRequestDataFactory.jsonSkinDataAdpater();
       adoptedChangesData = pullRequestDataFactory.getAdoptedData();
     } catch (error) {
-      logger.error(`Error initilizing change table factory`);
-      console.log(error);
+      throw new Error(`Error initializing change table factory: ${error}`);
     }
     try {
       if (!contentControl) {
@@ -580,8 +578,8 @@ export default class DgContentControls {
         return contentControl;
       }
     } catch (error) {
-      logger.error(`Error adding content contorl:`);
       console.log(error.data);
+      throw new Error(`Error adding content control: ${error}`);
     }
   }
 
