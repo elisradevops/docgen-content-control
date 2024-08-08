@@ -228,430 +228,454 @@ export default class TestDataFactory {
       logger.error(`error fetching attachments data for test case ${testCaseId}`);
     }
   }
-  //arranging the test data for json skins package
-  async jsonSkinDataAdpater(adapterType: string = null) {
-    let adoptedTestData;
 
-    function cleanHtml(html) {
-      const $ = cheerio.load(html);
+  private cleanHtml(html) {
+    const $ = cheerio.load(html);
 
-      // Utility function to create a paragraph with optional style
-      const createParagraph = ($element: cheerio.Cheerio) => {
-        const $p = $('<p></p>').html($element.html());
-        if ($element.attr('style')) {
-          $p.attr('style', $element.attr('style'));
-        }
-        return $p;
-      };
+    // Utility function to create a paragraph with optional style
+    const createParagraph = ($element: cheerio.Cheerio) => {
+      const $p = $('<p></p>').html($element.html());
+      if ($element.attr('style')) {
+        $p.attr('style', $element.attr('style'));
+      }
+      return $p;
+    };
 
-      const replaceGroupWithList = (
-        group: cheerio.Cheerio[],
-        nestedGroup: cheerio.Cheerio[],
-        isOrderedList: boolean
-      ) => {
-        const $list = isOrderedList ? $('<ol></ol>') : $('<ul></ul>');
-        group.forEach(($p) => {
+    const replaceGroupWithList = (
+      group: cheerio.Cheerio[],
+      nestedGroup: cheerio.Cheerio[],
+      isOrderedList: boolean
+    ) => {
+      const $list = isOrderedList ? $('<ol></ol>') : $('<ul></ul>');
+      group.forEach(($p) => {
+        const text = $p
+          .text()
+          .replace(/^\d+\.\s*(?:&nbsp;)*|^·\s*(?:&nbsp;)*/g, '')
+          .replace(/&nbsp;/g, '');
+        const $li = $('<li></li>').text(text);
+        $list.append($li);
+      });
+      group[0].before($list);
+      group.forEach(($p) => $p.remove());
+
+      // Handle nested group
+      if (nestedGroup.length > 0) {
+        const $nestedUl = $('<ul></ul>');
+        nestedGroup.forEach(($p) => {
           const text = $p
             .text()
-            .replace(/^\d+\.\s*(?:&nbsp;)*|^·\s*(?:&nbsp;)*/g, '')
+            .replace(/^o\s*(?:&nbsp;)*/g, '')
             .replace(/&nbsp;/g, '');
           const $li = $('<li></li>').text(text);
-          $list.append($li);
+          $nestedUl.append($li);
         });
-        group[0].before($list);
-        group.forEach(($p) => $p.remove());
+        $list.find('li').last().append($nestedUl);
+        nestedGroup.forEach(($p) => $p.remove());
+      }
+    };
 
-        // Handle nested group
-        if (nestedGroup.length > 0) {
-          const $nestedUl = $('<ul></ul>');
-          nestedGroup.forEach(($p) => {
-            const text = $p
-              .text()
-              .replace(/^o\s*(?:&nbsp;)*/g, '')
-              .replace(/&nbsp;/g, '');
-            const $li = $('<li></li>').text(text);
-            $nestedUl.append($li);
-          });
-          $list.find('li').last().append($nestedUl);
-          nestedGroup.forEach(($p) => $p.remove());
-        }
-      };
+    const processParagraphGroups = () => {
+      const paragraphs = $('p');
+      let currentGroup: cheerio.Cheerio[] = [];
+      let previousIndex: number | null = null;
+      let nestedGroup: cheerio.Cheerio[] = [];
+      let isOrderedList = false;
 
-      const processParagraphGroups = () => {
-        const paragraphs = $('p');
-        let currentGroup: cheerio.Cheerio[] = [];
-        let previousIndex: number | null = null;
-        let nestedGroup: cheerio.Cheerio[] = [];
-        let isOrderedList = false;
+      paragraphs.each((index, element) => {
+        const $element = $(element);
+        const text = $element.text().trim();
 
-        paragraphs.each((index, element) => {
-          const $element = $(element);
-          const text = $element.text().trim();
-
-          if (isOrderedItem(text)) {
-            processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
-            previousIndex = index;
-            isOrderedList = true;
-          } else if (isUnorderedItem(text)) {
-            processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
-            previousIndex = index;
-            isOrderedList = false;
-          } else if (isNestedItem(text)) {
-            nestedGroup.push($element);
-          } else {
-            if (currentGroup.length > 0) {
-              replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
-            }
-            currentGroup = [];
-            nestedGroup = [];
-            previousIndex = null;
-            isOrderedList = false;
-          }
-        });
-
-        if (currentGroup.length > 0) {
-          replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
-        }
-      };
-
-      const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;)*\s*/.test(text);
-      const isUnorderedItem = (text: string) => /^·\s*(?:&nbsp;)*\s*/.test(text);
-      const isNestedItem = (text: string) => /^o\s*(?:&nbsp;)*\s*/.test(text);
-
-      const processListItem = (
-        index: number,
-        $element: cheerio.Cheerio,
-        previousIndex: number | null,
-        currentGroup: cheerio.Cheerio[],
-        nestedGroup: cheerio.Cheerio[],
-        isOrderedList: boolean
-      ) => {
-        if (previousIndex === null || index === previousIndex + 1) {
-          currentGroup.push($element);
+        if (isOrderedItem(text)) {
+          processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
+          previousIndex = index;
+          isOrderedList = true;
+        } else if (isUnorderedItem(text)) {
+          processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
+          previousIndex = index;
+          isOrderedList = false;
+        } else if (isNestedItem(text)) {
+          nestedGroup.push($element);
         } else {
           if (currentGroup.length > 0) {
             replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
           }
-          currentGroup.length = 0;
-          currentGroup.push($element);
+          currentGroup = [];
+          nestedGroup = [];
+          previousIndex = null;
+          isOrderedList = false;
         }
-      };
+      });
 
-      const replaceNestedBrWithSimpleBr = () => {
-        $('div, span, b, u, i, em, strong').each((_, element) => {
-          const $element = $(element);
-          if ($element.contents().length === 1 && $element.contents().first().is('br')) {
-            $element.replaceWith('<br />');
+      if (currentGroup.length > 0) {
+        replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
+      }
+    };
+
+    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;)*\s*/.test(text);
+    const isUnorderedItem = (text: string) => /^·\s*(?:&nbsp;)*\s*/.test(text);
+    const isNestedItem = (text: string) => /^o\s*(?:&nbsp;)*\s*/.test(text);
+
+    const processListItem = (
+      index: number,
+      $element: cheerio.Cheerio,
+      previousIndex: number | null,
+      currentGroup: cheerio.Cheerio[],
+      nestedGroup: cheerio.Cheerio[],
+      isOrderedList: boolean
+    ) => {
+      if (previousIndex === null || index === previousIndex + 1) {
+        currentGroup.push($element);
+      } else {
+        if (currentGroup.length > 0) {
+          replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
+        }
+        currentGroup.length = 0;
+        currentGroup.push($element);
+      }
+    };
+
+    const replaceNestedBrWithSimpleBr = () => {
+      $('div, span, b, u, i, em, strong').each((_, element) => {
+        const $element = $(element);
+        if ($element.contents().length === 1 && $element.contents().first().is('br')) {
+          $element.replaceWith('<br />');
+        }
+      });
+    };
+
+    const replaceSpansWithParagraphs = () => {
+      $('div > span').each((_, span) => {
+        $(span).replaceWith(createParagraph($(span)));
+      });
+    };
+
+    const handleDivs = () => {
+      $('div').each((_, div) => {
+        const $div = $(div);
+        const childNodes = $div.contents();
+
+        const containsOnlyBrOrEmptyInlineElements = childNodes
+          .toArray()
+          .every(
+            (node) =>
+              $(node).is('br') ||
+              ($(node).is('b, u, i, em, strong') &&
+                $(node).contents().length === 1 &&
+                $(node).contents().first().is('br'))
+          );
+
+        if (containsOnlyBrOrEmptyInlineElements) {
+          $div.empty().append('<p></p>');
+        } else {
+          const $p = $('<p></p>').append(childNodes.not('br').remove());
+          if ($div.attr('style')) {
+            $p.attr('style', $div.attr('style'));
           }
-        });
-      };
+          $div.replaceWith($p);
+        }
+      });
+    };
 
-      const replaceSpansWithParagraphs = () => {
-        $('div > span').each((_, span) => {
-          $(span).replaceWith(createParagraph($(span)));
-        });
-      };
+    const replaceBrInDivs = () => {
+      $('div br').replaceWith('<p></p>');
+    };
 
-      const handleDivs = () => {
-        $('div').each((_, div) => {
-          const $div = $(div);
-          const childNodes = $div.contents();
-
-          const containsOnlyBrOrEmptyInlineElements = childNodes
-            .toArray()
-            .every(
-              (node) =>
-                $(node).is('br') ||
-                ($(node).is('b, u, i, em, strong') &&
-                  $(node).contents().length === 1 &&
-                  $(node).contents().first().is('br'))
-            );
-
-          if (containsOnlyBrOrEmptyInlineElements) {
-            $div.empty().append('<p></p>');
-          } else {
-            const $p = $('<p></p>').append(childNodes.not('br').remove());
-            if ($div.attr('style')) {
-              $p.attr('style', $div.attr('style'));
-            }
-            $div.replaceWith($p);
+    const wrapTextNodesInDivs = () => {
+      $('div')
+        .contents()
+        .filter((_, node) => node.type === 'text' && node.data && node.data.trim() !== '')
+        .each((_, textNode) => {
+          const $textNode = $(textNode);
+          const $p = $('<p></p>').text($textNode.text());
+          if ($textNode.parent().attr('style')) {
+            $p.attr('style', $textNode.parent().attr('style'));
           }
+          $textNode.replaceWith($p);
         });
-      };
+    };
 
-      const replaceBrInDivs = () => {
-        $('div br').replaceWith('<p></p>');
-      };
+    // Process the groups before any manipulations
+    processParagraphGroups();
+    replaceNestedBrWithSimpleBr();
+    replaceSpansWithParagraphs();
+    handleDivs();
+    replaceBrInDivs();
+    wrapTextNodesInDivs();
 
-      const wrapTextNodesInDivs = () => {
-        $('div')
-          .contents()
-          .filter((_, node) => node.type === 'text' && node.data && node.data.trim() !== '')
-          .each((_, textNode) => {
-            const $textNode = $(textNode);
-            const $p = $('<p></p>').text($textNode.text());
-            if ($textNode.parent().attr('style')) {
-              $p.attr('style', $textNode.parent().attr('style'));
-            }
-            $textNode.replaceWith($p);
-          });
-      };
+    return $.html();
+  }
 
-      // Process the groups before any manipulations
-      processParagraphGroups();
-      replaceNestedBrWithSimpleBr();
-      replaceSpansWithParagraphs();
-      handleDivs();
-      replaceBrInDivs();
-      wrapTextNodesInDivs();
+  private allValuesAreTarget(array, targetValues) {
+    return array.every((obj) => targetValues.includes(obj.value));
+  }
 
-      return $.html();
-    }
+  //arranging the test data for json skins package
+  async jsonSkinDataAdpater(adapterType: string = null) {
+    let adoptedTestData;
+    try {
+      switch (adapterType) {
+        case 'test-result-group-summary':
+          let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
+          adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
+          break;
+        default:
+          //There is a problem when grabbing the data
+          adoptedTestData = await Promise.all(
+            this.testDataRaw.suites.map(async (suite: any) => {
+              logger.debug('Suite object');
+              logger.debug(JSON.stringify(suite));
+              if (suite?.temp?.name) {
+                logger.info(`Currently reading test suite ${suite.temp.name}`);
+              }
+              let suiteSkinData = {
+                fields: [
+                  { name: 'Title', value: suite.temp.name + ' - ' },
+                  { name: 'ID', value: suite.temp.id, url: suite.temp.url },
+                ],
+                level: suite.temp.level,
+              };
+              let testCases = await Promise.all(
+                suite.testCases.map(async (testCase) => {
+                  try {
+                    logger.debug('Test case object');
+                    logger.debug(JSON.stringify(testCase));
+                    let Description = testCase.description || 'No description';
+                    let cleanedDescription = this.cleanHtml(Description);
+                    let richTextFactory = new RichTextDataFactory(
+                      cleanedDescription,
+                      this.templatePath,
+                      this.teamProject
+                    );
 
-    switch (adapterType) {
-      case 'test-result-group-summary':
-        let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
-        adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
-        break;
-      default:
-        adoptedTestData = await Promise.all(
-          this.testDataRaw.suites.map(async (suite: any) => {
-            if (suite?.temp?.name) {
-              logger.info(`Currently reading test suite ${suite.temp.name}`);
-            }
-            let suiteSkinData = {
-              fields: [
-                { name: 'Title', value: suite.temp.name + ' - ' },
-                { name: 'ID', value: suite.temp.id, url: suite.temp.url },
-              ],
-              level: suite.temp.level,
-            };
-            let testCases = await Promise.all(
-              suite.testCases.map(async (testCase) => {
-                let Description = testCase.description || 'No description';
-                let cleanedDescription = cleanHtml(Description);
-                let richTextFactory = new RichTextDataFactory(
-                  cleanedDescription,
-                  this.templatePath,
-                  this.teamProject
-                );
+                    logger.debug(`richTextFactory is undefined = ${richTextFactory === undefined}`);
 
-                await richTextFactory.createRichTextContent(
-                  this.attachmentsBucketName,
-                  this.minioEndPoint,
-                  this.minioAccessKey,
-                  this.minioSecretKey,
-                  this.PAT
-                );
-                richTextFactory.attachmentMinioData.forEach((item) => {
-                  let attachmentBucketData = {
-                    attachmentMinioPath: item.attachmentPath,
-                    minioFileName: item.fileName,
-                  };
-                  this.attachmentMinioData.push(attachmentBucketData);
-                });
-                let richText = richTextFactory.skinDataContentControls;
-                let testCaseHeaderSkinData = {
-                  fields: [
-                    { name: 'Title', value: testCase.title + ' - ' },
-                    { name: 'ID', value: testCase.id, url: testCase.url },
-                    {
-                      name: 'Test Description',
-                      value: cleanedDescription || 'No description',
-                      richText: richText,
-                    },
-                  ],
-                  level: suite.temp.level + 1,
-                };
-                // Helper function to check if all the values in the array are among the target values
-                let testCaseStepsSkinData;
-                function allValuesAreTarget(array, targetValues) {
-                  return array.every((obj) => targetValues.includes(obj.value));
-                }
-                try {
-                  if (testCase.steps) {
-                    testCaseStepsSkinData = await Promise.all(
-                      testCase.steps.map(async (testStep: any, i: number) => {
-                        let actionText = '';
-                        let expectedText = '';
-                        if (testStep.action) {
-                          actionText = cleanHtml(testStep.action);
-                        }
-                        if (testStep.expected) {
-                          expectedText = cleanHtml(testStep.expected);
-                        }
+                    await richTextFactory.createRichTextContent(
+                      this.attachmentsBucketName,
+                      this.minioEndPoint,
+                      this.minioAccessKey,
+                      this.minioSecretKey,
+                      this.PAT
+                    );
+                    richTextFactory.attachmentMinioData.forEach((item) => {
+                      let attachmentBucketData = {
+                        attachmentMinioPath: item.attachmentPath,
+                        minioFileName: item.fileName,
+                      };
+                      this.attachmentMinioData.push(attachmentBucketData);
+                    });
+                    let richText = richTextFactory.skinDataContentControls;
+                    let testCaseHeaderSkinData = {
+                      fields: [
+                        { name: 'Title', value: testCase.title + ' - ' },
+                        { name: 'ID', value: testCase.id, url: testCase.url },
+                        {
+                          name: 'Test Description',
+                          value: cleanedDescription || 'No description',
+                          richText: richText,
+                        },
+                      ],
+                      level: suite.temp.level + 1,
+                    };
+                    // Helper function to check if all the values in the array are among the target values
+                    let testCaseStepsSkinData;
 
-                        let richTextFactoryAction = new RichTextDataFactory(
-                          actionText,
-                          this.templatePath,
-                          this.teamProject
-                        );
-                        let richTextFactoryExpected = new RichTextDataFactory(
-                          expectedText,
-                          this.templatePath,
-                          this.teamProject
-                        );
-                        await richTextFactoryAction.htmlStrip();
-                        await richTextFactoryExpected.htmlStrip();
-                        // Define target values
-                        const targetValues = ['\n', ' ', ''];
-
-                        // Check if all values in both arrays are among the target values
-                        if (
-                          allValuesAreTarget(richTextFactoryAction.contentControlsStrings, targetValues) &&
-                          allValuesAreTarget(richTextFactoryExpected.contentControlsStrings, targetValues)
-                        ) {
-                          // Skip this iteration and move to the next one
-                          return null;
-                        }
-                        let action = richTextFactoryAction.skinDataContentControls[0].data.fields[0].value;
-                        let expected =
-                          richTextFactoryExpected.skinDataContentControls[0].data.fields[0].value;
-
-                        action = action.replace(/\n/g, '<BR/>');
-                        expected = expected.replace(/\n/g, '<BR/>');
-
-                        let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
-                          return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
-                        });
-
-                        return this.includeAttachments
-                          ? {
-                              fields: [
-                                { name: '#', value: i + 1 },
-                                { name: 'Description', value: action },
-                                {
-                                  name: 'Expected Results',
-                                  value: expected,
-                                },
-                                {
-                                  name: 'attachments',
-                                  value: testStepAttachments,
-                                },
-                              ],
+                    try {
+                      if (testCase.steps) {
+                        testCaseStepsSkinData = await Promise.all(
+                          testCase.steps.map(async (testStep: any, i: number) => {
+                            let actionText = '';
+                            let expectedText = '';
+                            if (testStep.action) {
+                              actionText = this.cleanHtml(testStep.action);
                             }
-                          : {
-                              fields: [
-                                { name: '#', value: i + 1 },
-                                { name: 'Description', value: action },
-                                {
-                                  name: 'Expected Results',
-                                  value: expected,
-                                },
-                              ],
-                            };
+                            if (testStep.expected) {
+                              expectedText = this.cleanHtml(testStep.expected);
+                            }
+
+                            let richTextFactoryAction = new RichTextDataFactory(
+                              actionText,
+                              this.templatePath,
+                              this.teamProject
+                            );
+                            let richTextFactoryExpected = new RichTextDataFactory(
+                              expectedText,
+                              this.templatePath,
+                              this.teamProject
+                            );
+                            await richTextFactoryAction.htmlStrip();
+                            await richTextFactoryExpected.htmlStrip();
+                            // Define target values
+                            const targetValues = ['\n', ' ', ''];
+
+                            // Check if all values in both arrays are among the target values
+                            if (
+                              this.allValuesAreTarget(
+                                richTextFactoryAction.contentControlsStrings,
+                                targetValues
+                              ) &&
+                              this.allValuesAreTarget(
+                                richTextFactoryExpected.contentControlsStrings,
+                                targetValues
+                              )
+                            ) {
+                              // Skip this iteration and move to the next one
+                              return null;
+                            }
+                            let action =
+                              richTextFactoryAction.skinDataContentControls[0].data.fields[0].value;
+                            let expected =
+                              richTextFactoryExpected.skinDataContentControls[0].data.fields[0].value;
+
+                            action = action.replace(/\n/g, '<BR/>');
+                            expected = expected.replace(/\n/g, '<BR/>');
+
+                            let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
+                              return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
+                            });
+
+                            return this.includeAttachments
+                              ? {
+                                  fields: [
+                                    { name: '#', value: i + 1 },
+                                    { name: 'Description', value: action },
+                                    {
+                                      name: 'Expected Results',
+                                      value: expected,
+                                    },
+                                    {
+                                      name: 'attachments',
+                                      value: testStepAttachments,
+                                    },
+                                  ],
+                                }
+                              : {
+                                  fields: [
+                                    { name: '#', value: i + 1 },
+                                    { name: 'Description', value: action },
+                                    {
+                                      name: 'Expected Results',
+                                      value: expected,
+                                    },
+                                  ],
+                                };
+                          })
+                        );
+                        // Filter out null entries (those iterations that were skipped)
+                        testCaseStepsSkinData = testCaseStepsSkinData.filter((entry) => entry !== null);
+                      }
+                    } catch (err) {
+                      logger.warn(
+                        `potential error - this could also mean no teststeps property found for testcase - ${testCase.id}`
+                      );
+                      //return empty array of teststeps
+                      testCaseStepsSkinData = [
+                        {
+                          fields: [
+                            { name: '#' },
+                            { name: 'description' },
+                            { name: 'accepected results' },
+                            { name: 'attachments' },
+                          ],
+                        },
+                      ];
+                    }
+                    let testCaseRequirements = testCase.relations
+                      .filter((relation) => relation.type === 'requirement')
+                      ?.map((relation, index) => {
+                        let fields = [
+                          {
+                            name: '#',
+                            value: index + 1,
+                          },
+                          {
+                            name: 'Req ID',
+                            value: relation.id,
+                          },
+                          {
+                            name: 'Req Title',
+                            value: relation.title,
+                          },
+                        ];
+
+                        // Insert customer ID conditionally between Req ID and Req Title
+                        if (this.includeCustomerId && relation.customerId) {
+                          fields.splice(2, 0, {
+                            // Inserting at index 2, right before Req Title
+                            name: 'Customer ID',
+                            value: relation.customerId,
+                          });
+                        }
+
+                        return { fields };
+                      });
+
+                    let testCaseBugs = testCase.relations
+                      .filter((relation) => relation.type === 'bug')
+                      ?.map((relation, index) => {
+                        let fields = [
+                          {
+                            name: '#',
+                            value: index + 1,
+                          },
+                          {
+                            name: 'Bug ID',
+                            value: relation.id,
+                          },
+                          {
+                            name: 'Bug Title',
+                            value: relation.title,
+                          },
+                        ];
+
+                        if (this.includeBugs && relation.severity) {
+                          fields.push({
+                            name: 'Severity',
+                            value: relation.severity,
+                          });
+                        }
+
+                        return { fields };
+                      });
+
+                    let filteredTestCaseAttachments = testCase.attachmentsData.filter(
+                      (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
+                    );
+                    let testCaseAttachments = await Promise.all(
+                      filteredTestCaseAttachments.map(async (attachment, i) => {
+                        return {
+                          fields: [
+                            { name: '#', value: i + 1 },
+                            { name: 'Attachments', value: [filteredTestCaseAttachments[i]] },
+                          ],
+                        };
                       })
                     );
-                    // Filter out null entries (those iterations that were skipped)
-                    testCaseStepsSkinData = testCaseStepsSkinData.filter((entry) => entry !== null);
-                  }
-                } catch (err) {
-                  logger.warn(
-                    `potential error - this could also mean no teststeps property found for testcase - ${testCase.id}`
-                  );
-                  //return empty array of teststeps
-                  testCaseStepsSkinData = [
-                    {
-                      fields: [
-                        { name: '#' },
-                        { name: 'description' },
-                        { name: 'accepected results' },
-                        { name: 'attachments' },
-                      ],
-                    },
-                  ];
-                }
-                let testCaseRequirements = testCase.relations
-                  .filter((relation) => relation.type === 'requirement')
-                  ?.map((relation, index) => {
-                    let fields = [
-                      {
-                        name: '#',
-                        value: index + 1,
-                      },
-                      {
-                        name: 'Req ID',
-                        value: relation.id,
-                      },
-                      {
-                        name: 'Req Title',
-                        value: relation.title,
-                      },
-                    ];
-
-                    // Insert customer ID conditionally between Req ID and Req Title
-                    if (this.includeCustomerId && relation.customerId) {
-                      fields.splice(2, 0, {
-                        // Inserting at index 2, right before Req Title
-                        name: 'Customer ID',
-                        value: relation.customerId,
-                      });
-                    }
-
-                    return { fields };
-                  });
-
-                let testCaseBugs = testCase.relations
-                  .filter((relation) => relation.type === 'bug')
-                  ?.map((relation, index) => {
-                    let fields = [
-                      {
-                        name: '#',
-                        value: index + 1,
-                      },
-                      {
-                        name: 'Bug ID',
-                        value: relation.id,
-                      },
-                      {
-                        name: 'Bug Title',
-                        value: relation.title,
-                      },
-                    ];
-
-                    if (this.includeBugs && relation.severity) {
-                      fields.push({
-                        name: 'Severity',
-                        value: relation.severity,
-                      });
-                    }
-
-                    return { fields };
-                  });
-
-                let filteredTestCaseAttachments = testCase.attachmentsData.filter(
-                  (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
-                );
-                let testCaseAttachments = await Promise.all(
-                  filteredTestCaseAttachments.map(async (attachment, i) => {
-                    return {
-                      fields: [
-                        { name: '#', value: i + 1 },
-                        { name: 'Attachments', value: [filteredTestCaseAttachments[i]] },
-                      ],
+                    let adoptedTestCaseData = {
+                      testCaseHeaderSkinData,
+                      testCaseStepsSkinData,
+                      testCaseAttachments,
+                      testCaseRequirements,
+                      testCaseBugs,
                     };
-                  })
-                );
-                let adoptedTestCaseData = {
-                  testCaseHeaderSkinData,
-                  testCaseStepsSkinData,
-                  testCaseAttachments,
-                  testCaseRequirements,
-                  testCaseBugs,
-                };
-                return adoptedTestCaseData;
-              })
-            );
-            return {
-              suiteSkinData,
-              testCases,
-            };
-          })
-        );
-        return adoptedTestData;
-        break;
+                    return adoptedTestCaseData;
+                  } catch (error) {
+                    logger.error(`Error occurred while mapping test cases: ${error}`);
+                  }
+                })
+              );
+              return {
+                suiteSkinData,
+                testCases,
+              };
+            })
+          );
+          return adoptedTestData;
+          break;
+      }
+      return adoptedTestData;
+    } catch (error) {
+      logger.error(`error caught in jsonSkinDataAdpater ${error}`);
     }
-    return adoptedTestData;
   }
 
   async getAdoptedTestData() {
