@@ -320,7 +320,7 @@ export default class TestDataFactory {
       }
     };
 
-    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;)*\s*/.test(text);
+    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;|\s)+/.test(text);
     const isUnorderedItem = (text: string) => /^·\s*(?:&nbsp;)*\s*/.test(text);
     const isNestedItem = (text: string) => /^o\s*(?:&nbsp;)*\s*/.test(text);
 
@@ -373,14 +373,14 @@ export default class TestDataFactory {
                 $(node).contents().first().is('br'))
           );
 
-        if (containsOnlyBrOrEmptyInlineElements) {
-          $div.empty().append('<p></p>');
-        } else {
+        if (!containsOnlyBrOrEmptyInlineElements) {
           const $p = $('<p></p>').append(childNodes.not('br').remove());
           if ($div.attr('style')) {
             $p.attr('style', $div.attr('style'));
           }
           $div.replaceWith($p);
+        } else {
+          $div.remove();
         }
       });
     };
@@ -410,7 +410,6 @@ export default class TestDataFactory {
     handleDivs();
     replaceBrInDivs();
     wrapTextNodesInDivs();
-
     return $.html();
   }
 
