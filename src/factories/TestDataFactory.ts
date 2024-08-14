@@ -451,8 +451,6 @@ export default class TestDataFactory {
                       this.teamProject
                     );
 
-                    logger.debug(`richTextFactory is undefined = ${richTextFactory === undefined}`);
-
                     await richTextFactory.createRichTextContent(
                       this.attachmentsBucketName,
                       this.minioEndPoint,
@@ -533,11 +531,16 @@ export default class TestDataFactory {
                             action = action.replace(/\n/g, '<BR/>');
                             expected = expected.replace(/\n/g, '<BR/>');
 
+                            // checks if there is any step attachment in the current test case
+                            let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
+                              return attachment.attachmentComment.includes('TestStep=');
+                            });
+
                             let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
                               return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
                             });
 
-                            return this.includeAttachments
+                            return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
                                     { name: '#', value: i + 1 },
@@ -547,7 +550,7 @@ export default class TestDataFactory {
                                       value: expected,
                                     },
                                     {
-                                      name: 'attachments',
+                                      name: 'Attachments',
                                       value: testStepAttachments,
                                     },
                                   ],
@@ -649,11 +652,12 @@ export default class TestDataFactory {
                         return {
                           fields: [
                             { name: '#', value: i + 1 },
-                            { name: 'Attachments', value: [filteredTestCaseAttachments[i]] },
+                            { name: 'Attachments', value: [attachment] },
                           ],
                         };
                       })
                     );
+
                     let adoptedTestCaseData = {
                       testCaseHeaderSkinData,
                       testCaseStepsSkinData,
