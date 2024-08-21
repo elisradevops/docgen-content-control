@@ -320,7 +320,7 @@ export default class TestDataFactory {
       }
     };
 
-    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;)*\s*/.test(text);
+    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;|\s)+/.test(text);
     const isUnorderedItem = (text: string) => /^·\s*(?:&nbsp;)*\s*/.test(text);
     const isNestedItem = (text: string) => /^o\s*(?:&nbsp;)*\s*/.test(text);
 
@@ -373,14 +373,14 @@ export default class TestDataFactory {
                 $(node).contents().first().is('br'))
           );
 
-        if (containsOnlyBrOrEmptyInlineElements) {
-          $div.empty().append('<p></p>');
-        } else {
+        if (!containsOnlyBrOrEmptyInlineElements) {
           const $p = $('<p></p>').append(childNodes.not('br').remove());
           if ($div.attr('style')) {
             $p.attr('style', $div.attr('style'));
           }
           $div.replaceWith($p);
+        } else {
+          $div.remove();
         }
       });
     };
@@ -410,7 +410,6 @@ export default class TestDataFactory {
     handleDivs();
     replaceBrInDivs();
     wrapTextNodesInDivs();
-
     return $.html();
   }
 
@@ -451,8 +450,6 @@ export default class TestDataFactory {
                       this.templatePath,
                       this.teamProject
                     );
-
-                    logger.debug(`richTextFactory is undefined = ${richTextFactory === undefined}`);
 
                     await richTextFactory.createRichTextContent(
                       this.attachmentsBucketName,
@@ -534,11 +531,16 @@ export default class TestDataFactory {
                             action = action.replace(/\n/g, '<BR/>');
                             expected = expected.replace(/\n/g, '<BR/>');
 
+                            // checks if there is any step attachment in the current test case
+                            let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
+                              return attachment.attachmentComment.includes('TestStep=');
+                            });
+
                             let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
                               return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
                             });
 
-                            return this.includeAttachments
+                            return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
                                     { name: '#', value: i + 1 },
@@ -548,7 +550,7 @@ export default class TestDataFactory {
                                       value: expected,
                                     },
                                     {
-                                      name: 'attachments',
+                                      name: 'Attachments',
                                       value: testStepAttachments,
                                     },
                                   ],
@@ -650,11 +652,12 @@ export default class TestDataFactory {
                         return {
                           fields: [
                             { name: '#', value: i + 1 },
-                            { name: 'Attachments', value: [filteredTestCaseAttachments[i]] },
+                            { name: 'Attachments', value: [attachment] },
                           ],
                         };
                       })
                     );
+
                     let adoptedTestCaseData = {
                       testCaseHeaderSkinData,
                       testCaseStepsSkinData,

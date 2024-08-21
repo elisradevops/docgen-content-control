@@ -66,7 +66,7 @@ export default class RichTextDataFactory {
   private isEmptyNode($, node: cheerio.Element): boolean {
     const $node = $(node);
     // Check if the node is a <br> element or a self-closing tag
-    if ($node.is('br') || this.isSelfClosing($node)) {
+    if ($node.is('td') || $node.is('br') || this.isSelfClosing($node)) {
       return false;
     }
     // Check if the node has no text and no children (ignoring whitespace)
