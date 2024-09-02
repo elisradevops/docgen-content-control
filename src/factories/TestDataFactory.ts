@@ -423,8 +423,8 @@ export default class TestDataFactory {
     try {
       switch (adapterType) {
         case 'test-result-group-summary':
-          let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
-          adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
+          // let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
+          // adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
           break;
         default:
           //There is a problem when grabbing the data

@@ -4,6 +4,7 @@ import TestDataFactory from '../factories/TestDataFactory';
 import TraceDataFactory from '../factories/TraceDataFactory';
 import RichTextDataFactory from '../factories/RichTextDataFactory';
 import ChangeDataFactory from '../factories/ChangeDataFactory';
+import ResultDataFactory from '../factories/ResultDataFactory';
 import PullRequestDataFactory from '../factories/PullRequestDataFactory';
 import logger from '../services/logger';
 import contentControl from '../models/contentControl';
@@ -125,17 +126,22 @@ export default class DgContentControls {
           );
           break;
         case 'test-result-test-group-summary-table':
-          contentControlData = await this.addTestResultTestGroupSummaryTable(
+          contentControlData = await this.addTestGroupSummary(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.title,
             contentControlOptions.headingLevel,
-            contentControlOptions.data.includeAttachments,
-            contentControlOptions.data.includeRequirements,
-            contentControlOptions.data.includeCustomerId,
-            contentControlOptions.data.includeBugs,
-            contentControlOptions.data.includeSeverity
+            //TODO: add this later contentControlOptions.data.includeAttachments,
+            false,
+            //TODO: add other parameters like hierarchy and more..
+            contentControlOptions.data.includeConfigurations
           );
+          break;
+        case 'test-result-table':
+          break;
+        case 'detailed-test-result-table':
+          break;
+        case 'open-pcr-table':
           break;
         case 'change-description-table':
           contentControlData = await this.addChangeDescriptionTable(
@@ -367,35 +373,102 @@ export default class DgContentControls {
     }
   }
 
-  async addTestResultTestGroupSummaryTable(
+  // async addTestResultTestGroupSummaryTable(
+  //   testPlanId: number,
+  //   testSuiteArray: number[],
+  //   contentControlTitle: string,
+  //   headingLevel?: number,
+  //   includeAttachments: boolean = true,
+  //   includeRequirements?: boolean,
+  //   includeCustomerId?: boolean,
+  //   includeBugs?: boolean,
+  //   includeSeverity?: boolean,
+  //   contentControl?: contentControl
+  // ) {
+  //   let testDataFactory: TestDataFactory;
+  //   logger.debug(`fetching data with params:
+  //     testPlanId:${testPlanId}
+  //     testSuiteArray:${testSuiteArray}
+  //     teamProjectName:${this.teamProjectName}`);
+  //   try {
+  //     testDataFactory = new TestDataFactory(
+  //       this.attachmentsBucketName,
+  //       this.teamProjectName,
+  //       testPlanId,
+  //       testSuiteArray,
+  //       includeAttachments,
+  //       includeRequirements,
+  //       includeCustomerId,
+  //       includeBugs,
+  //       includeSeverity,
+  //       true,
+  //       this.dgDataProviderAzureDevOps,
+  //       this.templatePath,
+  //       this.minioEndPoint,
+  //       this.minioAccessKey,
+  //       this.minioSecretKey,
+  //       this.PAT
+  //     );
+  //     await testDataFactory.fetchTestData();
+  //   } catch (error) {
+  //     logger.error(`Error initilizing test data factory: ${error}`);
+  //     console.log(error);
+  //   }
+  //   try {
+  //     if (!contentControl) {
+  //       contentControl = { title: contentControlTitle, wordObjects: [] };
+  //     }
+  //     logger.debug(JSON.stringify(contentControlTitle));
+  //     logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
+  //     logger.debug(JSON.stringify(styles));
+  //     logger.debug(JSON.stringify(headingLevel));
+  //     let adoptedData = await testDataFactory.getAdoptedTestData();
+  //     let skins = await this.skins.addNewContentToDocumentSkin(
+  //       contentControlTitle,
+  //       this.skins.SKIN_TYPE_TEST_PLAN,
+  //       adoptedData,
+  //       styles,
+  //       headingLevel
+  //     );
+  //     skins.forEach((skin) => {
+  //       contentControl.wordObjects.push(skin);
+  //     });
+  //     let attachmentData = await testDataFactory.getAttachmentMinioData();
+  //     this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
+  //     return contentControl;
+  //   } catch (error) {
+  //     console.log(error.data);
+  //     throw new Error(`Error adding content control: ${error}`);
+  //   }
+  // }
+
+  async addTestGroupSummary(
     testPlanId: number,
     testSuiteArray: number[],
     contentControlTitle: string,
     headingLevel?: number,
-    includeAttachments: boolean = true,
-    includeRequirements?: boolean,
-    includeCustomerId?: boolean,
-    includeBugs?: boolean,
-    includeSeverity?: boolean,
+    //TODO: include attachments
+    includeAttachments: boolean = false,
+    includeConfigurations: boolean = true,
     contentControl?: contentControl
   ) {
-    let testDataFactory: TestDataFactory;
+    let resultDataFactory: ResultDataFactory;
     logger.debug(`fetching data with params:
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}`);
     try {
-      testDataFactory = new TestDataFactory(
+      resultDataFactory = new ResultDataFactory(
         this.attachmentsBucketName,
         this.teamProjectName,
         testPlanId,
         testSuiteArray,
         includeAttachments,
-        includeRequirements,
-        includeCustomerId,
-        includeBugs,
-        includeSeverity,
-        true,
+        // includeRequirements,
+        // includeCustomerId,
+        // includeBugs,
+        // includeSeverity,
+        includeConfigurations,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
         this.minioEndPoint,
@@ -403,7 +476,7 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT
       );
-      await testDataFactory.fetchTestData();
+      await resultDataFactory.fetchTestGroupResultSummaryData();
     } catch (error) {
       logger.error(`Error initilizing test data factory: ${error}`);
       console.log(error);
@@ -416,25 +489,32 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
       logger.debug(JSON.stringify(styles));
       logger.debug(JSON.stringify(headingLevel));
-      let adoptedData = await testDataFactory.getAdoptedTestData();
+      let adoptedData = await resultDataFactory.getAdoptedResultData();
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
-        this.skins.SKIN_TYPE_TEST_PLAN,
+        this.skins.SKIN_TYPE_TABLE,
         adoptedData,
         styles,
         headingLevel
       );
+
+
       skins.forEach((skin) => {
         contentControl.wordObjects.push(skin);
       });
-      let attachmentData = await testDataFactory.getAttachmentMinioData();
-      this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
+
+      //TODO: add it later
+      // let attachmentData = await resultDataFactory.getAttachmentsMinioData();
+      // this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       return contentControl;
     } catch (error) {
       console.log(error.data);
       throw new Error(`Error adding content control: ${error}`);
     }
   }
+
+  //Test Group Summary
+
   async addChangeDescriptionTable(
     repoId: string,
     from: string | number,
