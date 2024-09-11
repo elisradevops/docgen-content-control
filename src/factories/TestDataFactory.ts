@@ -3,7 +3,7 @@ import RichTextDataFactory from './RichTextDataFactory';
 import AttachmentsDataFactory from './AttachmentsDataFactory';
 import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import logger from '../services/logger';
-import * as cheerio from 'cheerio';
+import HtmlUtils from '../services/htmlUtils';
 
 const styles = {
   isBold: false,
@@ -37,6 +37,7 @@ export default class TestDataFactory {
   attachmentMinioData: any[];
   PAT: string;
   attachmentsBucketName: string;
+  htmlUtils: HtmlUtils;
 
   constructor(
     attachmentsBucketName,
@@ -76,6 +77,7 @@ export default class TestDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentsBucketName = attachmentsBucketName;
+    this.htmlUtils = new HtmlUtils();
   }
   async fetchTestData() {
     try {
@@ -238,181 +240,6 @@ export default class TestDataFactory {
     }
   }
 
-  private cleanHtml(html) {
-    const $ = cheerio.load(html);
-
-    // Utility function to create a paragraph with optional style
-    const createParagraph = ($element: cheerio.Cheerio) => {
-      const $p = $('<p></p>').html($element.html());
-      if ($element.attr('style')) {
-        $p.attr('style', $element.attr('style'));
-      }
-      return $p;
-    };
-
-    const replaceGroupWithList = (
-      group: cheerio.Cheerio[],
-      nestedGroup: cheerio.Cheerio[],
-      isOrderedList: boolean
-    ) => {
-      const $list = isOrderedList ? $('<ol></ol>') : $('<ul></ul>');
-      group.forEach(($p) => {
-        const text = $p
-          .text()
-          .replace(/^\d+\.\s*(?:&nbsp;)*|^·\s*(?:&nbsp;)*/g, '')
-          .replace(/&nbsp;/g, '');
-        const $li = $('<li></li>').text(text);
-        $list.append($li);
-      });
-      group[0].before($list);
-      group.forEach(($p) => $p.remove());
-
-      // Handle nested group
-      if (nestedGroup.length > 0) {
-        const $nestedUl = $('<ul></ul>');
-        nestedGroup.forEach(($p) => {
-          const text = $p
-            .text()
-            .replace(/^o\s*(?:&nbsp;)*/g, '')
-            .replace(/&nbsp;/g, '');
-          const $li = $('<li></li>').text(text);
-          $nestedUl.append($li);
-        });
-        $list.find('li').last().append($nestedUl);
-        nestedGroup.forEach(($p) => $p.remove());
-      }
-    };
-
-    const processParagraphGroups = () => {
-      const paragraphs = $('p');
-      let currentGroup: cheerio.Cheerio[] = [];
-      let previousIndex: number | null = null;
-      let nestedGroup: cheerio.Cheerio[] = [];
-      let isOrderedList = false;
-
-      paragraphs.each((index, element) => {
-        const $element = $(element);
-        const text = $element.text().trim();
-
-        if (isOrderedItem(text)) {
-          processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
-          previousIndex = index;
-          isOrderedList = true;
-        } else if (isUnorderedItem(text)) {
-          processListItem(index, $element, previousIndex, currentGroup, nestedGroup, isOrderedList);
-          previousIndex = index;
-          isOrderedList = false;
-        } else if (isNestedItem(text)) {
-          nestedGroup.push($element);
-        } else {
-          if (currentGroup.length > 0) {
-            replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
-          }
-          currentGroup = [];
-          nestedGroup = [];
-          previousIndex = null;
-          isOrderedList = false;
-        }
-      });
-
-      if (currentGroup.length > 0) {
-        replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
-      }
-    };
-
-    const isOrderedItem = (text: string) => /^\d+\.\s*(?:&nbsp;|\s)+/.test(text);
-    const isUnorderedItem = (text: string) => /^·\s*(?:&nbsp;)*\s*/.test(text);
-    const isNestedItem = (text: string) => /^o\s*(?:&nbsp;)*\s*/.test(text);
-
-    const processListItem = (
-      index: number,
-      $element: cheerio.Cheerio,
-      previousIndex: number | null,
-      currentGroup: cheerio.Cheerio[],
-      nestedGroup: cheerio.Cheerio[],
-      isOrderedList: boolean
-    ) => {
-      if (previousIndex === null || index === previousIndex + 1) {
-        currentGroup.push($element);
-      } else {
-        if (currentGroup.length > 0) {
-          replaceGroupWithList(currentGroup, nestedGroup, isOrderedList);
-        }
-        currentGroup.length = 0;
-        currentGroup.push($element);
-      }
-    };
-
-    const replaceNestedBrWithSimpleBr = () => {
-      $('div, span, b, u, i, em, strong').each((_, element) => {
-        const $element = $(element);
-        if ($element.contents().length === 1 && $element.contents().first().is('br')) {
-          $element.replaceWith('<br />');
-        }
-      });
-    };
-
-    const replaceSpansWithParagraphs = () => {
-      $('div > span').each((_, span) => {
-        $(span).replaceWith(createParagraph($(span)));
-      });
-    };
-
-    const handleDivs = () => {
-      $('div').each((_, div) => {
-        const $div = $(div);
-        const childNodes = $div.contents();
-
-        const containsOnlyBrOrEmptyInlineElements = childNodes
-          .toArray()
-          .every(
-            (node) =>
-              $(node).is('br') ||
-              ($(node).is('b, u, i, em, strong') &&
-                $(node).contents().length === 1 &&
-                $(node).contents().first().is('br'))
-          );
-
-        if (!containsOnlyBrOrEmptyInlineElements) {
-          const $p = $('<p></p>').append(childNodes.not('br').remove());
-          if ($div.attr('style')) {
-            $p.attr('style', $div.attr('style'));
-          }
-          $div.replaceWith($p);
-        } else {
-          $div.remove();
-        }
-      });
-    };
-
-    const replaceBrInDivs = () => {
-      $('div br').replaceWith('<p></p>');
-    };
-
-    const wrapTextNodesInDivs = () => {
-      $('div')
-        .contents()
-        .filter((_, node) => node.type === 'text' && node.data && node.data.trim() !== '')
-        .each((_, textNode) => {
-          const $textNode = $(textNode);
-          const $p = $('<p></p>').text($textNode.text());
-          if ($textNode.parent().attr('style')) {
-            $p.attr('style', $textNode.parent().attr('style'));
-          }
-          $textNode.replaceWith($p);
-        });
-    };
-
-    // Process the groups before any manipulations
-    processParagraphGroups();
-    replaceNestedBrWithSimpleBr();
-    replaceSpansWithParagraphs();
-    handleDivs();
-    replaceBrInDivs();
-    wrapTextNodesInDivs();
-    return $.html();
-  }
-
   private allValuesAreTarget(array, targetValues) {
     return array.every((obj) => targetValues.includes(obj.value));
   }
@@ -444,7 +271,8 @@ export default class TestDataFactory {
                 suite.testCases.map(async (testCase) => {
                   try {
                     let Description = testCase.description || 'No description';
-                    let cleanedDescription = this.cleanHtml(Description);
+                    logger.info(`html utils ${JSON.stringify(this.htmlUtils)}`);
+                    let cleanedDescription = this.htmlUtils.cleanHtml(Description);
                     let richTextFactory = new RichTextDataFactory(
                       cleanedDescription,
                       this.templatePath,
@@ -488,10 +316,10 @@ export default class TestDataFactory {
                             let actionText = '';
                             let expectedText = '';
                             if (testStep.action) {
-                              actionText = this.cleanHtml(testStep.action);
+                              actionText = this.htmlUtils.cleanHtml(testStep.action);
                             }
                             if (testStep.expected) {
-                              expectedText = this.cleanHtml(testStep.expected);
+                              expectedText = this.htmlUtils.cleanHtml(testStep.expected);
                             }
 
                             let richTextFactoryAction = new RichTextDataFactory(
@@ -504,8 +332,8 @@ export default class TestDataFactory {
                               this.templatePath,
                               this.teamProject
                             );
-                            await richTextFactoryAction.htmlStrip();
-                            await richTextFactoryExpected.htmlStrip();
+                            richTextFactoryAction.htmlStrip();
+                            richTextFactoryExpected.htmlStrip();
                             // Define target values
                             const targetValues = ['\n', ' ', ''];
 
