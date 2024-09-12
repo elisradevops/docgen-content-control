@@ -4,6 +4,7 @@ import TestDataFactory from '../factories/TestDataFactory';
 import TraceDataFactory from '../factories/TraceDataFactory';
 import RichTextDataFactory from '../factories/RichTextDataFactory';
 import ChangeDataFactory from '../factories/ChangeDataFactory';
+import ResultDataFactory from '../factories/ResultDataFactory';
 import PullRequestDataFactory from '../factories/PullRequestDataFactory';
 import logger from '../services/logger';
 import contentControl from '../models/contentControl';
@@ -11,7 +12,7 @@ import * as fs from 'fs';
 import * as Minio from 'minio';
 import { log } from 'console';
 
-let styles = {
+let defaultStyles = {
   isBold: false,
   IsItalic: false,
   IsUnderline: false,
@@ -125,16 +126,14 @@ export default class DgContentControls {
           );
           break;
         case 'test-result-test-group-summary-table':
-          contentControlData = await this.addTestResultTestGroupSummaryTable(
+          // contentControlData = await this.addTestGroupSummary(
+          contentControlData = await this.addCombinedTestResults(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
-            contentControlOptions.title,
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
-            contentControlOptions.data.includeRequirements,
-            contentControlOptions.data.includeCustomerId,
-            contentControlOptions.data.includeBugs,
-            contentControlOptions.data.includeSeverity
+            contentControlOptions.data.includeConfigurations,
+            contentControlOptions.data.includeHierarchy
           );
           break;
         case 'change-description-table':
@@ -219,13 +218,14 @@ export default class DgContentControls {
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(skinType));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         skinType,
         res,
-        styles,
+        undefined,
+        defaultStyles,
         headingLevel
       );
       skins.forEach((skin) => {
@@ -285,7 +285,7 @@ export default class DgContentControls {
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
       let attachmentData = await testDataFactory.getAttachmentMinioData();
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
@@ -293,7 +293,8 @@ export default class DgContentControls {
         contentControlTitle,
         this.skins.SKIN_TYPE_TEST_PLAN,
         testDataFactory.adoptedTestData,
-        styles,
+        undefined,
+        defaultStyles,
         headingLevel,
         includeAttachments
       );
@@ -348,13 +349,14 @@ export default class DgContentControls {
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         this.skins.SKIN_TYPE_TABLE,
         traceFactory.adoptedData,
-        styles,
+        undefined,
+        defaultStyles,
         headingLevel
       );
       skins.forEach((skin) => {
@@ -367,35 +369,28 @@ export default class DgContentControls {
     }
   }
 
-  async addTestResultTestGroupSummaryTable(
+  async addCombinedTestResults(
     testPlanId: number,
     testSuiteArray: number[],
-    contentControlTitle: string,
     headingLevel?: number,
-    includeAttachments: boolean = true,
-    includeRequirements?: boolean,
-    includeCustomerId?: boolean,
-    includeBugs?: boolean,
-    includeSeverity?: boolean,
-    contentControl?: contentControl
+    includeAttachments: boolean = false,
+    includeConfigurations: boolean = false,
+    includeHierarchy: boolean = false
   ) {
-    let testDataFactory: TestDataFactory;
+    let resultDataFactory: ResultDataFactory;
     logger.debug(`fetching data with params:
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}`);
     try {
-      testDataFactory = new TestDataFactory(
+      resultDataFactory = new ResultDataFactory(
         this.attachmentsBucketName,
         this.teamProjectName,
         testPlanId,
         testSuiteArray,
         includeAttachments,
-        includeRequirements,
-        includeCustomerId,
-        includeBugs,
-        includeSeverity,
-        true,
+        includeConfigurations,
+        includeHierarchy,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
         this.minioEndPoint,
@@ -403,38 +398,74 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT
       );
-      await testDataFactory.fetchTestData();
+
+      await resultDataFactory.fetchGetCombinedResultsSummary();
     } catch (error) {
       logger.error(`Error initilizing test data factory: ${error}`);
       console.log(error);
     }
     try {
-      if (!contentControl) {
-        contentControl = { title: contentControlTitle, wordObjects: [] };
-      }
-      logger.debug(JSON.stringify(contentControlTitle));
+      const contentControls: contentControl[] = [];
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
-      let adoptedData = await testDataFactory.getAdoptedTestData();
-      let skins = await this.skins.addNewContentToDocumentSkin(
-        contentControlTitle,
-        this.skins.SKIN_TYPE_TEST_PLAN,
-        adoptedData,
-        styles,
-        headingLevel
+
+      let adoptedDataArray = resultDataFactory.getAdoptedResultData();
+
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 9,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
+
+      let skins = await Promise.all(
+        adoptedDataArray.map(async (element) => {
+          const skin = await this.skins.addNewContentToDocumentSkin(
+            element.contentControl,
+            this.skins.SKIN_TYPE_TABLE,
+            element.data,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+
+          return { contentControlTitle: element.contentControl, skin };
+        })
       );
-      skins.forEach((skin) => {
-        contentControl.wordObjects.push(skin);
+
+      const flatSkins = skins.flat();
+
+      flatSkins.forEach((skinItem) => {
+        const { contentControlTitle: title, skin } = skinItem;
+        const contentControl = { title, wordObjects: skin };
+        contentControls.push(contentControl);
       });
-      let attachmentData = await testDataFactory.getAttachmentMinioData();
-      this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
-      return contentControl;
+
+      // let attachmentData = await resultDataFactory.getAttachmentsMinioData();
+      // this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
+      return contentControls;
     } catch (error) {
       console.log(error.data);
       throw new Error(`Error adding content control: ${error}`);
     }
   }
+
+  //Test Group Summary
+
   async addChangeDescriptionTable(
     repoId: string,
     from: string | number,
@@ -482,7 +513,7 @@ export default class DgContentControls {
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
 
       for (const artifactChangesData of adoptedChangesData) {
@@ -490,7 +521,8 @@ export default class DgContentControls {
           contentControlTitle,
           this.skins.SKIN_TYPE_PARAGRAPH,
           artifactChangesData.artifact,
-          styles,
+          undefined,
+          defaultStyles,
           headingLevel
         );
 
@@ -498,7 +530,8 @@ export default class DgContentControls {
           contentControlTitle,
           this.skins.SKIN_TYPE_TABLE,
           artifactChangesData.artifactChanges,
-          styles,
+          undefined,
+          defaultStyles,
           headingLevel
         );
         paragraphSkins.forEach((skin) => {
@@ -550,7 +583,7 @@ export default class DgContentControls {
       }
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(styles));
+      logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
 
       for (const artifactChangesData of adoptedChangesData) {
@@ -558,7 +591,8 @@ export default class DgContentControls {
           contentControlTitle,
           this.skins.SKIN_TYPE_PARAGRAPH,
           artifactChangesData.artifact,
-          styles,
+          undefined,
+          defaultStyles,
           headingLevel
         );
 
@@ -566,7 +600,8 @@ export default class DgContentControls {
           contentControlTitle,
           this.skins.SKIN_TYPE_TABLE,
           artifactChangesData.artifactChanges,
-          styles,
+          undefined,
+          defaultStyles,
           headingLevel
         );
         paragraphSkins.forEach((skin) => {

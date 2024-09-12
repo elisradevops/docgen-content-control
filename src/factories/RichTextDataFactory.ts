@@ -113,9 +113,7 @@ export default class RichTextDataFactory {
     if ($node.attr('style')) {
       $node.removeAttr('style');
     }
-
   }
-
 
   public clean(html: string): string {
     const $ = cheerio.load(html);
@@ -130,7 +128,7 @@ export default class RichTextDataFactory {
     return $.html();
   }
 
-  async htmlStrip() {
+  public htmlStrip() {
     const cleanedHtml = this.clean(this.richTextString);
     this.stripedString = striphtml(cleanedHtml, {
       cb: this.replaceTags,
