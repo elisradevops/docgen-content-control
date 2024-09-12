@@ -3,7 +3,8 @@ import logger from '../services/logger';
 import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import TestResultsSummaryDataSkinAdapter from '../adapters/TestResultsSummaryDataSkinAdapter';
 import DetailedResultsSummaryDataSkinAdapter from '../adapters/DetailedResultsSummaryDataSkinAdapter';
-import AttachmentsDataFactory from './AttachmentsDataFactory';
+import TestResultsAttachmentDataFactory from './TestResultsAttachmentDataFactory';
+import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
 
 export default class ResultDataFactory {
   isSuiteSpecific = false;
@@ -83,7 +84,6 @@ export default class ResultDataFactory {
   }
 
   public jsonSkinDataAdapter(adapterType: string = null, rawData: any[]): Promise<any> {
-    //For now we will take only the TestGroupResultSummaryData
     try {
       let adoptedTestResultData;
       switch (adapterType) {
@@ -108,6 +108,8 @@ export default class ResultDataFactory {
           adoptedTestResultData = detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
         case 'open-pcr-table':
+          const openPCRSkinAdapter = new OpenPCRsDataSkinAdapter();
+          adoptedTestResultData = openPCRSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
 
         default:
@@ -121,7 +123,7 @@ export default class ResultDataFactory {
     }
   }
 
-  private async appendAttachmentsToRawData(rawData: any[]): Promise<any[]> {
+  private async generateAttachmentsFromRawData(rawData: any[]): Promise<any[]> {
     let rawDataWithAttachments: any[] = [];
 
     for (let i = 0; i < rawData.length; i++) {
@@ -147,15 +149,18 @@ export default class ResultDataFactory {
     return rawDataWithAttachments;
   }
 
-  private async generateAttachmentData(testCaseId) {
+  private async generateAttachmentData(rawData: any) {
+    const { runId, resultId } = rawData;
+
     try {
-      let attachmentsfactory = new AttachmentsDataFactory(
+      let attachmentsFactory = new TestResultsAttachmentDataFactory(
         this.teamProject,
-        testCaseId,
+        runId,
+        resultId,
         this.templatePath,
         this.dgDataProvider
       );
-      let attachmentsData = await attachmentsfactory.fetchWiAttachments(
+      let attachmentsData = await attachmentsFactory.fetchTestResultsAttachments(
         this.attachmentsBucketName,
         this.minioEndPoint,
         this.minioAccessKey,
@@ -164,7 +169,7 @@ export default class ResultDataFactory {
       );
       return attachmentsData;
     } catch (e) {
-      logger.error(`error fetching attachments data for test case ${testCaseId}`);
+      logger.error(`error fetching attachments data for test case ${runId}:${resultId}`);
     }
   }
 
