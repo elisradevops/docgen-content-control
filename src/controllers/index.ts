@@ -126,14 +126,15 @@ export default class DgContentControls {
           );
           break;
         case 'test-result-test-group-summary-table':
-          // contentControlData = await this.addTestGroupSummary(
           contentControlData = await this.addCombinedTestResults(
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
             contentControlOptions.data.includeConfigurations,
-            contentControlOptions.data.includeHierarchy
+            contentControlOptions.data.includeHierarchy,
+            contentControlOptions.data.includeOpenPCRs,
+            contentControlOptions.data.includeTestLog
           );
           break;
         case 'change-description-table':
@@ -307,8 +308,10 @@ export default class DgContentControls {
         contentControl.wordObjects.push(skin);
       });
       return contentControl;
-    } catch (error) {
+    } catch (error: any) {
       console.log(error.data);
+      logger.error(`Error adding content control: ${error}`);
+      logger.error(`Stack trace: ${error.stack}`);
       throw new Error(`Error adding content control: ${error}`);
     }
   }
@@ -375,13 +378,16 @@ export default class DgContentControls {
     headingLevel?: number,
     includeAttachments: boolean = false,
     includeConfigurations: boolean = false,
-    includeHierarchy: boolean = false
+    includeHierarchy: boolean = false,
+    includeOpenPCRs: boolean = false,
+    includeTestLog: boolean = false
   ) {
     let resultDataFactory: ResultDataFactory;
     logger.debug(`fetching data with params:
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
-      teamProjectName:${this.teamProjectName}`);
+      teamProjectName:${this.teamProjectName}
+      includeOpenPCRs:${includeOpenPCRs}`);
     try {
       resultDataFactory = new ResultDataFactory(
         this.attachmentsBucketName,
@@ -391,6 +397,8 @@ export default class DgContentControls {
         includeAttachments,
         includeConfigurations,
         includeHierarchy,
+        includeOpenPCRs,
+        includeTestLog,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
         this.minioEndPoint,

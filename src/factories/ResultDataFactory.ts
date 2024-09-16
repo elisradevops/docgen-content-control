@@ -17,6 +17,8 @@ export default class ResultDataFactory {
   includeAttachments: boolean;
   includeConfigurations: boolean;
   includeHierarchy: boolean;
+  includeOpenPCRs: boolean;
+  includeTestLog: boolean;
   minioEndPoint: string;
   minioAccessKey: string;
   minioSecretKey: string;
@@ -32,6 +34,8 @@ export default class ResultDataFactory {
     includeAttachments: boolean = false,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
+    includeOpenPCRs: boolean = false,
+    includeTestLog: boolean = false,
     dgDataProvider: any,
     templatePath = '',
     minioEndPoint,
@@ -46,6 +50,8 @@ export default class ResultDataFactory {
     this.includeAttachments = includeAttachments;
     this.includeConfigurations = includeConfigurations;
     this.includeHierarchy = includeHierarchy;
+    this.includeOpenPCRs = includeOpenPCRs;
+    this.includeTestLog = includeTestLog;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
     if (testSuiteArray !== null) {
@@ -66,14 +72,15 @@ export default class ResultDataFactory {
         this.teamProject,
         this.testSuiteArray,
         this.includeConfigurations,
-        this.includeHierarchy
+        this.includeHierarchy,
+        this.includeOpenPCRs,
+        this.includeTestLog
       );
 
       if (combinedResultsItems.length === 0) {
         throw `No test data found for the specified plan ${this.testPlanId}`;
       }
 
-      //TODO: In the future add here the content control types and also handle the attachments
       this.adoptedResultDataArray = combinedResultsItems.map((item) => {
         const adoptedData = this.jsonSkinDataAdapter(item.skin, item.data);
         return { ...item, data: adoptedData };
