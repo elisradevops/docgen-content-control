@@ -26,6 +26,7 @@ export default class TestDataFactory {
   adoptedTestData: any;
   templatePath: string;
   includeAttachments: boolean;
+  attachmentType: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   includeBugs: boolean;
@@ -45,6 +46,7 @@ export default class TestDataFactory {
     testPlanId: number = null,
     testSuiteArray: number[] = null,
     includeAttachments: boolean = true,
+    attachmentType: string = 'asEmbedded',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
     includeBugs: boolean = false,
@@ -61,6 +63,7 @@ export default class TestDataFactory {
     this.testPlanId = testPlanId;
     this.testSuiteArray = testSuiteArray;
     this.includeAttachments = includeAttachments;
+    this.attachmentType = attachmentType;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
     this.includeBugs = includeBugs;
@@ -378,6 +381,7 @@ export default class TestDataFactory {
                                     {
                                       name: 'Attachments',
                                       value: testStepAttachments,
+                                      attachmentType: this.attachmentType,
                                     },
                                   ],
                                 }
@@ -484,7 +488,7 @@ export default class TestDataFactory {
                         return {
                           fields: [
                             { name: '#', value: i + 1, width: '5.8%' },
-                            { name: 'Attachments', value: [attachment] },
+                            { name: 'Attachments', value: [attachment], attachmentType: this.attachmentType },
                           ],
                         };
                       })
