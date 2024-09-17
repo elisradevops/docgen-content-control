@@ -26,6 +26,7 @@ export default class TestDataFactory {
   adoptedTestData: any;
   templatePath: string;
   includeAttachments: boolean;
+  attachmentType: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   includeBugs: boolean;
@@ -45,6 +46,7 @@ export default class TestDataFactory {
     testPlanId: number = null,
     testSuiteArray: number[] = null,
     includeAttachments: boolean = true,
+    attachmentType: string = 'asEmbedded',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
     includeBugs: boolean = false,
@@ -61,6 +63,7 @@ export default class TestDataFactory {
     this.testPlanId = testPlanId;
     this.testSuiteArray = testSuiteArray;
     this.includeAttachments = includeAttachments;
+    this.attachmentType = attachmentType;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
     this.includeBugs = includeBugs;
@@ -234,6 +237,7 @@ export default class TestDataFactory {
         this.minioSecretKey,
         this.PAT
       );
+
       return attachmentsData;
     } catch (e) {
       logger.error(`error fetching attachments data for test case ${testCaseId}`);
@@ -257,9 +261,6 @@ export default class TestDataFactory {
           //There is a problem when grabbing the data
           adoptedTestData = await Promise.all(
             this.testDataRaw.suites.map(async (suite: any) => {
-              if (suite?.temp?.name) {
-                logger.info(`Currently reading test suite ${suite.temp.name}`);
-              }
               let suiteSkinData = {
                 fields: [
                   { name: 'Title', value: suite.temp.name + ' - ' },
@@ -271,7 +272,6 @@ export default class TestDataFactory {
                 suite.testCases.map(async (testCase) => {
                   try {
                     let Description = testCase.description || 'No description';
-                    logger.info(`html utils ${JSON.stringify(this.htmlUtils)}`);
                     let cleanedDescription = this.htmlUtils.cleanHtml(Description);
                     let richTextFactory = new RichTextDataFactory(
                       cleanedDescription,
@@ -371,22 +371,24 @@ export default class TestDataFactory {
                             return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
-                                    { name: '#', value: i + 1 },
-                                    { name: 'Description', value: action },
+                                    { name: '#', value: i + 1, width: '5.8%' },
+                                    { name: 'Description', value: action, width: '26.9%' },
                                     {
                                       name: 'Expected Results',
                                       value: expected,
+                                      width: '26.9%',
                                     },
                                     {
                                       name: 'Attachments',
                                       value: testStepAttachments,
+                                      attachmentType: this.attachmentType,
                                     },
                                   ],
                                 }
                               : {
                                   fields: [
-                                    { name: '#', value: i + 1 },
-                                    { name: 'Description', value: action },
+                                    { name: '#', value: i + 1, width: '5.8%' },
+                                    { name: 'Description', value: action, width: '45.8%' },
                                     {
                                       name: 'Expected Results',
                                       value: expected,
@@ -421,10 +423,12 @@ export default class TestDataFactory {
                           {
                             name: '#',
                             value: index + 1,
+                            width: '5.8%',
                           },
                           {
                             name: 'Req ID',
                             value: relation.id,
+                            width: '13.6%',
                           },
                           {
                             name: 'Req Title',
@@ -438,6 +442,7 @@ export default class TestDataFactory {
                             // Inserting at index 2, right before Req Title
                             name: 'Customer ID',
                             value: relation.customerId,
+                            width: '18%',
                           });
                         }
 
@@ -451,10 +456,12 @@ export default class TestDataFactory {
                           {
                             name: '#',
                             value: index + 1,
+                            width: '5.8%',
                           },
                           {
                             name: 'Bug ID',
                             value: relation.id,
+                            width: '13.6%',
                           },
                           {
                             name: 'Bug Title',
@@ -466,6 +473,7 @@ export default class TestDataFactory {
                           fields.push({
                             name: 'Severity',
                             value: relation.severity,
+                            width: '19.4%',
                           });
                         }
 
@@ -479,8 +487,8 @@ export default class TestDataFactory {
                       filteredTestCaseAttachments.map(async (attachment, i) => {
                         return {
                           fields: [
-                            { name: '#', value: i + 1 },
-                            { name: 'Attachments', value: [attachment] },
+                            { name: '#', value: i + 1, width: '5.8%' },
+                            { name: 'Attachments', value: [attachment], attachmentType: this.attachmentType },
                           ],
                         };
                       })

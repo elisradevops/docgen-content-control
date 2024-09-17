@@ -29,12 +29,12 @@ export default class DetailedResultsSummaryDataSkinAdapter {
         const expected = this.htmlStrip(cleanedExpectedHtml);
 
         const fields = [
-          { name: '#', value: `${idx + 1}` },
-          { name: 'Test Id', value: `${item.testId}` },
+          { name: '#', value: `${idx + 1}`, width: '3%' },
+          { name: 'Test Id', value: `${item.testId}`, width: '1.9cm' },
           { name: 'Test Name', value: `${item.testName}` },
-          { name: 'Step No', value: `${item.stepNo}` },
-          { name: 'Action', value: action },
-          { name: 'Expected Result', value: expected },
+          { name: 'Step No', value: `${item.stepNo}`, width: '1.9cm' },
+          { name: 'Action', value: action, width: '21.24%' },
+          { name: 'Expected Result', value: expected, width: '21.24%' },
           { name: 'Step Status', value: `${item.stepStatus}` },
           { name: 'Step Comments', value: `${item.stepComments}` },
           // TBD

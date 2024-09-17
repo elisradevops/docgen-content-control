@@ -13,15 +13,15 @@ export default class TestResultGroupSummaryDataSkinAdapter {
       return adoptedResultData.map((item, idx) => {
         return {
           fields: [
-            { name: '#', value: item.testGroupName !== 'Total' ? `${idx + 1}` : '' },
+            { name: '#', value: item.testGroupName !== 'Total' ? `${idx + 1}` : '', width: '3%' },
             { name: 'Test Group', value: `${item.testGroupName}` },
-            { name: 'Passed', value: `${item.passed}` },
-            { name: 'Failed', value: `${item.failed}` },
-            { name: 'Blocked', value: `${item.blocked}` },
-            { name: 'N/A', value: `${item.notApplicable}` },
-            { name: 'Not Run', value: `${item.notRun}` },
-            { name: 'Total', value: `${item.total}` },
-            { name: '% of Success', value: `${item.successPercentage}` },
+            { name: 'Passed', value: `${item.passed}`, width: '7.6%' },
+            { name: 'Failed', value: `${item.failed}`, width: '7.6%' },
+            { name: 'Blocked', value: `${item.blocked}`, width: '7.6%' },
+            { name: 'N/A', value: `${item.notApplicable}`, width: '7.6%' },
+            { name: 'Not Run', value: `${item.notRun}`, width: '7.6%' },
+            { name: 'Total', value: `${item.total}`, width: '7.6%' },
+            { name: '% of Success', value: `${item.successPercentage}`, width: '10.4%' },
           ],
         };
       });
