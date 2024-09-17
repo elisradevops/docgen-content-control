@@ -5,6 +5,7 @@ import TestResultsSummaryDataSkinAdapter from '../adapters/TestResultsSummaryDat
 import DetailedResultsSummaryDataSkinAdapter from '../adapters/DetailedResultsSummaryDataSkinAdapter';
 import TestResultsAttachmentDataFactory from './TestResultsAttachmentDataFactory';
 import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
+import TestLogDataSkinAdapter from '../adapters/TestLogDataSkinAdapter';
 
 export default class ResultDataFactory {
   isSuiteSpecific = false;
@@ -117,6 +118,11 @@ export default class ResultDataFactory {
         case 'open-pcr-table':
           const openPCRSkinAdapter = new OpenPCRsDataSkinAdapter();
           adoptedTestResultData = openPCRSkinAdapter.jsonSkinDataAdapter(rawData);
+          break;
+
+        case 'test-log-table':
+          const testLogSkinAdapter = new TestLogDataSkinAdapter();
+          adoptedTestResultData = testLogSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
 
         default:
