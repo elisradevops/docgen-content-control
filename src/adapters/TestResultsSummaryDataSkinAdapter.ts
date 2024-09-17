@@ -8,7 +8,7 @@ export default class TestResultsSummaryDataSkinAdapter {
           { name: '#', value: `${idx + 1}`, width: '3%' },
           { name: 'Test Group', value: `${item.testGroupName}` },
           { name: 'Test Id', value: `${item.testId}`, width: '6.4%' },
-          { name: 'Test Name', value: `${item.testName}`, width: '' },
+          { name: 'Test Name', value: `${item.testName}` },
           { name: 'Run Status', value: `${item.runStatus}`, width: includeConfigurations ? '9.4%' : '10.8%' },
         ];
 
