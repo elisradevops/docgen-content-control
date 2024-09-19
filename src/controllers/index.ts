@@ -291,14 +291,35 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
       logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
+
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
+
       let attachmentData = await testDataFactory.getAttachmentMinioData();
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         this.skins.SKIN_TYPE_TEST_PLAN,
         testDataFactory.adoptedTestData,
-        undefined,
-        defaultStyles,
+        headerStyles,
+        styles,
         headingLevel,
         includeAttachments
       );
@@ -426,7 +447,7 @@ export default class DgContentControls {
       const baseStyles = {
         IsItalic: false,
         IsUnderline: false,
-        Size: 9,
+        Size: 10,
         Uri: null,
         Font: 'Arial',
         InsertLineBreak: false,
