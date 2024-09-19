@@ -468,11 +468,14 @@ export default class DgContentControls {
         adoptedDataArray.map(async (element) => {
           const skin = await this.skins.addNewContentToDocumentSkin(
             element.contentControl,
-            this.skins.SKIN_TYPE_TABLE,
+            this.skins.SKIN_TYPE_TABLE_STR,
             element.data,
             headerStyles,
             styles,
-            headingLevel
+            headingLevel,
+            //Attachments
+            undefined,
+            element.insertPageBreak
           );
 
           return { contentControlTitle: element.contentControl, skin };

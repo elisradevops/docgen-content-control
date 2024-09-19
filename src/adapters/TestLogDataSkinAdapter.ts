@@ -10,15 +10,15 @@ export default class TestLogDataSkinAdapter {
     try {
       return resultDataRaw.map((item, idx) => {
         const fields = [
-          { name: '#', value: `${idx + 1}`, width: '3%' },
-          { name: 'Test Id', value: `${item.testId}`, width: '6.4%' },
+          { name: '#', value: `${idx + 1}`, width: '5.5%' },
+          { name: 'Test Id', value: `${item.testId}`, width: '11.1%' },
           { name: 'Test Name', value: `${item.testName}` },
           {
             name: 'Execution Date',
             value: `${this.convertDateToLocalTime(item.executedDate)}`,
-            width: '15.9%',
+            width: '16.6%',
           },
-          { name: 'Performed By', value: `${item.performedBy}`, width: '21.3%' },
+          { name: 'Performed By', value: `${item.performedBy}`, width: '26.3%' },
         ];
 
         return { fields };

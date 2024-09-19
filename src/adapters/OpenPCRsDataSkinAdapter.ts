@@ -5,10 +5,10 @@ export default class OpenPCRsDataSkinAdapter {
     try {
       return resultDataRaw.map((item, idx) => {
         const fields = [
-          { name: '#', value: `${idx + 1}`, width: '3%' },
-          { name: 'Test Id', value: `${item.testId}`, width: '6.4%' },
+          { name: '#', value: `${idx + 1}`, width: '3.8%' },
+          { name: 'Test Id', value: `${item.testId}`, width: '7.6%' },
           { name: 'Test Name', value: `${item.testName}` },
-          { name: 'PCR Id', value: `${item.pcrId}`, url: `${item.pcrUrl}`, width: '6.4%' },
+          { name: 'PCR Id', value: `${item.pcrId}`, url: `${item.pcrUrl}`, width: '7.6%' },
           { name: 'WI Type', value: `${item.workItemType}`, width: '11.9%' },
           { name: 'Title', value: `${item.title}` },
           { name: 'Severity', value: `${item.severity}`, width: '10.4%' },
