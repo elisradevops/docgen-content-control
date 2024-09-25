@@ -63,12 +63,15 @@ export default class StepAnalysisSkinAdapter {
         skins.push(suiteSkinData, caseSkinData);
 
         if (runResult.comment) {
-          skins.push({ field: { name: 'Analysis Result', value: runResult.comment } });
+          skins.push({ field: { name: 'Description', value: `Analysis Result: ${runResult.comment}` } });
         }
 
         if (runResult?.iteration?.comment) {
           skins.push({
-            field: { name: 'Test Case Analysis Result', value: runResult.iteration.comment },
+            field: {
+              name: 'Description',
+              value: `Test Case Analysis Result: ${runResult.iteration.comment}`,
+            },
           });
         }
 
