@@ -131,7 +131,8 @@ export default class DgContentControls {
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.headingLevel,
-            contentControlOptions.data.includeAttachments,
+            contentControlOptions.data.stepExecution,
+            contentControlOptions.data.stepAnalysis,
             contentControlOptions.data.includeConfigurations,
             contentControlOptions.data.includeHierarchy,
             contentControlOptions.data.includeOpenPCRs,
@@ -400,7 +401,8 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     headingLevel?: number,
-    includeAttachments: boolean = false,
+    stepExecution?: any,
+    stepAnalysis?: any,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
     includeOpenPCRs: boolean = false,
@@ -418,7 +420,8 @@ export default class DgContentControls {
         this.teamProjectName,
         testPlanId,
         testSuiteArray,
-        includeAttachments,
+        stepExecution,
+        stepAnalysis,
         includeConfigurations,
         includeHierarchy,
         includeOpenPCRs,
@@ -463,7 +466,7 @@ export default class DgContentControls {
         ...baseStyles,
         isBold: false, // Specific to regular styles
       };
-
+      this.minioAttachmentData = this.minioAttachmentData.concat(resultDataFactory.getAttachmentsMinioData());
       let skins = await Promise.all(
         adoptedDataArray.map(async (element) => {
           const skin = await this.skins.addNewContentToDocumentSkin(
@@ -489,9 +492,6 @@ export default class DgContentControls {
         const contentControl = { title, wordObjects: skin };
         contentControls.push(contentControl);
       });
-
-      // let attachmentData = await resultDataFactory.getAttachmentsMinioData();
-      // this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       return contentControls;
     } catch (error) {
       console.log(error.data);
