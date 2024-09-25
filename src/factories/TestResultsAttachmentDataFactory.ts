@@ -6,109 +6,166 @@ export default class TestResultsAttachmentDataFactory {
   teamProject: string = '';
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   templatePath: string = '';
-  runId: string;
-  runResultId: string;
+  runResult: any;
 
-  constructor(
-    teamProject: string,
-    runId: string,
-    resultId: string,
-    templatePath: string,
-    dgDataProvider: any
-  ) {
+  constructor(teamProject: string, templatePath: string, dgDataProvider: any, runResult: any) {
     this.teamProject = teamProject;
-    this.runId = runId;
-    this.runResultId = resultId;
     this.templatePath = templatePath;
     this.dgDataProviderAzureDevOps = dgDataProvider;
+    this.runResult = runResult;
   }
 
-  public async fetchTestResultsAttachments(
-    attachmentsBucketName,
-    minioEndPoint,
-    minioAccessKey,
-    minioSecretKey,
-    PAT
-  ) {
-    let attachmentsData: any[] = [];
+  public async generateTestResultsAttachments(
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
+  ): Promise<any> {
     try {
-      let ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
-      const attachmentsDictionary = await ticketsDataProvider.GetTestRunResultAttachments(
-        this.teamProject,
-        this.runId,
-        this.runResultId
-      );
-
-      if (attachmentsDictionary === undefined || attachmentsDictionary.length === 0) {
-        logger.debug('No attachment found');
-        return [];
+      if (this.runResult === undefined) {
+        logger.info('Run result is undefined');
+        return null;
+      }
+      const { iteration, analysisAttachments } = this.runResult;
+      if (
+        (iteration === undefined && analysisAttachments === undefined) ||
+        (iteration.attachments?.length === 0 && analysisAttachments?.length === 0)
+      ) {
+        logger.info(
+          `No attachments were found for run ${this.runResult.lastRunId} and run result ${this.runResult.lastResultId}`
+        );
+        return null;
+      }
+      let attachmentMap: { [key: string]: any[] } = {};
+      // Process iteration attachments
+      if (iteration.attachments?.length > 0) {
+        await this.processAttachments(
+          attachmentMap,
+          iteration.attachments,
+          attachmentsBucketName,
+          minioEndPoint,
+          minioAccessKey,
+          minioSecretKey,
+          PAT
+        );
       }
 
-      logger.debug(
-        `for test run item - ${this.runId}:${this.runResultId} fetched ${attachmentsDictionary.length} attachments`
-      );
-
-      for (const key in attachmentsDictionary) {
-        if (attachmentsDictionary.hasOwnProperty(key)) {
-          const attachments = attachmentsDictionary[key];
-
-          attachments.forEach(async (attachment) => {
-            const attachmentFileName = attachment.downloadUrl.substring(
-              attachment.downloadUrl.lastIndexOf('/') + 1,
-              attachment.downloadUrl.length
-            );
-            const attachmentUrl = attachment.downloadUrl.substring(
-              0,
-              attachment.downloadUrl.lastIndexOf('/')
-            );
-            let downloadedAttachmentData = await this.downloadAttachment(
-              attachmentsBucketName,
-              attachmentUrl,
-              attachmentFileName,
-              minioEndPoint,
-              minioAccessKey,
-              minioSecretKey,
-              PAT
-            );
-
-            let LocalThumbnailPath;
-            let LocalAttachmentPath = `TempFiles/${downloadedAttachmentData.fileName}`;
-            if (downloadedAttachmentData.thumbnailName && downloadedAttachmentData.thumbnailPath) {
-              LocalThumbnailPath = `TempFiles/${downloadedAttachmentData.thumbnailName}`;
-              attachmentsData.push({
-                //AttachmentComment will be the distinction between a step and a case
-                attachmentComment:
-                  key === 'caseLevel' ? 'Case attachment' : `Step attachment [${attachment.actionPath}]`,
-                attachmentFileName: attachmentFileName,
-                attachmentLink: LocalAttachmentPath,
-                relativeAttachmentLink: LocalAttachmentPath,
-                tableCellAttachmentLink: LocalThumbnailPath,
-                attachmentMinioPath: downloadedAttachmentData.attachmentPath,
-                minioFileName: downloadedAttachmentData.fileName,
-                ThumbMinioPath: downloadedAttachmentData.thumbnailPath,
-                minioThumbName: downloadedAttachmentData.thumbnailName,
-              });
-            } else {
-              attachmentsData.push({
-                //AttachmentComment will be the distinction between a step and a case
-                attachmentComment:
-                  key === 'caseLevel' ? 'Case attachment' : `Step attachment [${attachment.actionPath}]`,
-                attachmentFileName: attachmentFileName,
-                attachmentLink: LocalAttachmentPath,
-                relativeAttachmentLink: LocalAttachmentPath,
-                tableCellAttachmentLink: LocalAttachmentPath,
-                attachmentMinioPath: downloadedAttachmentData.attachmentPath,
-                minioFileName: downloadedAttachmentData.fileName,
-              });
-            }
-          });
-        }
+      // Process analysis attachments
+      if (analysisAttachments?.length > 0) {
+        await this.processAttachments(
+          attachmentMap,
+          analysisAttachments,
+          attachmentsBucketName,
+          minioEndPoint,
+          minioAccessKey,
+          minioSecretKey,
+          PAT
+        );
       }
+
+      return attachmentMap;
     } catch (e) {
-      logger.error(`Error occurred while trying to fetch test results attachment ${e.message}`);
-    } finally {
-      return attachmentsData;
+      logger.error(`Error occurred while trying to fetch test results attachment: ${e.message}`);
+      logger.error(`Error stack: ${e.stack}`);
+      return null;
     }
+  }
+
+  // Private method to process attachments for both iteration and analysis attachments
+  private async processAttachments(
+    map: { [key: string]: any[] },
+    attachments: any[],
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
+  ): Promise<void> {
+    for (let attachment of attachments) {
+      const attachmentData = await this.processAttachment(
+        attachment,
+        attachmentsBucketName,
+        minioEndPoint,
+        minioAccessKey,
+        minioSecretKey,
+        PAT
+      );
+
+      const { comment, actionPath, name, id } = attachment;
+      const actionPathKey =
+        actionPath !== undefined ? (actionPath === '' ? 'caseLevel' : actionPath) : 'analysisLevel';
+
+      if (!map[actionPathKey]) {
+        map[actionPathKey] = [];
+      }
+
+      if (attachmentData.LocalThumbnailPath) {
+        map[actionPathKey].push({
+          name,
+          id,
+          attachmentComment: comment || '',
+          attachmentFileName: attachmentData.fileName,
+          attachmentLink: attachmentData.LocalAttachmentPath,
+          relativeAttachmentLink: attachmentData.LocalAttachmentPath,
+          tableCellAttachmentLink: attachmentData.LocalThumbnailPath,
+          attachmentMinioPath: attachmentData.downloadedAttachmentData.attachmentPath,
+          minioFileName: attachmentData.downloadedAttachmentData.fileName,
+          ThumbMinioPath: attachmentData.downloadedAttachmentData.thumbnailPath,
+          minioThumbName: attachmentData.downloadedAttachmentData.thumbnailName,
+        });
+      } else {
+        map[actionPathKey].push({
+          name,
+          id,
+          attachmentComment: comment || '',
+          attachmentFileName: attachmentData.fileName,
+          attachmentLink: attachmentData.LocalAttachmentPath,
+          relativeAttachmentLink: attachmentData.LocalAttachmentPath,
+          tableCellAttachmentLink: attachmentData.LocalAttachmentPath,
+          attachmentMinioPath: attachmentData.downloadedAttachmentData.attachmentPath,
+          minioFileName: attachmentData.downloadedAttachmentData.fileName,
+        });
+      }
+    }
+  }
+
+  // Private method to process individual attachment and return relevant data
+  private async processAttachment(
+    attachment: any,
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
+  ): Promise<any> {
+    let attachmentFileName = attachment.downloadUrl.substring(
+      attachment.downloadUrl.lastIndexOf('/') + 1,
+      attachment.downloadUrl.length
+    );
+    let attachmentUrl = attachment.downloadUrl.substring(0, attachment.downloadUrl.lastIndexOf('/'));
+
+    const downloadedAttachmentData = await this.downloadAttachment(
+      attachmentsBucketName,
+      attachmentUrl,
+      attachmentFileName,
+      minioEndPoint,
+      minioAccessKey,
+      minioSecretKey,
+      PAT
+    );
+
+    const LocalAttachmentPath = `TempFiles/${downloadedAttachmentData.fileName}`;
+    const LocalThumbnailPath = downloadedAttachmentData.thumbnailName
+      ? `TempFiles/${downloadedAttachmentData.thumbnailName}`
+      : null;
+
+    return {
+      fileName: attachmentFileName,
+      LocalAttachmentPath,
+      LocalThumbnailPath,
+      downloadedAttachmentData,
+    };
   }
 
   async downloadAttachment(
@@ -134,9 +191,7 @@ export default class TestResultsAttachmentDataFactory {
       let res = await downloadManager.downloadFile();
       return res;
     } catch (e) {
-      logger.error(
-        `error downloading attachment : ${attachmentFileName} for Test run item ${this.runId}:${this.runResultId}`
-      );
+      logger.error(`error downloading attachment : ${attachmentFileName}`);
       logger.error(JSON.stringify(e));
       return '';
     }

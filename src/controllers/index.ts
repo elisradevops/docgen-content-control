@@ -131,7 +131,8 @@ export default class DgContentControls {
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.headingLevel,
-            contentControlOptions.data.includeAttachments,
+            contentControlOptions.data.stepExecution,
+            contentControlOptions.data.stepAnalysis,
             contentControlOptions.data.includeConfigurations,
             contentControlOptions.data.includeHierarchy,
             contentControlOptions.data.includeOpenPCRs,
@@ -291,14 +292,35 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
       logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
+
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
+
       let attachmentData = await testDataFactory.getAttachmentMinioData();
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         this.skins.SKIN_TYPE_TEST_PLAN,
         testDataFactory.adoptedTestData,
-        undefined,
-        defaultStyles,
+        headerStyles,
+        styles,
         headingLevel,
         includeAttachments
       );
@@ -379,7 +401,8 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     headingLevel?: number,
-    includeAttachments: boolean = false,
+    stepExecution?: any,
+    stepAnalysis?: any,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
     includeOpenPCRs: boolean = false,
@@ -397,7 +420,8 @@ export default class DgContentControls {
         this.teamProjectName,
         testPlanId,
         testSuiteArray,
-        includeAttachments,
+        stepExecution,
+        stepAnalysis,
         includeConfigurations,
         includeHierarchy,
         includeOpenPCRs,
@@ -426,7 +450,7 @@ export default class DgContentControls {
       const baseStyles = {
         IsItalic: false,
         IsUnderline: false,
-        Size: 9,
+        Size: 10,
         Uri: null,
         Font: 'Arial',
         InsertLineBreak: false,
@@ -442,16 +466,19 @@ export default class DgContentControls {
         ...baseStyles,
         isBold: false, // Specific to regular styles
       };
-
+      this.minioAttachmentData = this.minioAttachmentData.concat(resultDataFactory.getAttachmentsMinioData());
       let skins = await Promise.all(
         adoptedDataArray.map(async (element) => {
           const skin = await this.skins.addNewContentToDocumentSkin(
             element.contentControl,
-            this.skins.SKIN_TYPE_TABLE,
+            this.skins.SKIN_TYPE_TABLE_STR,
             element.data,
             headerStyles,
             styles,
-            headingLevel
+            headingLevel,
+            //Attachments
+            undefined,
+            element.insertPageBreak
           );
 
           return { contentControlTitle: element.contentControl, skin };
@@ -465,9 +492,6 @@ export default class DgContentControls {
         const contentControl = { title, wordObjects: skin };
         contentControls.push(contentControl);
       });
-
-      // let attachmentData = await resultDataFactory.getAttachmentsMinioData();
-      // this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       return contentControls;
     } catch (error) {
       console.log(error.data);

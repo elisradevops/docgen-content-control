@@ -6,6 +6,7 @@ import DetailedResultsSummaryDataSkinAdapter from '../adapters/DetailedResultsSu
 import TestResultsAttachmentDataFactory from './TestResultsAttachmentDataFactory';
 import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
 import TestLogDataSkinAdapter from '../adapters/TestLogDataSkinAdapter';
+import StepAnalysisSkinAdapter from '../adapters/StepAnalysisSkinAdapter';
 
 export default class ResultDataFactory {
   isSuiteSpecific = false;
@@ -15,7 +16,8 @@ export default class ResultDataFactory {
   testSuiteArray: number[];
   adoptedResultDataArray: any[];
   templatePath: string;
-  includeAttachments: boolean;
+  stepExecution: any;
+  stepAnalysis: any;
   includeConfigurations: boolean;
   includeHierarchy: boolean;
   includeOpenPCRs: boolean;
@@ -32,7 +34,8 @@ export default class ResultDataFactory {
     teamProject: string = '',
     testPlanId: number = null,
     testSuiteArray: number[] = null,
-    includeAttachments: boolean = false,
+    stepExecution: any,
+    stepAnalysis: any,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
     includeOpenPCRs: boolean = false,
@@ -48,7 +51,8 @@ export default class ResultDataFactory {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
     this.testSuiteArray = testSuiteArray;
-    this.includeAttachments = includeAttachments;
+    this.stepExecution = stepExecution;
+    this.stepAnalysis = stepAnalysis;
     this.includeConfigurations = includeConfigurations;
     this.includeHierarchy = includeHierarchy;
     this.includeOpenPCRs = includeOpenPCRs;
@@ -68,30 +72,34 @@ export default class ResultDataFactory {
   public async fetchGetCombinedResultsSummary() {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
-      const combinedResultsItems: any[] = await resultDataProvider.getCombinedResultsSummary(
+      const combinedResultsItems = await resultDataProvider.getCombinedResultsSummary(
         this.testPlanId.toString(),
         this.teamProject,
         this.testSuiteArray,
         this.includeConfigurations,
         this.includeHierarchy,
         this.includeOpenPCRs,
-        this.includeTestLog
+        this.includeTestLog,
+        this.stepExecution,
+        this.stepAnalysis
       );
 
       if (combinedResultsItems.length === 0) {
         throw `No test data found for the specified plan ${this.testPlanId}`;
       }
 
-      this.adoptedResultDataArray = combinedResultsItems.map((item) => {
-        const adoptedData = this.jsonSkinDataAdapter(item.skin, item.data);
-        return { ...item, data: adoptedData };
-      });
+      this.adoptedResultDataArray = await Promise.all(
+        combinedResultsItems.map(async (item) => {
+          const adoptedData = await this.jsonSkinDataAdapter(item.skin, item.data);
+          return { ...item, data: adoptedData };
+        })
+      );
     } catch (error) {
       logger.error(`Error occurred while trying the fetch Test Group Result Summary Data ${error.message}`);
     }
   }
 
-  public jsonSkinDataAdapter(adapterType: string = null, rawData: any[]): Promise<any> {
+  public async jsonSkinDataAdapter(adapterType: string = null, rawData: any[]): Promise<any> {
     try {
       let adoptedTestResultData;
       switch (adapterType) {
@@ -125,6 +133,26 @@ export default class ResultDataFactory {
           adoptedTestResultData = testLogSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
 
+        case 'step-analysis-appendix-skin':
+          const stepAnalysisSkinAdapter = new StepAnalysisSkinAdapter(
+            this.dgDataProvider,
+            this.templatePath,
+            this.teamProject,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT
+          );
+          adoptedTestResultData = await stepAnalysisSkinAdapter.jsonSkinDataAdapter(
+            rawData,
+            this.stepAnalysis
+          );
+          this.attachmentMinioData = this.attachmentMinioData.concat(
+            stepAnalysisSkinAdapter.getAttachmentMinioData()
+          );
+
+          break;
         default:
           break;
       }
@@ -136,61 +164,11 @@ export default class ResultDataFactory {
     }
   }
 
-  private async generateAttachmentsFromRawData(rawData: any[]): Promise<any[]> {
-    let rawDataWithAttachments: any[] = [];
-
-    for (let i = 0; i < rawData.length; i++) {
-      let attachmentsData = await this.generateAttachmentData(rawData[i].id);
-      attachmentsData.forEach((item) => {
-        let attachmentBucketData = {
-          attachmentMinioPath: item.attachmentMinioPath,
-          minioFileName: item.minioFileName,
-        };
-        this.attachmentMinioData.push(attachmentBucketData);
-        if (item.ThumbMinioPath && item.minioThumbName) {
-          let thumbBucketData = {
-            attachmentMinioPath: item.ThumbMinioPath,
-            minioFileName: item.minioThumbName,
-          };
-          this.attachmentMinioData.push(thumbBucketData);
-        }
-      });
-      let testCaseWithAttachments: any = JSON.parse(JSON.stringify(rawData[i]));
-      testCaseWithAttachments.attachmentsData = attachmentsData;
-      rawDataWithAttachments.push(testCaseWithAttachments);
-    }
-    return rawDataWithAttachments;
-  }
-
-  private async generateAttachmentData(rawData: any) {
-    const { runId, resultId } = rawData;
-
-    try {
-      let attachmentsFactory = new TestResultsAttachmentDataFactory(
-        this.teamProject,
-        runId,
-        resultId,
-        this.templatePath,
-        this.dgDataProvider
-      );
-      let attachmentsData = await attachmentsFactory.fetchTestResultsAttachments(
-        this.attachmentsBucketName,
-        this.minioEndPoint,
-        this.minioAccessKey,
-        this.minioSecretKey,
-        this.PAT
-      );
-      return attachmentsData;
-    } catch (e) {
-      logger.error(`error fetching attachments data for test case ${runId}:${resultId}`);
-    }
-  }
-
   public getAdoptedResultData(): any[] {
     return this.adoptedResultDataArray;
   }
 
-  async getAttachmentsMinioData() {
+  public getAttachmentsMinioData() {
     return this.attachmentMinioData;
   }
 }

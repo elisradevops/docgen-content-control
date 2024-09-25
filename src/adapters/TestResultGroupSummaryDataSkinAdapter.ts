@@ -13,7 +13,7 @@ export default class TestResultGroupSummaryDataSkinAdapter {
       return adoptedResultData.map((item, idx) => {
         return {
           fields: [
-            { name: '#', value: item.testGroupName !== 'Total' ? `${idx + 1}` : '', width: '3%' },
+            { name: '#', value: item.testGroupName !== 'Total' ? `${idx + 1}` : '', width: '3.8%' },
             { name: 'Test Group', value: `${item.testGroupName}` },
             { name: 'Passed', value: `${item.passed}`, width: '7.6%' },
             { name: 'Failed', value: `${item.failed}`, width: '7.6%' },

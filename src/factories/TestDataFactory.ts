@@ -371,7 +371,7 @@ export default class TestDataFactory {
                             return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
-                                    { name: '#', value: i + 1, width: '5.8%' },
+                                    { name: '#', value: i + 1, width: '5.5%' },
                                     { name: 'Description', value: action, width: '26.9%' },
                                     {
                                       name: 'Expected Results',
@@ -387,7 +387,7 @@ export default class TestDataFactory {
                                 }
                               : {
                                   fields: [
-                                    { name: '#', value: i + 1, width: '5.8%' },
+                                    { name: '#', value: i + 1, width: '5.5%' },
                                     { name: 'Description', value: action, width: '45.8%' },
                                     {
                                       name: 'Expected Results',
@@ -423,7 +423,7 @@ export default class TestDataFactory {
                           {
                             name: '#',
                             value: index + 1,
-                            width: '5.8%',
+                            width: '5.5%',
                           },
                           {
                             name: 'Req ID',
@@ -456,7 +456,7 @@ export default class TestDataFactory {
                           {
                             name: '#',
                             value: index + 1,
-                            width: '5.8%',
+                            width: '5.5%',
                           },
                           {
                             name: 'Bug ID',
@@ -487,7 +487,7 @@ export default class TestDataFactory {
                       filteredTestCaseAttachments.map(async (attachment, i) => {
                         return {
                           fields: [
-                            { name: '#', value: i + 1, width: '5.8%' },
+                            { name: '#', value: i + 1, width: '5.5%' },
                             { name: 'Attachments', value: [attachment], attachmentType: this.attachmentType },
                           ],
                         };
