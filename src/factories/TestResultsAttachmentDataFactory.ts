@@ -23,52 +23,74 @@ export default class TestResultsAttachmentDataFactory {
     PAT: string
   ): Promise<any> {
     try {
-      if (this.runResult === undefined) {
+      if (!this.runResult) {
         logger.info('Run result is undefined');
         return null;
       }
+
       const { iteration, analysisAttachments } = this.runResult;
-      if (
-        (iteration === undefined && analysisAttachments === undefined) ||
-        (iteration.attachments?.length === 0 && analysisAttachments?.length === 0)
-      ) {
+
+      if (this.noAttachmentsAvailable(iteration, analysisAttachments)) {
         logger.info(
           `No attachments were found for run ${this.runResult.lastRunId} and run result ${this.runResult.lastResultId}`
         );
         return null;
       }
-      let attachmentMap: { [key: string]: any[] } = {};
-      // Process iteration attachments
-      if (iteration.attachments?.length > 0) {
-        await this.processAttachments(
-          attachmentMap,
-          iteration.attachments,
-          attachmentsBucketName,
-          minioEndPoint,
-          minioAccessKey,
-          minioSecretKey,
-          PAT
-        );
-      }
 
-      // Process analysis attachments
-      if (analysisAttachments?.length > 0) {
-        await this.processAttachments(
-          attachmentMap,
-          analysisAttachments,
-          attachmentsBucketName,
-          minioEndPoint,
-          minioAccessKey,
-          minioSecretKey,
-          PAT
-        );
-      }
+      const attachmentMap: { [key: string]: any[] } = {};
+      await this.processAttachmentGroup(
+        attachmentMap,
+        iteration?.attachments,
+        attachmentsBucketName,
+        minioEndPoint,
+        minioAccessKey,
+        minioSecretKey,
+        PAT
+      );
+      await this.processAttachmentGroup(
+        attachmentMap,
+        analysisAttachments,
+        attachmentsBucketName,
+        minioEndPoint,
+        minioAccessKey,
+        minioSecretKey,
+        PAT
+      );
 
       return attachmentMap;
-    } catch (e) {
-      logger.error(`Error occurred while trying to fetch test results attachment: ${e.message}`);
-      logger.error(`Error stack: ${e.stack}`);
+    } catch (error) {
+      logger.error(`Error occurred while trying to fetch test results attachment: ${error.message}`);
+      logger.error(`Error stack: ${error.stack}`);
       return null;
+    }
+  }
+
+  private noAttachmentsAvailable(iteration?: any, analysisAttachments?: any[]): boolean {
+    return (
+      (!iteration?.attachments || iteration.attachments.length === 0) &&
+      (!analysisAttachments || analysisAttachments.length === 0)
+    );
+  }
+
+  private async processAttachmentGroup(
+    attachmentMap: { [key: string]: any[] },
+    attachments: any[] | undefined,
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
+  ): Promise<void> {
+    if (attachments?.length) {
+      await this.processAttachments(
+        attachmentMap,
+        attachments,
+        attachmentsBucketName,
+        minioEndPoint,
+        minioAccessKey,
+        minioSecretKey,
+        PAT
+      );
     }
   }
 

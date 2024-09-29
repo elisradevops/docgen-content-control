@@ -100,7 +100,7 @@ export default class StepAnalysisSkinAdapter {
             });
           }
 
-          if (iterationAttachmentData) {
+          if (iterationAttachmentData && Object.keys(iterationAttachmentData).length !== 0) {
             const { caseLevel, ...stepLevels } = iterationAttachmentData;
 
             skins.push({ field: { name: 'Title', value: 'Run Attachments' }, level: 3, type: 'SubHeader' });
@@ -123,8 +123,6 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test steps
             if (stepLevels) {
-              logger.debug(`step level ${JSON.stringify(stepLevels)}`);
-
               for (let [key, attachments] of Object.entries(stepLevels)) {
                 logger.debug(`key ${key}`);
                 skins.push({
@@ -148,8 +146,6 @@ export default class StepAnalysisSkinAdapter {
             }
           }
         }
-
-        logger.debug(`jsonSkinDataAdapter for step analysis ${JSON.stringify(skins)}`);
 
         return skins;
       });

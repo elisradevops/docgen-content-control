@@ -409,12 +409,14 @@ export default class DgContentControls {
     includeTestLog: boolean = false
   ) {
     let resultDataFactory: ResultDataFactory;
+    let testDataFactory: TestDataFactory;
     logger.debug(`fetching data with params:
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}
       includeOpenPCRs:${includeOpenPCRs}`);
     try {
+      //Run the result data factory
       resultDataFactory = new ResultDataFactory(
         this.attachmentsBucketName,
         this.teamProjectName,
@@ -436,7 +438,7 @@ export default class DgContentControls {
 
       await resultDataFactory.fetchGetCombinedResultsSummary();
     } catch (error) {
-      logger.error(`Error initilizing test data factory: ${error}`);
+      logger.error(`Error initilizing result data factory: ${error.message}`);
       console.log(error);
     }
     try {
@@ -446,7 +448,13 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(headingLevel));
 
       let adoptedDataArray = resultDataFactory.getAdoptedResultData();
+      let stepExecutionObject = adoptedDataArray.find(
+        (item) => item.contentControl === 'appendix-b-content-control'
+      );
 
+      const filteredAdoptedDataArray = adoptedDataArray.filter(
+        (item) => item.contentControl !== 'appendix-b-content-control'
+      );
       const baseStyles = {
         IsItalic: false,
         IsUnderline: false,
@@ -468,7 +476,7 @@ export default class DgContentControls {
       };
       this.minioAttachmentData = this.minioAttachmentData.concat(resultDataFactory.getAttachmentsMinioData());
       let skins = await Promise.all(
-        adoptedDataArray.map(async (element) => {
+        filteredAdoptedDataArray.map(async (element) => {
           const skin = await this.skins.addNewContentToDocumentSkin(
             element.contentControl,
             this.skins.SKIN_TYPE_TABLE_STR,
@@ -492,6 +500,61 @@ export default class DgContentControls {
         const contentControl = { title, wordObjects: skin };
         contentControls.push(contentControl);
       });
+
+      if (stepExecution?.isEnabled) {
+        try {
+          //test data factory
+          testDataFactory = new TestDataFactory(
+            this.attachmentsBucketName,
+            this.teamProjectName,
+            testPlanId,
+            testSuiteArray,
+            stepExecution?.generateAttachments.isEnabled,
+            stepExecution?.generateAttachments.attachmentType,
+            stepExecution?.generateRequirements.isEnabled,
+            stepExecution?.generateRequirements.includeCustomerId,
+            false,
+            false,
+            false,
+            this.dgDataProviderAzureDevOps,
+            this.templatePath,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT,
+            stepExecutionObject.data
+          );
+          await testDataFactory.fetchTestData();
+
+          let attachmentTestData = await testDataFactory.getAttachmentMinioData();
+          this.minioAttachmentData = this.minioAttachmentData.concat(attachmentTestData);
+          let skins = await this.skins.addNewContentToDocumentSkin(
+            stepExecutionObject.contentControl,
+            this.skins.SKIN_TYPE_TEST_PLAN,
+            testDataFactory.adoptedTestData,
+            headerStyles,
+            styles,
+            headingLevel,
+            stepExecution?.generateAttachments.isEnabled,
+            undefined,
+            true
+          );
+
+          const wordObjects: any[] = [];
+
+          skins.forEach((skin) => {
+            // Check if skin is of type 'paragraph' and contains the text 'Test Description:'
+            if (skin.type === 'paragraph' && skin.runs.some((run) => run.text === 'Test Description:')) {
+              return; // Skip this skin
+            }
+            wordObjects.push(skin);
+          });
+          contentControls.push({ title: stepExecutionObject.contentControl, wordObjects });
+        } catch (error) {
+          logger.error(`Error fetching Test Data: ${error.message}`);
+          logger.error(`Error Stack: ${error.stack}`);
+        }
+      }
       return contentControls;
     } catch (error) {
       console.log(error.data);
