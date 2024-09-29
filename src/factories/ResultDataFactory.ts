@@ -153,6 +153,8 @@ export default class ResultDataFactory {
           );
 
           break;
+        case 'step-execution-appendix-skin':
+          adoptedTestResultData = rawData;
         default:
           break;
       }

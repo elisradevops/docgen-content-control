@@ -39,6 +39,7 @@ export default class TestDataFactory {
   PAT: string;
   attachmentsBucketName: string;
   htmlUtils: HtmlUtils;
+  stepResultDetails?: any[];
 
   constructor(
     attachmentsBucketName,
@@ -57,7 +58,8 @@ export default class TestDataFactory {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    stepResultDetails?: any[]
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -81,6 +83,7 @@ export default class TestDataFactory {
     this.PAT = PAT;
     this.attachmentsBucketName = attachmentsBucketName;
     this.htmlUtils = new HtmlUtils();
+    this.stepResultDetails = stepResultDetails;
   }
   async fetchTestData() {
     try {
@@ -248,6 +251,51 @@ export default class TestDataFactory {
     return array.every((obj) => targetValues.includes(obj.value));
   }
 
+  private mapTestResults(testCases: any[]): any[] {
+    // Step 1: Create a lookup map for stepsData
+    const stepMap: { [testId: number]: any[] } = {};
+
+    // If stepResultDetails is empty, populate all steps with default values
+    if (this.stepResultDetails.length === 0) {
+      testCases.forEach((testCase) => {
+        testCase.steps.forEach((step: any) => {
+          step.stepStatus = 'Not Run';
+          step.stepComments = 'No Result';
+        });
+      });
+      return testCases; // No need to continue if we are populating defaults
+    }
+
+    this.stepResultDetails.forEach((step) => {
+      if (!stepMap[step.testId]) {
+        stepMap[step.testId] = [];
+      }
+      stepMap[step.testId].push(step);
+    });
+
+    // Step 2: Iterate over testCases and update steps
+    testCases.forEach((testCase) => {
+      const matchingSteps = stepMap[testCase.id];
+      if (matchingSteps) {
+        matchingSteps.forEach((stepData) => {
+          const stepIndex = stepData.stepNo - 1;
+          if (testCase.steps[stepIndex]) {
+            testCase.steps[stepIndex].stepStatus = stepData.stepStatus;
+            testCase.steps[stepIndex].stepComments = stepData.stepComments;
+          }
+        });
+      } else {
+        // No matching steps, set default values for steps
+        testCase.steps.forEach((step: any) => {
+          step.stepStatus = 'Not Run';
+          step.stepComments = 'No Result';
+        });
+      }
+    });
+
+    return testCases;
+  }
+
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null) {
     let adoptedTestData;
@@ -268,8 +316,12 @@ export default class TestDataFactory {
                 ],
                 level: suite.temp.level,
               };
+              const mappedTestCases = this.stepResultDetails
+                ? this.mapTestResults(suite.testCases)
+                : suite.testCases;
+
               let testCases = await Promise.all(
-                suite.testCases.map(async (testCase) => {
+                mappedTestCases.map(async (testCase) => {
                   try {
                     let Description = testCase.description || 'No description';
                     let cleanedDescription = this.htmlUtils.cleanHtml(Description);
@@ -367,6 +419,61 @@ export default class TestDataFactory {
                             let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
                               return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
                             });
+
+                            //If runs status and result are included
+                            if (testStep.stepStatus !== undefined && testStep.stepComments !== undefined) {
+                              return this.includeAttachments && hasAnyStepAttachment
+                                ? {
+                                    fields: [
+                                      { name: '#', value: i + 1, width: '5.5%' },
+                                      { name: 'Description', value: action, width: '20.8%' },
+                                      {
+                                        name: 'Expected Results',
+                                        value: expected,
+                                        width: '20.8%',
+                                      },
+                                      {
+                                        name: 'Attachments',
+                                        value: testStepAttachments,
+                                        attachmentType: this.attachmentType,
+                                        width: '20.8%',
+                                      },
+                                      {
+                                        name: 'Run Status',
+                                        value: testStep?.stepStatus || 'Not Run',
+                                        width: '13%',
+                                      },
+                                      {
+                                        name: 'Actual Result',
+                                        value:
+                                          testStep?.stepComments ||
+                                          `${testStep?.stepStatus === 'Not Run' ? 'No Result' : ''}`,
+                                      },
+                                    ],
+                                  }
+                                : {
+                                    fields: [
+                                      { name: '#', value: i + 1, width: '5.5%' },
+                                      { name: 'Description', value: action, width: '31%' },
+                                      {
+                                        name: 'Expected Results',
+                                        value: expected,
+                                        width: '31%',
+                                      },
+                                      {
+                                        name: 'Run Status',
+                                        value: testStep?.stepStatus || 'Not Run',
+                                        width: '13%',
+                                      },
+                                      {
+                                        name: 'Actual Result',
+                                        value:
+                                          testStep?.stepComments ||
+                                          `${testStep?.stepStatus === 'Not Run' ? 'Not Result' : ''}`,
+                                      },
+                                    ],
+                                  };
+                            }
 
                             return this.includeAttachments && hasAnyStepAttachment
                               ? {
@@ -507,6 +614,7 @@ export default class TestDataFactory {
                   }
                 })
               );
+
               return {
                 suiteSkinData,
                 testCases,
