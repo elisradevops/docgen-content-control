@@ -252,46 +252,51 @@ export default class TestDataFactory {
   }
 
   private mapTestResults(testCases: any[]): any[] {
-    // Step 1: Create a lookup map for stepsData
-    const stepMap: { [testId: number]: any[] } = {};
+    try {
+      // Step 1: Create a lookup map for stepsData
+      const stepMap: { [testId: number]: any[] } = {};
 
-    // If stepResultDetails is empty, populate all steps with default values
-    if (this.stepResultDetails.length === 0) {
-      testCases.forEach((testCase) => {
-        testCase.steps.forEach((step: any) => {
-          step.stepStatus = 'Not Run';
-          step.stepComments = 'No Result';
+      // If stepResultDetails is empty, populate all steps with default values
+      if (this.stepResultDetails.length === 0) {
+        testCases.forEach((testCase) => {
+          testCase.steps.forEach((step: any) => {
+            step.stepStatus = 'Not Run';
+            step.stepComments = 'No Result';
+          });
         });
+        return testCases; // No need to continue if we are populating defaults
+      }
+
+      this.stepResultDetails.forEach((step) => {
+        if (!stepMap[step.testId]) {
+          stepMap[step.testId] = [];
+        }
+        stepMap[step.testId].push(step);
       });
-      return testCases; // No need to continue if we are populating defaults
+
+      // Step 2: Iterate over testCases and update steps
+      testCases.forEach((testCase) => {
+        const matchingSteps = stepMap[testCase.id];
+        if (matchingSteps) {
+          matchingSteps.forEach((stepData) => {
+            const stepIndex = stepData.stepNo - 1;
+            if (testCase.steps[stepIndex]) {
+              testCase.steps[stepIndex].stepStatus = stepData.stepStatus;
+              testCase.steps[stepIndex].stepComments = stepData.stepComments;
+            }
+          });
+        } else {
+          // No matching steps, set default values for steps
+          testCase.steps.forEach((step: any) => {
+            step.stepStatus = 'Not Run';
+            step.stepComments = 'No Result';
+          });
+        }
+      });
+    } catch (error: any) {
+      logger.error(`Error occurred while trying to map test results ${error.message}`);
+      logger.error(`Error Stack ${error.stack}`);
     }
-
-    this.stepResultDetails.forEach((step) => {
-      if (!stepMap[step.testId]) {
-        stepMap[step.testId] = [];
-      }
-      stepMap[step.testId].push(step);
-    });
-
-    // Step 2: Iterate over testCases and update steps
-    testCases.forEach((testCase) => {
-      const matchingSteps = stepMap[testCase.id];
-      if (matchingSteps) {
-        matchingSteps.forEach((stepData) => {
-          const stepIndex = stepData.stepNo - 1;
-          if (testCase.steps[stepIndex]) {
-            testCase.steps[stepIndex].stepStatus = stepData.stepStatus;
-            testCase.steps[stepIndex].stepComments = stepData.stepComments;
-          }
-        });
-      } else {
-        // No matching steps, set default values for steps
-        testCase.steps.forEach((step: any) => {
-          step.stepStatus = 'Not Run';
-          step.stepComments = 'No Result';
-        });
-      }
-    });
 
     return testCases;
   }
@@ -610,7 +615,8 @@ export default class TestDataFactory {
                     };
                     return adoptedTestCaseData;
                   } catch (error) {
-                    logger.error(`Error occurred while mapping test cases: ${error}`);
+                    logger.error(`Error occurred while mapping test cases: ${error.message}`);
+                    logger.error(`Error Stack: ${error.stack}`);
                   }
                 })
               );

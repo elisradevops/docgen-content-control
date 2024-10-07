@@ -1,4 +1,5 @@
 import * as cheerio from 'cheerio';
+import logger from './logger';
 
 export default class HtmlUtils {
   $: cheerio.Root;
@@ -168,15 +169,21 @@ export default class HtmlUtils {
   };
 
   public cleanHtml(html): any {
-    this.$ = cheerio.load(html);
+    try {
+      this.$ = cheerio.load(html);
 
-    // Process the groups before any manipulations
-    this.processParagraphGroups();
-    this.replaceNestedBrWithSimpleBr();
-    this.replaceSpansWithParagraphs();
-    this.handleDivs();
-    this.replaceBrInDivs();
-    this.wrapTextNodesInDivs();
-    return this.$.html();
+      // Process the groups before any manipulations
+      this.processParagraphGroups();
+      this.replaceNestedBrWithSimpleBr();
+      this.replaceSpansWithParagraphs();
+      this.handleDivs();
+      this.replaceBrInDivs();
+      this.wrapTextNodesInDivs();
+      return this.$.html();
+    } catch (error: any) {
+      logger.error(`Error occurred during clean HTML: ${error.message}`);
+      logger.error(`Error Stack: ${error.stack}`);
+      return '';
+    }
   }
 }
