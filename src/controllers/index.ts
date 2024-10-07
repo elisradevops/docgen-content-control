@@ -503,6 +503,8 @@ export default class DgContentControls {
 
       if (stepExecution?.isEnabled) {
         try {
+          //TODO: Delete later...
+          logger.debug(`step execution object -------------------> ${JSON.stringify(stepExecutionObject)}`);
           //test data factory
           testDataFactory = new TestDataFactory(
             this.attachmentsBucketName,
