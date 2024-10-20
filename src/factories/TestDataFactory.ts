@@ -91,7 +91,7 @@ export default class TestDataFactory {
       let testDataProvider = await this.dgDataProvider.getTestDataProvider();
       let projectTestPlans: any = await testDataProvider.GetTestPlans(this.teamProject);
 
-      if (projectTestPlans.count === 0) {
+      if (!projectTestPlans || projectTestPlans.count === 0) {
         throw new Error(`No test plans for project ${this.teamProject} were found`);
       }
       testfilteredPlan = projectTestPlans.value.filter((testPlan) => {
@@ -130,7 +130,7 @@ export default class TestDataFactory {
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
 
-      if (testSuites.length != 0) {
+      if (testSuites.length !== 0) {
         let SuitesAndTestCases: any = [];
         for (let j = 0; j < testSuites.length; j++) {
           let testCases = await this.generateSuiteObject(testSuites[j], allTestCases);
