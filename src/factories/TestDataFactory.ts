@@ -426,7 +426,7 @@ export default class TestDataFactory {
                             });
 
                             //If runs status and result are included
-                            if (testStep.stepStatus !== undefined && testStep.stepComments !== undefined) {
+                            if (this.stepResultDetails) {
                               return this.includeAttachments && hasAnyStepAttachment
                                 ? {
                                     fields: [
