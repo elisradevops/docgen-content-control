@@ -85,7 +85,8 @@ export default class DgContentControls {
       return this.skins.getDocumentSkin();
     } catch (error) {
       logger.error(`Error initlizing Skins:
-      ${JSON.stringify(error)} `);
+      ${error.message})}`);
+      throw error;
     }
   }
 
@@ -167,8 +168,8 @@ export default class DgContentControls {
       this.deleteFile(jsonLocalData);
       return jsonData;
     } catch (error) {
-      logger.error(`Error initlizing Skins:
-      ${error}`);
+      logger.error(`Error initlizing Skins: ${error.message}`);
+      throw error;
     }
   }
 
@@ -334,9 +335,7 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error: any) {
-      console.log(error.data);
       logger.error(`Error adding content control: ${error}`);
-      logger.error(`Stack trace: ${error.stack}`);
       throw new Error(`Error adding content control: ${error}`);
     }
   }
@@ -410,12 +409,20 @@ export default class DgContentControls {
   ) {
     let resultDataFactory: ResultDataFactory;
     let testDataFactory: TestDataFactory;
-    logger.debug(`fetching data with params:
+    try {
+      if (!testPlanId) {
+        throw new Error('No plan has been selected');
+      }
+
+      if (!this.teamProjectName) {
+        throw new Error('Project name is not defined');
+      }
+      logger.debug(`fetching data with params:
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}
       includeOpenPCRs:${includeOpenPCRs}`);
-    try {
+
       //Run the result data factory
       resultDataFactory = new ResultDataFactory(
         this.attachmentsBucketName,
@@ -439,7 +446,7 @@ export default class DgContentControls {
       await resultDataFactory.fetchGetCombinedResultsSummary();
     } catch (error) {
       logger.error(`Error initilizing result data factory: ${error.message}`);
-      console.log(error);
+      throw error;
     }
     try {
       const contentControls: contentControl[] = [];
@@ -503,8 +510,6 @@ export default class DgContentControls {
 
       if (stepExecution?.isEnabled) {
         try {
-          //TODO: Delete later...
-          logger.debug(`step execution object -------------------> ${JSON.stringify(stepExecutionObject)}`);
           //test data factory
           testDataFactory = new TestDataFactory(
             this.attachmentsBucketName,
@@ -553,8 +558,10 @@ export default class DgContentControls {
           });
           contentControls.push({ title: stepExecutionObject.contentControl, wordObjects });
         } catch (error) {
-          logger.error(`Error fetching Test Data: ${error.message}`);
+          logger.error(`Error fetching STR Data: ${error.message}`);
           logger.error(`Error Stack: ${error.stack}`);
+
+          throw error;
         }
       }
       return contentControls;

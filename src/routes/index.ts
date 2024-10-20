@@ -21,7 +21,10 @@ export class Routes {
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateDocTemplate();
         res.status(StatusCodes.OK).json(resJson);
-      } catch (error) {}
+      } catch (error) {
+        logger.error(`content control module error : ${error.message}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error });
+      }
     });
 
     app.route('/generate-content-control').post(async ({ body }: Request, res: Response) => {
@@ -44,8 +47,8 @@ export class Routes {
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json(error);
-        logger.error(`server error : ${JSON.stringify(error)}`);
+        logger.error(`content control module error : ${error.message}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
   }
