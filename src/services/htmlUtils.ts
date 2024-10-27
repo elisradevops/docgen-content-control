@@ -6,6 +6,87 @@ export default class HtmlUtils {
 
   constructor() {}
 
+  // Replace '\n' with a white space in all <span> text nodes, without removing nested elements
+  private replaceNewlinesInSpans = () => {
+    this.$('span').each((_, element) => {
+      const $span = this.$(element);
+
+      // Iterate over each text node within the <span> element
+      $span.contents().each((_, node) => {
+        if (node.type === 'text') {
+          let content = node.data || ''; // Get the text content of the text node
+
+          // Replace newlines with white space in text nodes
+          content = content.replace(/\n/g, ' ').trim(); // Trim any trailing spaces or newlines
+
+          // Update the text content of the node
+          node.data = content;
+        }
+      });
+    });
+  };
+
+  //Replace remaining '\n' with <br/> in other elements
+  private replaceNewlinesWithBr = () => {
+    this.$('*').each((_, element) => {
+      const $element = this.$(element);
+      let content = $element.html();
+      if (content) {
+        content = content
+          .replace(/\n+$/g, '')
+          .replace(/\n/g, '<br>')
+          .replace(/<br\s*\/?>\s*(?=<\/p>)/gi, '');
+        $element.html(content);
+      }
+    });
+  };
+
+  private unifyChainedSpans = () => {
+    // Select all block-level elements where spans may be chained
+    this.$('div, p').each((_, blockElement) => {
+      const $blockElement = this.$(blockElement);
+      let spanChain: cheerio.Cheerio[] = [];
+      let concatenatedText = '';
+
+      // Iterate over the child nodes of the block-level element
+      $blockElement.contents().each((_, node) => {
+        const $node = this.$(node);
+
+        // If the node is a span with only text, add it to the chain
+        if ($node.is('span') && $node.contents().length === 1 && $node.contents().first().text()) {
+          spanChain.push($node);
+          concatenatedText += $node.text().trim() + ' '; // Concatenate the text
+        } else {
+          // If the chain is broken or we hit a non-span element, process the span chain
+          if (spanChain.length > 1) {
+            this.replaceSpanChainWithUnifiedSpan(spanChain, concatenatedText.trim());
+          }
+
+          // Reset the chain and concatenated text for the next group of spans
+          spanChain = [];
+          concatenatedText = '';
+        }
+      });
+
+      // Handle any remaining span chain at the end of the block element
+      if (spanChain.length > 1) {
+        this.replaceSpanChainWithUnifiedSpan(spanChain, concatenatedText.trim());
+      }
+    });
+  };
+
+  // Helper function to replace a chain of spans with a single unified span
+  private replaceSpanChainWithUnifiedSpan = (spanChain: cheerio.Cheerio[], unifiedText: string) => {
+    // Create a new unified <span> with the concatenated text
+    const $unifiedSpan = this.$('<span></span>').text(unifiedText);
+
+    // Insert the unified <span> before the first span in the chain
+    spanChain[0].before($unifiedSpan);
+
+    // Remove all spans in the chain
+    spanChain.forEach(($span) => $span.remove());
+  };
+
   // Utility function to create a paragraph with optional style
   private createParagraph = ($element: cheerio.Cheerio) => {
     const $p = this.$('<p></p>').html($element.html());
@@ -170,9 +251,10 @@ export default class HtmlUtils {
 
   public cleanHtml(html): any {
     try {
-      this.$ = cheerio.load(html);
-
-      // Process the groups before any manipulations
+      this.$ = cheerio.load(html, { normalizeWhitespace: false, decodeEntities: false });
+      this.unifyChainedSpans();
+      this.replaceNewlinesInSpans();
+      this.replaceNewlinesWithBr();
       this.processParagraphGroups();
       this.replaceNestedBrWithSimpleBr();
       this.replaceSpansWithParagraphs();
