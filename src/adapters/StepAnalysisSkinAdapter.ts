@@ -190,7 +190,7 @@ export default class StepAnalysisSkinAdapter {
   };
 
   private async generateAttachmentsFromRawRunResultsData(runResults: any[]): Promise<any[]> {
-    return Promise.all(
+    return await Promise.all(
       runResults.map(async (result) => {
         let attachmentsData = await this.generateAttachmentData(result);
         if (!attachmentsData) {
