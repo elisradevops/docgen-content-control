@@ -26,24 +26,26 @@ export default class HtmlUtils {
     });
   };
 
-  //Replace remaining '\n' with <br/> in other elements
+  // Replace remaining '\n' with <br/> in other elements
   private replaceNewlinesWithBr = () => {
     this.$('*').each((_, element) => {
       const $element = this.$(element);
-      let content = $element.html();
+      const content = $element.html();
+
       if (content) {
-        content = content
-          .replace(/\n+$/g, '')
-          .replace(/\n/g, '<br>')
-          .replace(/<br\s*\/?>\s*(?=<\/p>)/gi, '');
-        $element.html(content);
+        // Replace newline or <br> before </p> with an empty string
+        const updatedContent = content
+          .replace(/<br>(?=\s*<\/p>)/g, '') // Remove <br> before closing tags
+          .replace(/\n(?=\s*<\/p>)/g, ''); // Remove newline before closing tags
+
+        $element.html(updatedContent);
       }
     });
   };
 
   private unifyChainedSpans = () => {
     // Select all block-level elements where spans may be chained
-    this.$('div, p').each((_, blockElement) => {
+    this.$('div, p, li, b, u').each((_, blockElement) => {
       const $blockElement = this.$(blockElement);
       let spanChain: cheerio.Cheerio[] = [];
       let concatenatedText = '';
@@ -251,7 +253,7 @@ export default class HtmlUtils {
 
   public cleanHtml(html): any {
     try {
-      this.$ = cheerio.load(html, { normalizeWhitespace: false, decodeEntities: false });
+      this.$ = cheerio.load(html);
       this.unifyChainedSpans();
       this.replaceNewlinesInSpans();
       this.replaceNewlinesWithBr();
