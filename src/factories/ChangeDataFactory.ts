@@ -1,6 +1,6 @@
-import DgDataProviderAzureDevOps from "@elisra-devops/docgen-data-provider";
-import logger from "../services/logger";
-import ChangesTableDataSkinAdapter from "../adapters/ChangesTableDataSkinAdapter";
+import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import logger from '../services/logger';
+import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
 
 const styles = {
   isBold: false,
@@ -8,7 +8,7 @@ const styles = {
   IsUnderline: false,
   Size: 12,
   Uri: null,
-  Font: "Arial",
+  Font: 'Arial',
   InsertLineBreak: false,
   InsertSpace: false,
 };
@@ -30,6 +30,8 @@ export default class ChangeDataFactory {
   adoptedChangeData: any;
   branchName: string;
   includePullRequests: boolean;
+  includeChangeDescription: boolean;
+  includeCommittedBy: boolean;
 
   constructor(
     teamProjectName,
@@ -40,6 +42,8 @@ export default class ChangeDataFactory {
     linkTypeFilterArray: string[],
     branchName: string,
     includePullRequests: boolean,
+    includeChangeDescription: boolean,
+    includeCommittedBy: boolean,
     dgDataProvider: any
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
@@ -51,7 +55,8 @@ export default class ChangeDataFactory {
     this.linkTypeFilterArray = linkTypeFilterArray;
     this.branchName = branchName;
     this.includePullRequests = includePullRequests;
-
+    this.includeChangeDescription = includeChangeDescription;
+    this.includeCommittedBy = includeCommittedBy;
   } //constructor
 
   /*fetches Change table data and adopts it to json skin format */
@@ -59,62 +64,60 @@ export default class ChangeDataFactory {
     let focusedArtifact;
     let artifactChanges;
     let origin;
-    let gitDataProvider =
-      await this.dgDataProviderAzureDevOps.getGitDataProvider();
-    let pipelinesDataProvider =
-      await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+    let gitDataProvider = await this.dgDataProviderAzureDevOps.getGitDataProvider();
+    let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
     if (this.repoId) {
       focusedArtifact = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
     }
     switch (this.rangeType) {
-      case "commitSha":
-      let commitsInCommitRange = await gitDataProvider.GetCommitsInCommitRange(
+      case 'commitSha':
+        let commitsInCommitRange = await gitDataProvider.GetCommitsInCommitRange(
           this.teamProject,
           this.repoId,
           String(this.to),
-          String(this.from),
+          String(this.from)
         );
         artifactChanges = await gitDataProvider.GetItemsInCommitRange(
           this.teamProject,
           this.repoId,
           commitsInCommitRange
-        )
+        );
         this.rawChangesArray.push({
           artifact: focusedArtifact,
           changes: artifactChanges,
         });
         break;
-      case "date":
+      case 'date':
         let commitsInDateRange = await gitDataProvider.GetCommitsInDateRange(
           this.teamProject,
           this.repoId,
           String(this.from),
           String(this.to),
           this.branchName
-          );
-        
-          if (this.includePullRequests) {
-            console.log(this.includePullRequests)
-            artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
-              this.teamProject,
-              this.repoId,
-              commitsInDateRange
-            );
-          } else {
-            console.log(this.includePullRequests)
-            artifactChanges = await gitDataProvider.GetItemsInCommitRange(
-              this.teamProject,
-              this.repoId,
-              commitsInDateRange
-            );
-          }
-          this.rawChangesArray.push({
-            artifact: focusedArtifact,
-            changes: artifactChanges,
-          });
-          break;
+        );
 
-      case "pipeline":
+        if (this.includePullRequests) {
+          console.log(this.includePullRequests);
+          artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
+            this.teamProject,
+            this.repoId,
+            commitsInDateRange
+          );
+        } else {
+          console.log(this.includePullRequests);
+          artifactChanges = await gitDataProvider.GetItemsInCommitRange(
+            this.teamProject,
+            this.repoId,
+            commitsInDateRange
+          );
+        }
+        this.rawChangesArray.push({
+          artifact: focusedArtifact,
+          changes: artifactChanges,
+        });
+        break;
+
+      case 'pipeline':
         focusedArtifact = await pipelinesDataProvider.getPipelineFromPipelineId(
           this.teamProject,
           Number(this.to)
@@ -129,19 +132,14 @@ export default class ChangeDataFactory {
           changes: artifactChanges,
         });
         break;
-      case "release":
+      case 'release':
         //get list of artifacts for each release
         let fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
           this.teamProject,
           Number(this.from)
         );
-        let toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-          this.teamProject,
-          Number(this.to)
-        );
-        logger.info(
-          `retrived release artifacts for releases : ${fromRelease} - ${toRelease}`
-        );
+        let toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, Number(this.to));
+        logger.info(`retrived release artifacts for releases : ${fromRelease} - ${toRelease}`);
         //create factory for each aritfact
         await Promise.all(
           toRelease.artifacts.map(async (toArtifact) => {
@@ -154,7 +152,7 @@ export default class ChangeDataFactory {
               fromArtifact = toArtifact;
             }
             switch (toArtifact.type) {
-              case "Build":
+              case 'Build':
                 logger.debug(
                   `fetching links between ${fromArtifact.definitionReference.version.id}-${toArtifact.definitionReference.version.id}`
                 );
@@ -163,18 +161,20 @@ export default class ChangeDataFactory {
                   fromArtifact.definitionReference.repository.name,
                   fromArtifact.definitionReference.version.id,
                   toArtifact.definitionReference.version.id,
-                  "pipeline",
+                  'pipeline',
                   null,
-                  "", // You can provide the appropriate branch name here or an empty string if not applicable
+                  '', // You can provide the appropriate branch name here or an empty string if not applicable
                   true,
+                  false,
+                  false,
                   this.dgDataProviderAzureDevOps
                 );
-                
+
                 await buildChangeFactory.fetchData();
                 let rawData = buildChangeFactory.getRawData();
                 this.rawChangesArray = [...this.rawChangesArray, ...rawData];
                 break;
-              case "Git":
+              case 'Git':
                 break;
             }
           })
@@ -189,7 +189,9 @@ export default class ChangeDataFactory {
   /*arranging the test data for json skins package*/
   async jsonSkinDataAdpater() {
     let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
-      this.rawChangesArray
+      this.rawChangesArray,
+      this.includeChangeDescription,
+      this.includeCommittedBy
     );
     changesTableDataSkinAdapter.adoptSkinData();
     this.adoptedChangeData = changesTableDataSkinAdapter.getAdoptedData();

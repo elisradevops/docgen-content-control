@@ -34,8 +34,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
           { name: 'Test Name', value: `${item.testName}` },
           { name: 'Step', value: `${item.stepNo}`, width: '4.6%' },
           { name: 'Action', value: action, width: '20.8%' },
-          { name: 'Expected Result', value: expected, width: '20.8%%' },
-          { name: 'Step Status', value: `${item.stepStatus}`,  width: '10%' },
+          { name: 'Expected Result', value: expected, width: '20.8%' },
+          { name: 'Step Status', value: `${item.stepStatus}`, width: '10%' },
           { name: 'Actual Result', value: `${item.stepComments}` },
           // TBD
           // { name: 'PCR No', value: `${item.PCR No}` },

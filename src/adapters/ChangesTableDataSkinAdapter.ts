@@ -1,12 +1,19 @@
-import logger from "../services/logger";
-import { writeFileSync } from "fs";
+import logger from '../services/logger';
+import HtmlUtils from '../services/htmlUtils';
+import { writeFileSync } from 'fs';
 
 export default class ChangesTableDataSkinAdapter {
   rawChangesArray: any = [];
   adoptedData: any = [];
+  includeChangeDescription: boolean = false;
+  includeCommittedBy: boolean = false;
+  htmlUtils: HtmlUtils;
 
-  constructor(rawChangesArray: any[]) {
+  constructor(rawChangesArray: any[], includeChangeDescription: boolean, includeCommittedBy: boolean) {
     this.rawChangesArray = rawChangesArray;
+    this.includeChangeDescription = includeChangeDescription;
+    this.includeCommittedBy = includeCommittedBy;
+    this.htmlUtils = new HtmlUtils();
     console.log('Constructor: Initialized ChangesTableDataSkinAdapter with rawChangesArray', rawChangesArray);
   }
 
@@ -15,80 +22,140 @@ export default class ChangesTableDataSkinAdapter {
     return this.adoptedData;
   }
 
+  private applyChangeNumber = (change: any) => {
+    if (change.build) {
+      return { value: change.build, url: change.workItem.url };
+    }
+
+    if (change.pullrequest) {
+      return { value: change.pullrequest.description, url: change.pullrequest.url };
+    }
+
+    if (change.commit) {
+      return { value: change.commit.commitId.substring(0, 5), url: change.commit.remoteUrl };
+    }
+  };
+
+  private applyClosedDateData = (change: any) => {
+    if (change.build) {
+      return {
+        value:
+          change.workItem.fields['Microsoft.VSTS.Common.ClosedDate'] || "This item hasn't been Closed yet",
+      };
+    }
+
+    if (change.pullrequest) {
+      return {
+        value: change.pullrequest.closedDate,
+      };
+    }
+
+    if (change.commit) {
+      return {
+        value: change.commit.author.date,
+      };
+    }
+  };
+
+  private applyCommitterData = (change: any) => {
+    if (change.build) {
+      return {
+        value: change.workItem.fields['Microsoft.VSTS.Common.ClosedBy']
+          ? change.workItem.fields['Microsoft.VSTS.Common.ClosedBy'].displayName
+          : "This item hasn't been Closed yet",
+      };
+    }
+
+    if (change.pullrequest) {
+      return {
+        value: change.pullrequest.createdBy.displayName,
+      };
+    }
+
+    if (change.commit) {
+      return {
+        value: change.commit.committer.name,
+      };
+    }
+  };
+
   async adoptSkinData() {
     console.log('adoptSkinData: Started adopting skin data');
     let i = 0;
     this.rawChangesArray.forEach((artifact) => {
       let artifactTitle: any = [
         {
-          fields: [{ name: "Artifact name", value: artifact.artifact.name }],
+          fields: [{ name: 'Description', value: `Artifact name: ${artifact.artifact.name}` }],
         },
       ];
       let artifactChanges: any = [];
       artifact.changes.forEach((change) => {
         let changeTableRow;
         if (change.workItem) {
+          //TODO: add toggle for adding system description
+          //TODO: add toggle for adding committed by
+          const description: string = change.workItem.fields['System.Description'];
           changeTableRow = {
             fields: [
-              { name: "#", value: i + 1 },
+              { name: '#', value: i + 1, width: '3.8%' },
               {
-                name: "Change #",
-                value: "commit sha / pr id",
-                url: null,
+                name: 'Change #',
+                ...this.applyChangeNumber(change),
+                width: '7.6%',
               },
               {
-                name: "Related WI",
-                value: `${change.workItem.fields["System.Title"]} - ${change.workItem.fields["System.WorkItemType"]} ${change.workItem.id}`,
+                name: 'WI ID',
+                value: `${change.workItem.id}`,
                 url: change.workItem._links.html.href,
+                width: '6.8%',
               },
               {
-                name: "Change description",
-                value: change.workItem.fields["System.Description"],
+                name: 'WI Type',
+                value: `${change.workItem.fields['System.WorkItemType']}`,
+                width: '11.9%',
               },
-              { name: "Committed Date & Time", value: "date time" },
-              { name: "Commited by", value: "commited by" },
-            ],
+              {
+                name: 'WI Title',
+                value: `${change.workItem.fields['System.Title']}`,
+              },
+              {
+                name: 'Change description',
+                condition: this.includeChangeDescription,
+                value: description ? this.htmlUtils.cleanHtml(description) : '',
+                width: '20.8%',
+              },
+              { name: 'Committed Date & Time', ...this.applyClosedDateData(change), width: '10%' },
+              {
+                name: 'Committed by',
+                ...this.applyCommitterData(change),
+                width: '11.4%',
+                condition: this.includeCommittedBy,
+              },
+            ].filter((field) => field.condition === undefined || field.condition === true),
           };
-        } else //if include Pull Requests is True
-        {
+        } //if include Pull Requests is True
+        else {
           changeTableRow = {
             fields: [
-              { name: "#", value: i + 1 },
+              { name: '#', value: i + 1, width: '7.6%' },
               {
-                name: "Pull Request Title",
+                name: 'Pull Request Title',
                 value: change.title,
               },
               {
-                name: "Pull Request Description",
+                name: 'Pull Request Description',
                 value: change.description,
+                condition: this.includeChangeDescription,
               },
-              { name: "Creation date", value: change.creationDate },
-              { name: "Created by", value: change.createdBy },
-            ],
+              {
+                name: 'Creation date',
+                value: change.creationDate,
+                width: '10%',
+              },
+              { name: 'Created by', value: change.createdBy, condition: this.includeCommittedBy },
+            ].filter((field) => field.condition === undefined || field.condition === true),
           };
         }
-
-        if (change.build) {
-          changeTableRow.fields[1].value = change.build;
-          changeTableRow.fields[1].url = change.workItem.url;
-          changeTableRow.fields[4].value = change.workItem.fields["Microsoft.VSTS.Common.ClosedDate"] || "This item hasn't been Closed yet";
-          changeTableRow.fields[5].value = change.workItem.fields["Microsoft.VSTS.Common.ClosedBy"] ? change.workItem.fields["Microsoft.VSTS.Common.ClosedBy"].displayName : "This item hasn't been Closed yet";
-        }
-
-        if (change.pullrequest) {
-          changeTableRow.fields[1].value = change.pullrequest.description;
-          changeTableRow.fields[1].url = change.pullrequest.url;
-          changeTableRow.fields[4].value = change.pullrequest.closedDate;
-          changeTableRow.fields[5].value = change.pullrequest.createdBy.displayName;
-        }
-
-        if (change.commit) {
-          changeTableRow.fields[1].value = change.commit.commitId.substring(0, 5);
-          changeTableRow.fields[1].url = change.commit.remoteUrl;
-          changeTableRow.fields[4].value = change.commit.author.date;
-          changeTableRow.fields[5].value = change.commit.committer.name;
-        }
-
         artifactChanges.push(changeTableRow);
         i++;
       });
