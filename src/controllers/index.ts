@@ -150,7 +150,10 @@ export default class DgContentControls {
             contentControlOptions.title,
             contentControlOptions.headingLevel,
             contentControlOptions.data.branchName,
-            contentControlOptions.data.includePullRequests
+            contentControlOptions.data.includePullRequests,
+            undefined, // content control
+            contentControlOptions.data.includeChangeDescription,
+            contentControlOptions.data.includeCommittedBy
           );
           break;
         case 'pr-change-description-table':
@@ -583,7 +586,9 @@ export default class DgContentControls {
     headingLevel?: number,
     branchName?: string,
     includePullRequests?: boolean,
-    contentControl?: contentControl
+    contentControl?: contentControl,
+    includeChangeDescription: boolean = false,
+    includeCommittedBy: boolean = false
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -606,6 +611,8 @@ export default class DgContentControls {
         linkTypeFilterArray,
         branchName,
         includePullRequests,
+        includeChangeDescription,
+        includeCommittedBy,
         this.dgDataProviderAzureDevOps
       );
       await changeDataFactory.fetchData();
@@ -622,25 +629,48 @@ export default class DgContentControls {
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
       logger.debug(JSON.stringify(defaultStyles));
       logger.debug(JSON.stringify(headingLevel));
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
 
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
       for (const artifactChangesData of adoptedChangesData) {
         let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
           contentControlTitle,
           this.skins.SKIN_TYPE_PARAGRAPH,
           artifactChangesData.artifact,
-          undefined,
-          defaultStyles,
+          headerStyles,
+          styles,
           headingLevel
         );
 
-        let tableSkins = await this.skins.addNewContentToDocumentSkin(
-          contentControlTitle,
-          this.skins.SKIN_TYPE_TABLE,
-          artifactChangesData.artifactChanges,
-          undefined,
-          defaultStyles,
-          headingLevel
-        );
+        let tableSkins = artifactChangesData.artifactChanges
+          ? await this.skins.addNewContentToDocumentSkin(
+              contentControlTitle,
+              this.skins.SKIN_TYPE_TABLE,
+              artifactChangesData.artifactChanges,
+              headerStyles,
+              styles,
+              headingLevel
+            )
+          : null;
+        if (!tableSkins) {
+          throw new Error('Cannot apply skins for current SVD request');
+        }
         paragraphSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
         });
