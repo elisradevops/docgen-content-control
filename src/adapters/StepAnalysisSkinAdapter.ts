@@ -62,15 +62,19 @@ export default class StepAnalysisSkinAdapter {
 
         skins.push(suiteSkinData, caseSkinData);
 
+        if (runResult.comment || runResult?.iteration?.comment || runResult?.attachmentsData) {
+          skins.push({ field: { name: 'Title', value: 'Analysis Result:' } });
+        }
+
         if (runResult.comment) {
-          skins.push({ field: { name: 'Description', value: `Analysis Result: ${runResult.comment}` } });
+          skins.push({ field: { name: 'Description', value: `${runResult.comment}` } });
         }
 
         if (runResult?.iteration?.comment) {
           skins.push({
             field: {
               name: 'Description',
-              value: `Test Case Analysis Result: ${runResult.iteration.comment}`,
+              value: `${runResult.iteration.comment}`,
             },
           });
         }
@@ -83,12 +87,6 @@ export default class StepAnalysisSkinAdapter {
           //Analysis attachment
           if (analysisLevel) {
             //Here we got an array of values that need to be uploaded
-            skins.push({
-              field: { name: 'Title', value: 'Analysis Attachments' },
-              level: 3,
-              type: 'SubHeader',
-            });
-
             analysisLevel.forEach((attachment) => {
               // iterate through all the analysis attachments
               skins.push({
@@ -102,8 +100,6 @@ export default class StepAnalysisSkinAdapter {
 
           if (iterationAttachmentData && Object.keys(iterationAttachmentData).length !== 0) {
             const { caseLevel, ...stepLevels } = iterationAttachmentData;
-
-            skins.push({ field: { name: 'Title', value: 'Run Attachments' }, level: 3, type: 'SubHeader' });
 
             //iterate through all the test case attachments
             if (caseLevel) {
@@ -130,8 +126,6 @@ export default class StepAnalysisSkinAdapter {
                     name: 'Title',
                     value: `Step #${this.convertActionPathToStepNumber(key)}`,
                   },
-                  level: 4,
-                  type: 'SubHeader',
                 });
 
                 for (let attachment of attachments as any[]) {
