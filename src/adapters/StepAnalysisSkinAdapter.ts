@@ -45,6 +45,7 @@ export default class StepAnalysisSkinAdapter {
       } else {
         runResults = resultDataRaw;
       }
+
       return runResults.map((runResult) => {
         const skins: any[] = [];
 
@@ -63,7 +64,10 @@ export default class StepAnalysisSkinAdapter {
         skins.push(suiteSkinData, caseSkinData);
 
         if (runResult.comment || runResult?.iteration?.comment || runResult?.attachmentsData) {
-          skins.push({ field: { name: 'Title', value: 'Analysis Result:' } });
+          skins.push({
+            field: { name: 'Title', value: 'Analysis Result:' },
+            type: 'SubHeader',
+          });
         }
 
         if (runResult.comment) {
@@ -124,8 +128,10 @@ export default class StepAnalysisSkinAdapter {
                 skins.push({
                   field: {
                     name: 'Title',
+                    type: 'SubHeader',
                     value: `Step #${this.convertActionPathToStepNumber(key)}`,
                   },
+                  type: 'SubHeader',
                 });
 
                 for (let attachment of attachments as any[]) {
