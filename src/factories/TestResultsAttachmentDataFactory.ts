@@ -96,7 +96,7 @@ export default class TestResultsAttachmentDataFactory {
 
   // Private method to process attachments for both iteration and analysis attachments
   private async processAttachments(
-    map: { [key: string]: any[] },
+    map: { [key: number]: any[] },
     attachments: any[],
     attachmentsBucketName: string,
     minioEndPoint: string,
@@ -114,9 +114,13 @@ export default class TestResultsAttachmentDataFactory {
         PAT
       );
 
-      const { comment, actionPath, name, id } = attachment;
+      const { comment, actionPath, stepNo, name, id } = attachment;
       const actionPathKey =
-        actionPath !== undefined ? (actionPath === '' ? 'caseLevel' : actionPath) : 'analysisLevel';
+        actionPath !== undefined
+          ? actionPath === ''
+            ? 'caseLevel'
+            : `${actionPath}-${stepNo + 1}`
+          : 'analysisLevel';
 
       if (!map[actionPathKey]) {
         map[actionPathKey] = [];

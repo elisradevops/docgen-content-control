@@ -112,8 +112,6 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test case attachments
             if (caseLevel) {
-              logger.debug(`case level ${JSON.stringify(caseLevel)}`);
-
               if (caseLevel.length > 0) {
                 caseLevel.forEach((attachment) => {
                   skins.push({
@@ -129,11 +127,13 @@ export default class StepAnalysisSkinAdapter {
             //iterate through all the test steps
             if (stepLevels) {
               for (let [key, attachments] of Object.entries(stepLevels)) {
+                //TODO: delete later...
+                logger.debug(`step level key ${key}`);
                 skins.push({
                   field: {
                     name: 'Title',
                     type: 'SubHeader',
-                    value: `Step #${this.convertActionPathToStepNumber(key)}`,
+                    value: `Step #${this.takeStepIndex(key)}`,
                   },
                   type: 'SubHeader',
                 });
@@ -162,9 +162,9 @@ export default class StepAnalysisSkinAdapter {
   /**
    * Converting the action path hexadecimal value into an integer and decrease by one because it starts from 2
    */
-  private convertActionPathToStepNumber(actionPath: string): number {
-    const step = parseInt(actionPath, 16);
-    return step - 1;
+  private takeStepIndex(actionPath: string): string {
+    const stepNum = actionPath.split('-').pop();
+    return stepNum;
   }
 
   /**
