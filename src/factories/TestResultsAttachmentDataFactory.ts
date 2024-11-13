@@ -96,7 +96,7 @@ export default class TestResultsAttachmentDataFactory {
 
   // Private method to process attachments for both iteration and analysis attachments
   private async processAttachments(
-    map: { [key: number]: any[] },
+    map: { [key: string]: any[] },
     attachments: any[],
     attachmentsBucketName: string,
     minioEndPoint: string,
