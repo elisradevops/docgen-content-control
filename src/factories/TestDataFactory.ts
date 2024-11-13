@@ -474,7 +474,7 @@ export default class TestDataFactory {
                                         name: 'Actual Result',
                                         value:
                                           testStep?.stepComments ||
-                                          `${testStep?.stepStatus === 'Not Run' ? 'Not Result' : ''}`,
+                                          `${testStep?.stepStatus === 'Not Run' ? 'No Result' : ''}`,
                                       },
                                     ],
                                   };

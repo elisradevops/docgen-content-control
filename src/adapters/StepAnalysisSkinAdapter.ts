@@ -62,8 +62,13 @@ export default class StepAnalysisSkinAdapter {
         };
 
         skins.push(suiteSkinData, caseSkinData);
+        if (!runResult.comment && !runResult?.iteration?.comment && !runResult?.attachmentsData) {
+          skins.push({
+            field: { name: 'Description', value: 'No comments are available for this suite' },
+          });
 
-        if (runResult.comment || runResult?.iteration?.comment || runResult?.attachmentsData) {
+          return skins;
+        } else if (runResult.comment || runResult?.iteration?.comment || runResult?.attachmentsData) {
           skins.push({
             field: { name: 'Title', value: 'Analysis Result:' },
             type: 'SubHeader',
@@ -124,7 +129,6 @@ export default class StepAnalysisSkinAdapter {
             //iterate through all the test steps
             if (stepLevels) {
               for (let [key, attachments] of Object.entries(stepLevels)) {
-                logger.debug(`key ${key}`);
                 skins.push({
                   field: {
                     name: 'Title',
