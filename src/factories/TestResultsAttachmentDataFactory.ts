@@ -114,9 +114,13 @@ export default class TestResultsAttachmentDataFactory {
         PAT
       );
 
-      const { comment, actionPath, name, id } = attachment;
+      const { comment, actionPath, stepNo, name, id } = attachment;
       const actionPathKey =
-        actionPath !== undefined ? (actionPath === '' ? 'caseLevel' : actionPath) : 'analysisLevel';
+        actionPath !== undefined
+          ? actionPath === ''
+            ? 'caseLevel'
+            : `${actionPath}-${stepNo + 1}`
+          : 'analysisLevel';
 
       if (!map[actionPathKey]) {
         map[actionPathKey] = [];
