@@ -199,7 +199,7 @@ describe('Generate json document from test plans - tests', () => {
       4,
       true
     );
-    expect(jsonDoc.wordObjects.length).toBeGreaterThanOrEqual(1);
+    expect(jsonDoc.length).toBeGreaterThanOrEqual(1);
   });
   test('Generate std content control - complex test plan no attachments', async () => {
     let dgContent = new DGContentControls(
@@ -221,7 +221,7 @@ describe('Generate json document from test plans - tests', () => {
       4,
       false
     );
-    expect(jsonDoc.wordObjects.length).toBeGreaterThanOrEqual(1);
+    expect(jsonDoc.length).toBeGreaterThanOrEqual(1);
   });
   test.skip('Generate std content control - 1400 testcases complex test plan', async () => {
     //not enough testcases
