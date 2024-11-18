@@ -113,7 +113,8 @@ export default class DgContentControls {
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
             contentControlOptions.data.includeBugs,
-            contentControlOptions.data.includeSeverity
+            contentControlOptions.data.includeSeverity,
+            contentControlOptions.data.selectedQueries
           );
 
           break;
@@ -256,7 +257,7 @@ export default class DgContentControls {
     includeCustomerId?: boolean,
     includeBugs?: boolean,
     includeSeverity?: boolean,
-    contentControl?: contentControl
+    selectedQueries?: any
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -275,6 +276,7 @@ export default class DgContentControls {
         includeCustomerId,
         includeBugs,
         includeSeverity,
+        selectedQueries,
         false,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
@@ -285,13 +287,15 @@ export default class DgContentControls {
       );
       //init the adopted data
       await testDataFactory.fetchTestData();
+      if (selectedQueries.reqTestQuery || selectedQueries.testReqQuery) {
+        await testDataFactory.fetchQueryResults();
+      }
     } catch (error) {
       throw new Error(`Error initializing test data factory ${error}`);
     }
     try {
-      if (!contentControl) {
-        contentControl = { title: contentControlTitle, wordObjects: [] };
-      }
+      const contentControls: contentControl[] = [];
+
       logger.debug(JSON.stringify(contentControlTitle));
       logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
       logger.debug(JSON.stringify(defaultStyles));
@@ -328,15 +332,52 @@ export default class DgContentControls {
         headingLevel,
         includeAttachments
       );
-
+      const testDescCC = { title: contentControlTitle, wordObjects: [] };
       skins.forEach((skin) => {
         // Check if skin is of type 'paragraph' and contains the text 'Test Description:'
         if (skin.type === 'paragraph' && skin.runs.some((run) => run.text === 'Test Description:')) {
           return; // Skip this skin
         }
-        contentControl.wordObjects.push(skin);
+        testDescCC.wordObjects.push(skin);
       });
-      return contentControl;
+      contentControls.push(testDescCC);
+
+      const queryResultsConfig = [
+        {
+          data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData,
+          title: 'requirements-to-test-cases-content-control',
+          noDataMessage: 'No Requirement - Test Case query result data',
+        },
+        {
+          data: testDataFactory.adoptedQueryResults?.testReqAdoptedData,
+          title: 'test-cases-to-requirements-content-control',
+          noDataMessage: 'No Test Case - Requirement query result data',
+        },
+      ];
+
+      for (const { data, title, noDataMessage } of queryResultsConfig) {
+        const skinType = data ? this.skins.SKIN_TYPE_TABLE : this.skins.SKIN_TYPE_PARAGRAPH;
+        const skinData = data || [{ fields: [{ name: 'Description', value: noDataMessage }] }];
+
+        const queryResultSkin = await this.skins.addNewContentToDocumentSkin(
+          title,
+          skinType,
+          skinData,
+          headerStyles,
+          styles,
+          headingLevel
+        );
+
+        if (queryResultSkin || !data) {
+          const contentControlResults: contentControl = {
+            title,
+            wordObjects: queryResultSkin,
+          };
+          contentControls.push(contentControlResults);
+        }
+      }
+
+      return contentControls;
     } catch (error: any) {
       logger.error(`Error adding content control: ${error}`);
       throw new Error(`Error adding content control: ${error}`);
@@ -525,6 +566,7 @@ export default class DgContentControls {
             stepExecution?.generateRequirements.includeCustomerId,
             false,
             false,
+            undefined,
             false,
             this.dgDataProviderAzureDevOps,
             this.templatePath,

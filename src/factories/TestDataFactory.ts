@@ -4,6 +4,7 @@ import AttachmentsDataFactory from './AttachmentsDataFactory';
 import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
+import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
 
 const styles = {
   isBold: false,
@@ -24,6 +25,7 @@ export default class TestDataFactory {
   testSuiteArray: number[];
   testDataRaw: any;
   adoptedTestData: any;
+  adoptedQueryResults: any;
   templatePath: string;
   includeAttachments: boolean;
   attachmentType: string;
@@ -31,6 +33,9 @@ export default class TestDataFactory {
   includeCustomerId: boolean;
   includeBugs: boolean;
   includeSeverity: boolean;
+  selectedQueries: any;
+  reqTestQueryResults: Map<any, any[]>;
+  testReqQueryResults: Map<any, any[]>;
   includeTestResults: boolean;
   minioEndPoint: string;
   minioAccessKey: string;
@@ -52,6 +57,7 @@ export default class TestDataFactory {
     includeCustomerId: boolean = false,
     includeBugs: boolean = false,
     includeSeverity: boolean = false,
+    selectedQueries: any = undefined,
     includeTestResults: boolean = false,
     dgDataProvider: any,
     templatePath = '',
@@ -70,6 +76,7 @@ export default class TestDataFactory {
     this.includeCustomerId = includeCustomerId;
     this.includeBugs = includeBugs;
     this.includeSeverity = includeSeverity;
+    this.selectedQueries = selectedQueries;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
     this.includeTestResults = includeTestResults;
@@ -247,6 +254,36 @@ export default class TestDataFactory {
     }
   }
 
+  async fetchQueryResults() {
+    try {
+      const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
+      if (!this.selectedQueries.reqTestQuery?.wiql && !this.selectedQueries.testReqQuery.wiql) {
+        throw new Error(`Invalid WIQL for query`);
+      }
+
+      if (this.selectedQueries.reqTestQuery) {
+        let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
+          this.selectedQueries.reqTestQuery.wiql.href,
+          this.includeCustomerId
+        );
+        this.reqTestQueryResults = reqTestQueryResults;
+      }
+
+      if (this.selectedQueries.testReqQuery) {
+        let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
+          this.selectedQueries.testReqQuery.wiql.href,
+          this.includeCustomerId
+        );
+
+        this.testReqQueryResults = testReqQueryResults;
+      }
+
+      this.adoptedQueryResults = await this.jsonSkinDataAdpater('query-results');
+    } catch (err) {
+      logger.error(`Could not fetch query results: ${err.message}`);
+    }
+  }
+
   private allValuesAreTarget(array, targetValues) {
     return array.every((obj) => targetValues.includes(obj.value));
   }
@@ -303,12 +340,40 @@ export default class TestDataFactory {
 
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null) {
-    let adoptedTestData;
+    let adoptedTestData = {} as any;
     try {
       switch (adapterType) {
         case 'test-result-group-summary':
           // let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
           // adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
+          break;
+        case 'query-results':
+          const configs = [
+            {
+              queryResults: this.reqTestQueryResults,
+              type: 'req-test',
+              adoptedDataKey: 'reqTestAdoptedData',
+            },
+            {
+              queryResults: this.testReqQueryResults,
+              type: 'test-req',
+              adoptedDataKey: 'testReqAdoptedData',
+            },
+          ];
+
+          for (const { queryResults, type, adoptedDataKey } of configs) {
+            if (queryResults) {
+              const queryResultSkinAdapter = new QueryResultsSkinAdapter(
+                queryResults,
+                type,
+                this.includeCustomerId
+              );
+              queryResultSkinAdapter.adoptSkinData();
+              const adoptedData = queryResultSkinAdapter.getAdoptedData();
+              adoptedTestData[adoptedDataKey] = adoptedData;
+            }
+          }
+
           break;
         default:
           //There is a problem when grabbing the data
