@@ -168,23 +168,26 @@ export default class TestDataFactory {
 
     if (testCases.length != 0) {
       let testCasesWithAttachments: any = [];
-      for (let i = 0; i < testCases.length; i++) {
-        let attachmentsData = await this.generateAttachmentData(testCases[i].id);
-        attachmentsData.forEach((item) => {
-          let attachmentBucketData = {
-            attachmentMinioPath: item.attachmentMinioPath,
-            minioFileName: item.minioFileName,
-          };
-          this.attachmentMinioData.push(attachmentBucketData);
-          if (item.ThumbMinioPath && item.minioThumbName) {
-            let thumbBucketData = {
-              attachmentMinioPath: item.ThumbMinioPath,
-              minioFileName: item.minioThumbName,
+      for (const testCase of testCases) {
+        let attachmentsData = [];
+        if (this.includeAttachments) {
+          attachmentsData = await this.generateAttachmentData(testCase.id);
+          attachmentsData.forEach((item) => {
+            let attachmentBucketData = {
+              attachmentMinioPath: item.attachmentMinioPath,
+              minioFileName: item.minioFileName,
             };
-            this.attachmentMinioData.push(thumbBucketData);
-          }
-        });
-        let testCaseWithAttachments: any = JSON.parse(JSON.stringify(testCases[i]));
+            this.attachmentMinioData.push(attachmentBucketData);
+            if (item.ThumbMinioPath && item.minioThumbName) {
+              let thumbBucketData = {
+                attachmentMinioPath: item.ThumbMinioPath,
+                minioFileName: item.minioThumbName,
+              };
+              this.attachmentMinioData.push(thumbBucketData);
+            }
+          });
+        }
+        let testCaseWithAttachments: any = JSON.parse(JSON.stringify(testCase));
         testCaseWithAttachments.attachmentsData = attachmentsData;
         testCasesWithAttachments.push(testCaseWithAttachments);
       }
