@@ -287,7 +287,7 @@ export default class DgContentControls {
       );
       //init the adopted data
       await testDataFactory.fetchTestData();
-      if (selectedQueries.reqTestQuery || selectedQueries.testReqQuery) {
+      if (selectedQueries?.reqTestQuery || selectedQueries?.testReqQuery) {
         await testDataFactory.fetchQueryResults();
       }
     } catch (error) {
@@ -342,38 +342,40 @@ export default class DgContentControls {
       });
       contentControls.push(testDescCC);
 
-      const queryResultsConfig = [
-        {
-          data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData,
-          title: 'requirements-to-test-cases-content-control',
-          noDataMessage: 'No Requirement - Test Case query result data',
-        },
-        {
-          data: testDataFactory.adoptedQueryResults?.testReqAdoptedData,
-          title: 'test-cases-to-requirements-content-control',
-          noDataMessage: 'No Test Case - Requirement query result data',
-        },
-      ];
+      if (selectedQueries) {
+        const queryResultsConfig = [
+          {
+            data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData,
+            title: 'requirements-to-test-cases-content-control',
+            noDataMessage: 'No Requirement - Test Case query result data',
+          },
+          {
+            data: testDataFactory.adoptedQueryResults?.testReqAdoptedData,
+            title: 'test-cases-to-requirements-content-control',
+            noDataMessage: 'No Test Case - Requirement query result data',
+          },
+        ];
 
-      for (const { data, title, noDataMessage } of queryResultsConfig) {
-        const skinType = data ? this.skins.SKIN_TYPE_TABLE : this.skins.SKIN_TYPE_PARAGRAPH;
-        const skinData = data || [{ fields: [{ name: 'Description', value: noDataMessage }] }];
+        for (const { data, title, noDataMessage } of queryResultsConfig) {
+          const skinType = data ? this.skins.SKIN_TYPE_TABLE : this.skins.SKIN_TYPE_PARAGRAPH;
+          const skinData = data || [{ fields: [{ name: 'Description', value: noDataMessage }] }];
 
-        const queryResultSkin = await this.skins.addNewContentToDocumentSkin(
-          title,
-          skinType,
-          skinData,
-          headerStyles,
-          styles,
-          headingLevel
-        );
-
-        if (queryResultSkin || !data) {
-          const contentControlResults: contentControl = {
+          const queryResultSkin = await this.skins.addNewContentToDocumentSkin(
             title,
-            wordObjects: queryResultSkin,
-          };
-          contentControls.push(contentControlResults);
+            skinType,
+            skinData,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+
+          if (queryResultSkin || !data) {
+            const contentControlResults: contentControl = {
+              title,
+              wordObjects: queryResultSkin,
+            };
+            contentControls.push(contentControlResults);
+          }
         }
       }
 

@@ -259,6 +259,9 @@ export default class TestDataFactory {
 
   async fetchQueryResults() {
     try {
+      if (!this.selectedQueries) {
+        throw new Error('selectedQueries is undefined');
+      }
       const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
       if (!this.selectedQueries.reqTestQuery?.wiql && !this.selectedQueries.testReqQuery.wiql) {
         throw new Error(`Invalid WIQL for query`);
