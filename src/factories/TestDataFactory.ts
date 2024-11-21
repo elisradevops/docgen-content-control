@@ -123,7 +123,6 @@ export default class TestDataFactory {
           }))
         );
       } //end of if
-
       let allTestCases: any[] = await testDataProvider.GetTestCasesBySuites(
         this.teamProject,
         `${this.testPlanId}`,
@@ -132,7 +131,8 @@ export default class TestDataFactory {
         this.includeRequirements,
         this.includeCustomerId,
         this.includeBugs,
-        this.includeSeverity
+        this.includeSeverity,
+        this.stepResultDetails
       );
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
@@ -169,6 +169,7 @@ export default class TestDataFactory {
     if (testCases.length != 0) {
       let testCasesWithAttachments: any = [];
       for (const testCase of testCases) {
+        //TODO check of test case has the same revision as the STR data
         let attachmentsData = [];
         if (this.includeAttachments) {
           attachmentsData = await this.generateAttachmentData(testCase.id);
@@ -294,7 +295,7 @@ export default class TestDataFactory {
   private mapTestResults(testCases: any[]): any[] {
     try {
       // Step 1: Create a lookup map for stepsData
-      const stepMap: { [testId: number]: any[] } = {};
+      const stepMap: Map<number, any[]> = new Map();
 
       // If stepResultDetails is empty, populate all steps with default values
       if (this.stepResultDetails.length === 0) {
@@ -307,16 +308,17 @@ export default class TestDataFactory {
         return testCases; // No need to continue if we are populating defaults
       }
 
-      this.stepResultDetails.forEach((step) => {
-        if (!stepMap[step.testId]) {
-          stepMap[step.testId] = [];
+      this.stepResultDetails.forEach((step: any) => {
+        if (!stepMap.has(step.testId)) {
+          stepMap.set(step.testId, []);
         }
-        stepMap[step.testId].push(step);
+        stepMap.get(step.testId).push(step);
       });
 
       // Step 2: Iterate over testCases and update steps
       testCases.forEach((testCase) => {
-        const matchingSteps = stepMap[testCase.id];
+        const matchingSteps = stepMap.get(testCase.id);
+
         if (matchingSteps) {
           matchingSteps.forEach((stepData) => {
             const stepIndex = stepData.stepNo - 1;
