@@ -267,16 +267,16 @@ export default class TestDataFactory {
 
       if (this.selectedQueries.reqTestQuery) {
         let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
-          this.selectedQueries.reqTestQuery.wiql.href,
-          this.includeCustomerId
+          this.teamProject,
+          this.selectedQueries.reqTestQuery.wiql.href
         );
         this.reqTestQueryResults = reqTestQueryResults;
       }
 
       if (this.selectedQueries.testReqQuery) {
         let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
-          this.selectedQueries.testReqQuery.wiql.href,
-          this.includeCustomerId
+          this.teamProject,
+          this.selectedQueries.testReqQuery.wiql.href
         );
 
         this.testReqQueryResults = testReqQueryResults;
