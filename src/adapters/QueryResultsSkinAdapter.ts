@@ -25,9 +25,6 @@ export default class QueryResultsSkinAdapter {
       const baseShading = { color: 'auto' };
       let groupIdx = 0;
 
-      // // Determine if we need to include the Customer ID column
-      // const includeCustomerIdColumn = this.checkIfCustomerIdExists();
-
       for (const [source, targets] of this.rawQueryMapping) {
         const currentReqColor = reqColors[groupIdx % reqColors.length];
         const currentTestColor = testColors[groupIdx % testColors.length];
@@ -85,7 +82,7 @@ export default class QueryResultsSkinAdapter {
       ([_, fieldName]) => fieldName === 'Title'
     )?.[0];
 
-    if (titleReferenceName && item.fields[titleReferenceName] !== undefined) {
+    if (item && titleReferenceName && item.fields[titleReferenceName] !== undefined) {
       adaptedFields.push({
         name: 'Title',
         value: item.fields[titleReferenceName],
@@ -104,7 +101,7 @@ export default class QueryResultsSkinAdapter {
         case 'Priority': {
           adaptedFields.push({
             name: fieldName,
-            value: item.fields[referenceName],
+            value: item?.fields[referenceName] || '',
             width: '6.5%',
             color: color,
           });
@@ -113,14 +110,14 @@ export default class QueryResultsSkinAdapter {
         case 'Assigned To':
           adaptedFields.push({
             name: fieldName,
-            value: item.fields[referenceName]?.displayName || '',
+            value: item?.fields[referenceName]?.displayName || '',
             color: color,
           });
           break;
         case 'Customer ID':
           adaptedFields.push({
             name: fieldName,
-            value: item.fields[referenceName],
+            value: item?.fields[referenceName] || '',
             color: color,
             width: '9.7%',
           });
@@ -129,7 +126,7 @@ export default class QueryResultsSkinAdapter {
         case 'Area Path':
           adaptedFields.push({
             name: 'Node Name',
-            value: this.convertAreaPathToNodeName(item.fields[referenceName] || ''),
+            value: this.convertAreaPathToNodeName(item?.fields[referenceName] || ''),
             color: color,
             width: '18%',
           });
@@ -137,7 +134,7 @@ export default class QueryResultsSkinAdapter {
         default:
           adaptedFields.push({
             name: fieldName,
-            value: item.fields[referenceName] || '',
+            value: item?.fields[referenceName] || '',
             color: color,
           });
           break;
@@ -156,13 +153,14 @@ export default class QueryResultsSkinAdapter {
   ) {
     const adaptedSourceFields: any[] = this.adaptFields(source, currentReqColor, true);
     if (targets.length === 0) {
-      logger.info('No targets in req test');
+      const adaptedTargetFields: any[] = this.adaptFields(null, currentTestColor, false);
       const fields = this.buildFields({
         items: [
           { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
           ...adaptedSourceFields,
           { name: 'Test Case ID', value: '', width: '6.8%', color: currentTestColor },
           { name: 'Title', value: '', color: currentTestColor },
+          ...adaptedTargetFields,
         ],
         baseShading,
       });
@@ -193,8 +191,7 @@ export default class QueryResultsSkinAdapter {
   ) {
     const adaptedSourceFields: any[] = this.adaptFields(source, currentTestColor, true);
     if (targets.length === 0) {
-      logger.info('No targets in test req');
-
+      const adaptedTargetFields: any[] = this.adaptFields(null, currentReqColor, false);
       const fields = this.buildFields({
         items: [
           { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
@@ -202,7 +199,8 @@ export default class QueryResultsSkinAdapter {
           ...adaptedSourceFields,
           { name: 'Req ID', value: '', width: '6.8%', color: currentReqColor },
           { name: 'Title', value: '', color: currentReqColor },
-          this.includeCustomerId && { name: 'Customer ID', value: '', color: currentReqColor },
+          // this.includeCustomerId && { name: 'Customer ID', value: '', color: currentReqColor },
+          ...adaptedTargetFields,
         ],
         baseShading,
       });

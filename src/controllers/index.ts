@@ -287,9 +287,7 @@ export default class DgContentControls {
       );
       //init the adopted data
       await testDataFactory.fetchTestData();
-      if (selectedQueries.reqTestQuery || selectedQueries.testReqQuery) {
-        await testDataFactory.fetchQueryResults();
-      }
+      await testDataFactory.fetchQueryResults();
     } catch (error) {
       throw new Error(`Error initializing test data factory ${error}`);
     }
@@ -356,25 +354,27 @@ export default class DgContentControls {
       ];
 
       for (const { data, title, noDataMessage } of queryResultsConfig) {
-        const skinType = data ? this.skins.SKIN_TYPE_TABLE : this.skins.SKIN_TYPE_PARAGRAPH;
-        const skinData = data || [{ fields: [{ name: 'Description', value: noDataMessage }] }];
+        data['errorMessage'] = !data['adoptedData'] ? noDataMessage : null;
 
-        const queryResultSkin = await this.skins.addNewContentToDocumentSkin(
+        const contentControlResults: contentControl = {
           title,
-          skinType,
-          skinData,
+          wordObjects: [],
+        };
+
+        const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
+          title,
+          this.skins.SKIN_TYPE_TRACE,
+          data,
           headerStyles,
           styles,
           headingLevel
         );
 
-        if (queryResultSkin || !data) {
-          const contentControlResults: contentControl = {
-            title,
-            wordObjects: queryResultSkin,
-          };
-          contentControls.push(contentControlResults);
-        }
+        queryResultSkins.forEach((skin) => {
+          contentControlResults.wordObjects.push(skin);
+        });
+
+        contentControls.push(contentControlResults);
       }
 
       return contentControls;

@@ -261,24 +261,28 @@ export default class TestDataFactory {
   async fetchQueryResults() {
     try {
       const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
-      if (!this.selectedQueries.reqTestQuery?.wiql && !this.selectedQueries.testReqQuery.wiql) {
-        throw new Error(`Invalid WIQL for query`);
-      }
 
       if (this.selectedQueries.reqTestQuery) {
+        logger.info('starting to fetch query results');
+
+        logger.info('fetching requirement - test results');
         let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
           this.teamProject,
           this.selectedQueries.reqTestQuery.wiql.href
         );
+        logger.info(`requirement - test results are ${reqTestQueryResults ? 'ready' : 'not found'}`);
+
         this.reqTestQueryResults = reqTestQueryResults;
       }
-
       if (this.selectedQueries.testReqQuery) {
+        logger.info('starting to fetch query results');
+
+        logger.info('fetching test - requirement results');
         let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
           this.teamProject,
           this.selectedQueries.testReqQuery.wiql.href
         );
-
+        logger.info(`test - requirement results are ${testReqQueryResults ? 'ready' : 'not found'}`);
         this.testReqQueryResults = testReqQueryResults;
       }
 
@@ -367,15 +371,31 @@ export default class TestDataFactory {
           ];
 
           for (const { queryResults, type, adoptedDataKey } of configs) {
+            const title = {
+              fields: [
+                {
+                  name: 'Title',
+                  value: `${
+                    type === 'req-test'
+                      ? 'Trace Analysis Table: Requirements to Test cases'
+                      : 'Trace Analysis Table : Test cases to Requirement'
+                  }`,
+                },
+              ],
+              level: 2,
+            };
             if (queryResults) {
               const queryResultSkinAdapter = new QueryResultsSkinAdapter(
                 queryResults,
                 type,
                 this.includeCustomerId
               );
+
               queryResultSkinAdapter.adoptSkinData();
               const adoptedData = queryResultSkinAdapter.getAdoptedData();
-              adoptedTestData[adoptedDataKey] = adoptedData;
+              adoptedTestData[adoptedDataKey] = { title, adoptedData };
+            } else {
+              adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
             }
           }
 
