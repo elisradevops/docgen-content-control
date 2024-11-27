@@ -114,7 +114,7 @@ export default class DgContentControls {
             contentControlOptions.data.includeCustomerId,
             contentControlOptions.data.includeBugs,
             contentControlOptions.data.includeSeverity,
-            contentControlOptions.data.selectedQueries
+            contentControlOptions.data.traceAnalysisRequest
           );
 
           break;
@@ -257,7 +257,7 @@ export default class DgContentControls {
     includeCustomerId?: boolean,
     includeBugs?: boolean,
     includeSeverity?: boolean,
-    selectedQueries?: any
+    traceAnalysisRequest?: any
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -276,7 +276,7 @@ export default class DgContentControls {
         includeCustomerId,
         includeBugs,
         includeSeverity,
-        selectedQueries,
+        traceAnalysisRequest,
         false,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
@@ -287,7 +287,18 @@ export default class DgContentControls {
       );
       //init the adopted data
       await testDataFactory.fetchTestData();
-      await testDataFactory.fetchQueryResults();
+
+      //if selectedMode by query
+      switch (traceAnalysisRequest.traceAnalysisMode) {
+        case 'query':
+          await testDataFactory.fetchQueryResults();
+          break;
+        case 'linkedRequirement':
+          await testDataFactory.fetchLinkedRequirementsTrace();
+          break;
+        default:
+          break;
+      }
     } catch (error) {
       throw new Error(`Error initializing test data factory ${error}`);
     }
@@ -354,13 +365,13 @@ export default class DgContentControls {
       ];
 
       for (const { data, title, noDataMessage } of queryResultsConfig) {
-        data['errorMessage'] = !data['adoptedData'] ? noDataMessage : null;
+        data['errorMessage'] =
+          !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
 
         const contentControlResults: contentControl = {
           title,
           wordObjects: [],
         };
-
         const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
           title,
           this.skins.SKIN_TYPE_TRACE,
