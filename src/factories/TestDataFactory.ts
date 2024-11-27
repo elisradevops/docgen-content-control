@@ -5,6 +5,7 @@ import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSu
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
 import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
+import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
 
 const styles = {
   isBold: false,
@@ -33,7 +34,7 @@ export default class TestDataFactory {
   includeCustomerId: boolean;
   includeBugs: boolean;
   includeSeverity: boolean;
-  selectedQueries: any;
+  traceAnalysisRequest: any;
   reqTestQueryResults: Map<any, any[]>;
   testReqQueryResults: Map<any, any[]>;
   includeTestResults: boolean;
@@ -45,6 +46,8 @@ export default class TestDataFactory {
   attachmentsBucketName: string;
   htmlUtils: HtmlUtils;
   stepResultDetails?: any[];
+  requirementToTestCaseTraceMap: Map<string, string[]>;
+  testCaseToRequirementsTraceMap: Map<string, string[]>;
 
   constructor(
     attachmentsBucketName,
@@ -57,7 +60,7 @@ export default class TestDataFactory {
     includeCustomerId: boolean = false,
     includeBugs: boolean = false,
     includeSeverity: boolean = false,
-    selectedQueries: any = undefined,
+    traceAnalysisRequest: any = undefined,
     includeTestResults: boolean = false,
     dgDataProvider: any,
     templatePath = '',
@@ -76,7 +79,7 @@ export default class TestDataFactory {
     this.includeCustomerId = includeCustomerId;
     this.includeBugs = includeBugs;
     this.includeSeverity = includeSeverity;
-    this.selectedQueries = selectedQueries;
+    this.traceAnalysisRequest = traceAnalysisRequest;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
     this.includeTestResults = includeTestResults;
@@ -123,7 +126,11 @@ export default class TestDataFactory {
           }))
         );
       } //end of if
-      let allTestCases: any[] = await testDataProvider.GetTestCasesBySuites(
+      let {
+        testCasesList: allTestCases,
+        requirementToTestCaseTraceMap,
+        testCaseToRequirementsTraceMap,
+      }: any = await testDataProvider.GetTestCasesBySuites(
         this.teamProject,
         `${this.testPlanId}`,
         `${this.testPlanId + 1}`,
@@ -136,7 +143,12 @@ export default class TestDataFactory {
       );
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
-
+      if (requirementToTestCaseTraceMap) {
+        this.requirementToTestCaseTraceMap = requirementToTestCaseTraceMap;
+      }
+      if (testCaseToRequirementsTraceMap) {
+        this.testCaseToRequirementsTraceMap = testCaseToRequirementsTraceMap;
+      }
       if (testSuites.length !== 0) {
         let SuitesAndTestCases: any = [];
         for (let j = 0; j < testSuites.length; j++) {
@@ -262,25 +274,25 @@ export default class TestDataFactory {
     try {
       const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
 
-      if (this.selectedQueries.reqTestQuery) {
+      if (this.traceAnalysisRequest.reqTestQuery) {
         logger.info('starting to fetch query results');
 
         logger.info('fetching requirement - test results');
         let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
           this.teamProject,
-          this.selectedQueries.reqTestQuery.wiql.href
+          this.traceAnalysisRequest.reqTestQuery.wiql.href
         );
         logger.info(`requirement - test results are ${reqTestQueryResults ? 'ready' : 'not found'}`);
 
         this.reqTestQueryResults = reqTestQueryResults;
       }
-      if (this.selectedQueries.testReqQuery) {
+      if (this.traceAnalysisRequest.testReqQuery) {
         logger.info('starting to fetch query results');
 
         logger.info('fetching test - requirement results');
         let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
           this.teamProject,
-          this.selectedQueries.testReqQuery.wiql.href
+          this.traceAnalysisRequest.testReqQuery.wiql.href
         );
         logger.info(`test - requirement results are ${testReqQueryResults ? 'ready' : 'not found'}`);
         this.testReqQueryResults = testReqQueryResults;
@@ -289,6 +301,14 @@ export default class TestDataFactory {
       this.adoptedQueryResults = await this.jsonSkinDataAdpater('query-results');
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
+    }
+  }
+
+  async fetchLinkedRequirementsTrace() {
+    try {
+      this.adoptedQueryResults = await this.jsonSkinDataAdpater('linked-requirements-trace');
+    } catch (err) {
+      logger.error(`Could not fetch linked requirements trace: ${err.message}`);
     }
   }
 
@@ -356,6 +376,47 @@ export default class TestDataFactory {
           // let testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
           // adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
           break;
+        case 'linked-requirements-trace':
+          const configs2 = [
+            {
+              mapData: this.requirementToTestCaseTraceMap,
+              type: 'req-test',
+              adoptedDataKey: 'reqTestAdoptedData',
+            },
+            {
+              mapData: this.testCaseToRequirementsTraceMap,
+              type: 'test-req',
+              adoptedDataKey: 'testReqAdoptedData',
+            },
+          ];
+
+          for (const { mapData, type, adoptedDataKey } of configs2) {
+            const title = {
+              fields: [
+                {
+                  name: 'Title',
+                  value: `${
+                    type === 'req-test'
+                      ? 'Trace Analysis Table: Requirements to Test cases'
+                      : 'Trace Analysis Table : Test cases to Requirement'
+                  }`,
+                },
+              ],
+              level: 2,
+            };
+            if (mapData) {
+              const linkedRequirementTraceSkinAdapter = new TraceByLinkedRequirementAdapter(mapData, type);
+
+              linkedRequirementTraceSkinAdapter.adoptSkinData();
+              const adoptedData = linkedRequirementTraceSkinAdapter.getAdoptedData();
+              adoptedTestData[adoptedDataKey] = { title, adoptedData };
+            } else {
+              adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
+            }
+          }
+
+          break;
+
         case 'query-results':
           const configs = [
             {
@@ -378,7 +439,7 @@ export default class TestDataFactory {
                   value: `${
                     type === 'req-test'
                       ? 'Trace Analysis Table: Requirements to Test cases'
-                      : 'Trace Analysis Table : Test cases to Requirement'
+                      : 'Trace Analysis Table: Test cases to Requirement'
                   }`,
                 },
               ],

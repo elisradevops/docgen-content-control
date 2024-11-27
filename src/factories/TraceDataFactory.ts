@@ -1,5 +1,5 @@
-import DgDataProviderAzureDevOps from "@elisra-devops/docgen-data-provider";
-import logger from "../services/logger";
+import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import logger from '../services/logger';
 
 const styles = {
   isBold: false,
@@ -7,7 +7,7 @@ const styles = {
   IsUnderline: false,
   Size: 12,
   Uri: null,
-  Font: "Arial",
+  Font: 'Arial',
   InsertLineBreak: false,
   InsertSpace: false,
 };
@@ -153,14 +153,14 @@ export default class TraceDataFactory {
               if (this.linkTypeFilterArray.includes(link.type)) {
                 rowSkin = {
                   fields: [
-                    { name: "#", value: wi.id, url: wi.url },
-                    { name: "Title", value: wi.title },
-                    { name: "#", value: link.id, url: wi.url },
-                    { name: "Title", value: link.title },
+                    { name: '#', value: wi.id, url: wi.url },
+                    { name: 'Title', value: wi.title },
+                    { name: '#', value: link.id, url: wi.url },
+                    { name: 'Title', value: link.title },
                   ],
                 };
                 if (isCustomerIdEnabled) {
-                  rowSkin.fields["customer requirement"] = wi.customerRequirmentId;
+                  rowSkin.fields['customer requirement'] = wi.customerRequirmentId;
                 }
               } else {
                 return null;

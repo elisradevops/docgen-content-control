@@ -50,28 +50,6 @@ export default class QueryResultsSkinAdapter {
 
   // Helper Methods
 
-  private checkIfCustomerIdExists(): boolean {
-    for (const [source, targets] of this.rawQueryMapping) {
-      if (this.itemHasCustomerId(source)) {
-        return true;
-      }
-      for (const target of targets) {
-        if (this.itemHasCustomerId(target)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  private itemHasCustomerId(item: any): boolean {
-    return (
-      item?.fields['Custom.CustomerID'] ||
-      item?.fields['Custom.CustomerRequirementId'] ||
-      item?.fields['Elisra.CustomerRequirementId']
-    );
-  }
-
   private adaptFields(item: any, color: string, isSource: boolean) {
     const adaptedFields: any[] = [];
     const mapToUse: Map<string, string> = !isSource
@@ -195,11 +173,9 @@ export default class QueryResultsSkinAdapter {
       const fields = this.buildFields({
         items: [
           { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
-          // { name: 'TC Title', value: source?.fields['System.Title'], color: currentTestColor },
           ...adaptedSourceFields,
           { name: 'Req ID', value: '', width: '6.8%', color: currentReqColor },
           { name: 'Title', value: '', color: currentReqColor },
-          // this.includeCustomerId && { name: 'Customer ID', value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -207,9 +183,6 @@ export default class QueryResultsSkinAdapter {
       this.adoptedData.push({ fields });
     } else {
       targets.forEach((target) => {
-        // const targetCustomerIdField = includeCustomerIdColumn
-        //   ? this.getCustomerIdField(target, currentReqColor)
-        //   : undefined;
         const adaptedTargetFields: any[] = this.adaptFields(target, currentReqColor, false);
         const fields = this.buildFields({
           items: [
@@ -217,8 +190,6 @@ export default class QueryResultsSkinAdapter {
             ...adaptedSourceFields,
             { name: 'Req ID', value: target.id, width: '6.8%', color: currentReqColor },
             ...adaptedTargetFields,
-            // { name: 'Title', value: target?.fields['System.Title'], color: currentReqColor },
-            // this.includeCustomerId && targetCustomerIdField,
           ],
           baseShading,
         });
@@ -226,19 +197,6 @@ export default class QueryResultsSkinAdapter {
       });
     }
   }
-
-  // private getCustomerIdField(item: any, color: string) {
-  //   const customerId =
-  //     item?.fields['Custom.CustomerID'] ||
-  //     item?.fields['Custom.CustomerRequirementId'] ||
-  //     item?.fields['Elisra.CustomerRequirementId'];
-  //   return {
-  //     name: 'Customer ID',
-  //     value: customerId ?? '',
-  //     width: '9.7%',
-  //     color,
-  //   };
-  // }
 
   private buildFields({ items, baseShading }: { items: any[]; baseShading: any }) {
     return items.filter(Boolean).map((item) => ({
