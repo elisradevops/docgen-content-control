@@ -351,47 +351,77 @@ export default class DgContentControls {
       });
       contentControls.push(testDescCC);
 
-      const queryResultsConfig = [
-        {
-          data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData,
-          title: 'requirements-to-test-cases-content-control',
-          noDataMessage: 'No Requirement - Test Case query result data',
-        },
-        {
-          data: testDataFactory.adoptedQueryResults?.testReqAdoptedData,
-          title: 'test-cases-to-requirements-content-control',
-          noDataMessage: 'No Test Case - Requirement query result data',
-        },
-      ];
-
-      for (const { data, title, noDataMessage } of queryResultsConfig) {
-        data['errorMessage'] =
-          !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
-
-        const contentControlResults: contentControl = {
-          title,
-          wordObjects: [],
-        };
-        const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
-          title,
-          this.skins.SKIN_TYPE_TRACE,
-          data,
-          headerStyles,
-          styles,
-          headingLevel
-        );
-
-        queryResultSkins.forEach((skin) => {
-          contentControlResults.wordObjects.push(skin);
-        });
-
-        contentControls.push(contentControlResults);
+      if (traceAnalysisRequest?.traceAnalysisMode !== 'none') {
+        await this.structureTraceSkins(testDataFactory, headerStyles, styles, headingLevel, contentControls);
       }
 
       return contentControls;
     } catch (error: any) {
       logger.error(`Error adding content control: ${error}`);
+      logger.error(`Error stack:\n`, error.stack);
       throw new Error(`Error adding content control: ${error}`);
+    }
+  }
+
+  private async structureTraceSkins(
+    testDataFactory: TestDataFactory,
+    headerStyles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    styles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    headingLevel: number,
+    contentControls: contentControl[]
+  ) {
+    const queryResultsConfig = [
+      {
+        data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData || {},
+        title: 'requirements-to-test-cases-content-control',
+        noDataMessage: 'No Requirement - Test Case query result data',
+      },
+      {
+        data: testDataFactory.adoptedQueryResults?.testReqAdoptedData || undefined,
+        title: 'test-cases-to-requirements-content-control',
+        noDataMessage: 'No Test Case - Requirement query result data',
+      },
+    ];
+
+    for (const { data, title, noDataMessage } of queryResultsConfig) {
+      data['errorMessage'] = !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+
+      const contentControlResults: contentControl = {
+        title,
+        wordObjects: [],
+      };
+      const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
+        title,
+        this.skins.SKIN_TYPE_TRACE,
+        data,
+        headerStyles,
+        styles,
+        headingLevel
+      );
+
+      queryResultSkins.forEach((skin) => {
+        contentControlResults.wordObjects.push(skin);
+      });
+
+      contentControls.push(contentControlResults);
     }
   }
 
