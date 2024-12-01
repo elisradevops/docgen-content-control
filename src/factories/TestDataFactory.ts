@@ -45,9 +45,9 @@ export default class TestDataFactory {
   PAT: string;
   attachmentsBucketName: string;
   htmlUtils: HtmlUtils;
-  stepResultDetails?: any[];
   requirementToTestCaseTraceMap: Map<string, string[]>;
   testCaseToRequirementsTraceMap: Map<string, string[]>;
+  stepResultDetailsMap: Map<string, any>;
 
   constructor(
     attachmentsBucketName,
@@ -68,7 +68,7 @@ export default class TestDataFactory {
     minioAccessKey,
     minioSecretKey,
     PAT,
-    stepResultDetails?: any[]
+    stepResultDetailsMap?: Map<string, any>
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -93,7 +93,7 @@ export default class TestDataFactory {
     this.PAT = PAT;
     this.attachmentsBucketName = attachmentsBucketName;
     this.htmlUtils = new HtmlUtils();
-    this.stepResultDetails = stepResultDetails;
+    this.stepResultDetailsMap = stepResultDetailsMap;
   }
   async fetchTestData() {
     try {
@@ -139,7 +139,7 @@ export default class TestDataFactory {
         this.includeCustomerId,
         this.includeBugs,
         this.includeSeverity,
-        this.stepResultDetails
+        this.stepResultDetailsMap
       );
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
@@ -181,7 +181,6 @@ export default class TestDataFactory {
     if (testCases.length != 0) {
       let testCasesWithAttachments: any = [];
       for (const testCase of testCases) {
-        //TODO check of test case has the same revision as the STR data
         let attachmentsData = [];
         if (this.includeAttachments) {
           attachmentsData = await this.generateAttachmentData(testCase.id);
@@ -316,57 +315,6 @@ export default class TestDataFactory {
     return array.every((obj) => targetValues.includes(obj.value));
   }
 
-  private mapTestResults(testCases: any[]): any[] {
-    try {
-      // Step 1: Create a lookup map for stepsData
-      const stepMap: Map<number, any[]> = new Map();
-
-      // If stepResultDetails is empty, populate all steps with default values
-      if (this.stepResultDetails.length === 0) {
-        testCases.forEach((testCase) => {
-          testCase.steps.forEach((step: any) => {
-            step.stepStatus = 'Not Run';
-            step.stepComments = 'No Result';
-          });
-        });
-        return testCases; // No need to continue if we are populating defaults
-      }
-
-      this.stepResultDetails.forEach((step: any) => {
-        if (!stepMap.has(step.testId)) {
-          stepMap.set(step.testId, []);
-        }
-        stepMap.get(step.testId).push(step);
-      });
-
-      // Step 2: Iterate over testCases and update steps
-      testCases.forEach((testCase) => {
-        const matchingSteps = stepMap.get(testCase.id);
-
-        if (matchingSteps) {
-          matchingSteps.forEach((stepData) => {
-            const stepIndex = stepData.stepNo - 1;
-            if (testCase.steps[stepIndex]) {
-              testCase.steps[stepIndex].stepStatus = stepData.stepStatus;
-              testCase.steps[stepIndex].stepComments = stepData.stepComments;
-            }
-          });
-        } else {
-          // No matching steps, set default values for steps
-          testCase.steps.forEach((step: any) => {
-            step.stepStatus = 'Not Run';
-            step.stepComments = 'No Result';
-          });
-        }
-      });
-    } catch (error: any) {
-      logger.error(`Error occurred while trying to map test results ${error.message}`);
-      logger.error(`Error Stack ${error.stack}`);
-    }
-
-    return testCases;
-  }
-
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null) {
     let adoptedTestData = {} as any;
@@ -472,12 +420,9 @@ export default class TestDataFactory {
                 ],
                 level: suite.temp.level,
               };
-              const mappedTestCases = this.stepResultDetails
-                ? this.mapTestResults(suite.testCases)
-                : suite.testCases;
 
               let testCases = await Promise.all(
-                mappedTestCases.map(async (testCase) => {
+                suite.testCases.map(async (testCase) => {
                   try {
                     let Description = testCase.description || 'No description';
                     let cleanedDescription = this.htmlUtils.cleanHtml(Description);
@@ -577,11 +522,11 @@ export default class TestDataFactory {
                             });
 
                             //If runs status and result are included
-                            if (this.stepResultDetails) {
+                            if (this.stepResultDetailsMap) {
                               return this.includeAttachments && hasAnyStepAttachment
                                 ? {
                                     fields: [
-                                      { name: '#', value: i + 1, width: '5.5%' },
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
                                       { name: 'Description', value: action, width: '20.8%' },
                                       {
                                         name: 'Expected Results',
@@ -601,15 +546,13 @@ export default class TestDataFactory {
                                       },
                                       {
                                         name: 'Actual Result',
-                                        value:
-                                          testStep?.stepComments ||
-                                          `${testStep?.stepStatus === 'Not Run' ? 'No Result' : ''}`,
+                                        value: this.insertResult(testStep),
                                       },
                                     ],
                                   }
                                 : {
                                     fields: [
-                                      { name: '#', value: i + 1, width: '5.5%' },
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
                                       { name: 'Description', value: action, width: '31%' },
                                       {
                                         name: 'Expected Results',
@@ -623,9 +566,7 @@ export default class TestDataFactory {
                                       },
                                       {
                                         name: 'Actual Result',
-                                        value:
-                                          testStep?.stepComments ||
-                                          `${testStep?.stepStatus === 'Not Run' ? 'No Result' : ''}`,
+                                        value: this.insertResult(testStep),
                                       },
                                     ],
                                   };
@@ -634,7 +575,7 @@ export default class TestDataFactory {
                             return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
-                                    { name: '#', value: i + 1, width: '5.5%' },
+                                    { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
                                     { name: 'Description', value: action, width: '26.9%' },
                                     {
                                       name: 'Expected Results',
@@ -650,7 +591,7 @@ export default class TestDataFactory {
                                 }
                               : {
                                   fields: [
-                                    { name: '#', value: i + 1, width: '5.5%' },
+                                    { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
                                     { name: 'Description', value: action, width: '45.8%' },
                                     {
                                       name: 'Expected Results',
@@ -783,6 +724,14 @@ export default class TestDataFactory {
       return adoptedTestData;
     } catch (error) {
       logger.error(`error caught in jsonSkinDataAdpater ${error}`);
+    }
+  }
+
+  private insertResult(testStep: any) {
+    if (testStep?.stepComments) {
+      return testStep?.stepComments;
+    } else {
+      return !testStep?.stepStatus || testStep?.stepStatus === 'Not Run' ? 'No Result' : '';
     }
   }
 

@@ -127,8 +127,6 @@ export default class StepAnalysisSkinAdapter {
             //iterate through all the test steps
             if (stepLevels) {
               for (let [key, attachments] of Object.entries(stepLevels)) {
-                //TODO: delete later...
-                logger.debug(`step level key ${key}`);
                 skins.push({
                   field: {
                     name: 'Title',
