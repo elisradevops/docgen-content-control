@@ -32,11 +32,11 @@ export default class DetailedResultsSummaryDataSkinAdapter {
           { name: '#', value: `${idx + 1}`, width: '3.8%' },
           { name: 'Test Id', value: `${item.testId}`, width: '7.6%' },
           { name: 'Test Name', value: `${item.testName}` },
-          { name: 'Step', value: `${item.stepNo}`, width: '4.6%' },
+          { name: 'Step', value: `${item.stepNo}`, width: '5.3%' },
           { name: 'Action', value: action, width: '20.8%' },
           { name: 'Expected Result', value: expected, width: '20.8%' },
-          { name: 'Step Status', value: `${item.stepStatus}`, width: '10%' },
           { name: 'Actual Result', value: `${item.stepComments}` },
+          { name: 'Step Status', value: `${item.stepStatus}`, width: '10%' },
           // TBD
           // { name: 'PCR No', value: `${item.PCR No}` },
         ];
