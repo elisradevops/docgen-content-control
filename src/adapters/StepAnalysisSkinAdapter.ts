@@ -46,22 +46,38 @@ export default class StepAnalysisSkinAdapter {
         runResults = resultDataRaw;
       }
 
+      const mappedSuiteIdToSuiteName: Map<number, any> = new Map();
+
+      runResults.forEach((result) => {
+        mappedSuiteIdToSuiteName.set(result.testSuiteId, {
+          suiteName: result.testSuiteName,
+          isInserted: false,
+        });
+      });
+
       return runResults.map((runResult) => {
         const skins: any[] = [];
+        const suiteTitleObj = mappedSuiteIdToSuiteName.get(runResult.testSuiteId);
 
-        const suiteSkinData = {
-          field: { name: 'Title', value: runResult.testSuiteName },
-          level: 1,
-          type: 'Header',
-        };
+        if (!suiteTitleObj.isInserted) {
+          const suiteSkinData = {
+            field: { name: 'Title', value: suiteTitleObj.suiteName },
+            level: 1,
+            type: 'Header',
+          };
+          suiteTitleObj.isInserted = true;
+          mappedSuiteIdToSuiteName.set(runResult.testSuiteId, suiteTitleObj);
+          skins.push(suiteSkinData);
+        }
 
+        //Push the test case after adding the test suite
         const caseSkinData = {
           field: { name: 'Title', value: runResult.testCaseName },
           level: 2,
           type: 'SubHeader',
         };
 
-        skins.push(suiteSkinData, caseSkinData);
+        skins.push(caseSkinData);
         if (!runResult.comment && !runResult?.iteration?.comment && !runResult?.attachmentsData) {
           skins.push({
             field: { name: 'Description', value: 'No comments are available for this suite' },

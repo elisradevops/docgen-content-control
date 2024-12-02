@@ -526,7 +526,7 @@ export default class TestDataFactory {
                               return this.includeAttachments && hasAnyStepAttachment
                                 ? {
                                     fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                       { name: 'Description', value: action, width: '20.8%' },
                                       {
                                         name: 'Expected Results',
@@ -540,19 +540,19 @@ export default class TestDataFactory {
                                         width: '20.8%',
                                       },
                                       {
-                                        name: 'Run Status',
-                                        value: testStep?.stepStatus || 'Not Run',
-                                        width: '13%',
+                                        name: 'Actual Result',
+                                        value: this.extractStepComment(testStep),
                                       },
                                       {
-                                        name: 'Actual Result',
-                                        value: this.insertResult(testStep),
+                                        name: 'Run Status',
+                                        value: this.extractStepStatus(testStep),
+                                        width: '13%',
                                       },
                                     ],
                                   }
                                 : {
                                     fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                       { name: 'Description', value: action, width: '31%' },
                                       {
                                         name: 'Expected Results',
@@ -560,13 +560,13 @@ export default class TestDataFactory {
                                         width: '31%',
                                       },
                                       {
-                                        name: 'Run Status',
-                                        value: testStep?.stepStatus || 'Not Run',
-                                        width: '13%',
+                                        name: 'Actual Result',
+                                        value: this.extractStepComment(testStep),
                                       },
                                       {
-                                        name: 'Actual Result',
-                                        value: this.insertResult(testStep),
+                                        name: 'Run Status',
+                                        value: this.extractStepStatus(testStep),
+                                        width: '13%',
                                       },
                                     ],
                                   };
@@ -575,7 +575,7 @@ export default class TestDataFactory {
                             return this.includeAttachments && hasAnyStepAttachment
                               ? {
                                   fields: [
-                                    { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
+                                    { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     { name: 'Description', value: action, width: '26.9%' },
                                     {
                                       name: 'Expected Results',
@@ -591,7 +591,7 @@ export default class TestDataFactory {
                                 }
                               : {
                                   fields: [
-                                    { name: '#', value: `${testStep.stepPosition}`, width: '5.5%' },
+                                    { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     { name: 'Description', value: action, width: '45.8%' },
                                     {
                                       name: 'Expected Results',
@@ -727,12 +727,23 @@ export default class TestDataFactory {
     }
   }
 
-  private insertResult(testStep: any) {
+  private extractStepStatus(testStep: any) {
+    logger.debug(`test step: ------------> ${JSON.stringify(testStep)}`);
+    if (testStep?.isSharedStepTitle) {
+      return '';
+    }
+
+    return testStep?.stepStatus || 'Not Run';
+  }
+
+  private extractStepComment(testStep: any) {
+    if (testStep?.isSharedStepTitle && !testStep?.stepComments) {
+      return '';
+    }
     if (testStep?.stepComments) {
       return testStep?.stepComments;
-    } else {
-      return !testStep?.stepStatus || testStep?.stepStatus === 'Not Run' ? 'No Result' : '';
     }
+    return !testStep?.stepStatus || testStep?.stepStatus === 'Not Run' ? 'No Result' : '';
   }
 
   async getAdoptedTestData() {
