@@ -112,8 +112,6 @@ export default class DgContentControls {
             contentControlOptions.data.attachmentType,
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
-            contentControlOptions.data.includeBugs,
-            contentControlOptions.data.includeSeverity,
             contentControlOptions.data.traceAnalysisRequest
           );
 
@@ -255,8 +253,6 @@ export default class DgContentControls {
     attachmentType: string = 'asEmbedded',
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
-    includeBugs?: boolean,
-    includeSeverity?: boolean,
     traceAnalysisRequest?: any
   ) {
     logger.debug(`fetching test data with params:
@@ -274,8 +270,6 @@ export default class DgContentControls {
         attachmentType,
         includeRequirements,
         includeCustomerId,
-        includeBugs,
-        includeSeverity,
         traceAnalysisRequest,
         false,
         this.dgDataProviderAzureDevOps,
@@ -605,8 +599,6 @@ export default class DgContentControls {
             stepExecution?.generateAttachments.attachmentType,
             stepExecution?.generateRequirements.isEnabled,
             stepExecution?.generateRequirements.includeCustomerId,
-            false,
-            false,
             undefined,
             false,
             this.dgDataProviderAzureDevOps,
