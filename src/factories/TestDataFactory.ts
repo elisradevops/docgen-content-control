@@ -32,8 +32,6 @@ export default class TestDataFactory {
   attachmentType: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
-  includeBugs: boolean;
-  includeSeverity: boolean;
   traceAnalysisRequest: any;
   reqTestQueryResults: Map<any, any[]>;
   testReqQueryResults: Map<any, any[]>;
@@ -58,8 +56,6 @@ export default class TestDataFactory {
     attachmentType: string = 'asEmbedded',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
-    includeBugs: boolean = false,
-    includeSeverity: boolean = false,
     traceAnalysisRequest: any = undefined,
     includeTestResults: boolean = false,
     dgDataProvider: any,
@@ -77,8 +73,6 @@ export default class TestDataFactory {
     this.attachmentType = attachmentType;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
-    this.includeBugs = includeBugs;
-    this.includeSeverity = includeSeverity;
     this.traceAnalysisRequest = traceAnalysisRequest;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
@@ -137,8 +131,6 @@ export default class TestDataFactory {
         true,
         this.includeRequirements,
         this.includeCustomerId,
-        this.includeBugs,
-        this.includeSeverity,
         this.stepResultDetailsMap
       );
 
@@ -653,37 +645,6 @@ export default class TestDataFactory {
                         return { fields };
                       });
 
-                    let testCaseBugs = testCase.relations
-                      .filter((relation) => relation.type === 'bug')
-                      ?.map((relation, index) => {
-                        let fields = [
-                          {
-                            name: '#',
-                            value: index + 1,
-                            width: '5.5%',
-                          },
-                          {
-                            name: 'Bug ID',
-                            value: relation.id,
-                            width: '13.6%',
-                          },
-                          {
-                            name: 'Bug Title',
-                            value: relation.title,
-                          },
-                        ];
-
-                        if (this.includeBugs && relation.severity) {
-                          fields.push({
-                            name: 'Severity',
-                            value: relation.severity,
-                            width: '19.4%',
-                          });
-                        }
-
-                        return { fields };
-                      });
-
                     let filteredTestCaseAttachments = testCase.attachmentsData.filter(
                       (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
                     );
@@ -703,7 +664,6 @@ export default class TestDataFactory {
                       testCaseStepsSkinData,
                       testCaseAttachments,
                       testCaseRequirements,
-                      testCaseBugs,
                     };
                     return adoptedTestCaseData;
                   } catch (error) {
