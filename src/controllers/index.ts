@@ -724,39 +724,47 @@ export default class DgContentControls {
         isBold: false, // Specific to regular styles
       };
       for (const artifactChangesData of adoptedChangesData) {
-        let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
-          contentControlTitle,
-          this.skins.SKIN_TYPE_PARAGRAPH,
-          artifactChangesData.artifact,
-          headerStyles,
-          styles,
-          headingLevel
-        );
-
-        let tableSkins = artifactChangesData.artifactChanges
-          ? await this.skins.addNewContentToDocumentSkin(
-              contentControlTitle,
-              this.skins.SKIN_TYPE_TABLE,
-              artifactChangesData.artifactChanges,
-              headerStyles,
-              styles,
-              headingLevel
-            )
-          : null;
-        if (!tableSkins) {
-          throw new Error('Cannot apply skins for current SVD request');
+        if (artifactChangesData.artifact) {
+          let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
+            contentControlTitle,
+            this.skins.SKIN_TYPE_PARAGRAPH,
+            artifactChangesData.artifact,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+          paragraphSkins.forEach((skin) => {
+            contentControl.wordObjects.push(skin);
+          });
         }
-        paragraphSkins.forEach((skin) => {
-          contentControl.wordObjects.push(skin);
-        });
+        let tableSkins =
+          artifactChangesData.artifactChanges?.length > 0
+            ? await this.skins.addNewContentToDocumentSkin(
+                contentControlTitle,
+                this.skins.SKIN_TYPE_TABLE,
+                artifactChangesData.artifactChanges,
+                headerStyles,
+                styles,
+                headingLevel
+              )
+            : artifactChangesData.errorMessage
+            ? await this.skins.addNewContentToDocumentSkin(
+                contentControlTitle,
+                this.skins.SKIN_TYPE_PARAGRAPH,
+                artifactChangesData.errorMessage,
+                headerStyles,
+                styles,
+                0
+              )
+            : null;
+
         tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
         });
         return contentControl;
       }
     } catch (error) {
-      console.log(error.data);
-      throw new Error(`Error adding content control: ${error}`);
+      throw error;
     }
   }
 
