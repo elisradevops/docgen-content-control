@@ -7,7 +7,7 @@ import ChangeDataFactory from '../factories/ChangeDataFactory';
 import ResultDataFactory from '../factories/ResultDataFactory';
 import PullRequestDataFactory from '../factories/PullRequestDataFactory';
 import logger from '../services/logger';
-import contentControl from '../models/contentControl';
+import { contentControl } from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
 import { log } from 'console';
@@ -27,6 +27,7 @@ let defaultStyles = {
 export default class DgContentControls {
   uri: string;
   PAT: string;
+  jfrogToken?: string;
   teamProjectName: string;
   outputType;
   templatePath;
@@ -48,7 +49,8 @@ export default class DgContentControls {
     templatePath,
     minioEndPoint,
     minioAccessKey,
-    minioSecretKey
+    minioSecretKey,
+    jfrogToken = undefined
   ) {
     this.uri = uri;
     this.PAT = PAT;
@@ -61,12 +63,18 @@ export default class DgContentControls {
     this.minioSecretKey = minioSecretKey;
     this.minioAttachmentData = [];
     this.jsonFileBucketName = 'content-controls';
+    this.jfrogToken = jfrogToken;
   }
 
   async init() {
     logger.debug(`Initilizing DGContentControls`);
     //initilizing azureDevops connection
-    this.dgDataProviderAzureDevOps = new DgDataProviderAzureDevOps(this.uri, this.PAT);
+    this.dgDataProviderAzureDevOps = new DgDataProviderAzureDevOps(
+      this.uri,
+      this.PAT,
+      undefined,
+      this.jfrogToken
+    );
     if (!this.templatePath) {
       this.templatePath = 'template path';
     }
@@ -761,8 +769,8 @@ export default class DgContentControls {
         tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
         });
-        return contentControl;
       }
+      return contentControl;
     } catch (error) {
       throw error;
     }
