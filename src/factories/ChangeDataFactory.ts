@@ -404,18 +404,18 @@ export default class ChangeDataFactory {
 
     // Extract build names/versions
     const fromBuildName = fromArtifact.definitionReference['definition'].name;
-    const fromBuildVersion = fromArtifact.definitionReference['definition'].version;
+    const fromBuildVersion = fromArtifact.definitionReference['version'].name;
     const toBuildName = toArtifact.definitionReference['definition'].name;
-    const toBuildVersion = toArtifact.definitionReference['definition'].version;
+    const toBuildVersion = toArtifact.definitionReference['version'].name;
 
     logger.info(`Fetch CI data from JFrog: ${jFrogUrl}`);
     const toCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, toBuildName, toBuildVersion);
-    if (!toCiUrl) {
+    if (toCiUrl !== '') {
       return;
     }
 
     const fromCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, fromBuildName, fromBuildVersion);
-    if (!fromCiUrl) {
+    if (toCiUrl !== '') {
       return;
     }
 
