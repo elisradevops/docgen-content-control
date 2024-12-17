@@ -425,7 +425,7 @@ export default class ChangeDataFactory {
     if (toUrlSuffix.startsWith('_release?releaseId=')) {
       jfrogUploader = 'release';
     } else if (toUrlSuffix.startsWith('_build?buildId=')) {
-      jfrogUploader = 'ci';
+      jfrogUploader = 'pipeline';
     } else {
       return; // Unsupported suffix
     }
