@@ -316,7 +316,7 @@ describe('Generate json document from git Changeset', () => {
       undefined
     );
 
-    expect(jsonDoc.wordObjects.length).toBeGreaterThan(0);
+    expect(jsonDoc.length).toBeGreaterThan(0);
   });
   test('Generate changeset table from date range', async () => {
     let dgContent = new DGContentControls(
@@ -332,7 +332,7 @@ describe('Generate json document from git Changeset', () => {
     );
 
     await dgContent.init();
-    let jsonDoc = await dgContent.addChangeDescriptionTable(
+    let contentControls = await dgContent.addChangeDescriptionTable(
       '68f2aee7-0864-458e-93ce-320303a080ed',
       '2015-07-21T12:51:51Z',
       '2021-07-22T12:51:51Z',
@@ -341,7 +341,7 @@ describe('Generate json document from git Changeset', () => {
       'change-description-content-control',
       4
     );
-    expect(jsonDoc.wordObjects.length).toBeGreaterThan(0);
+    expect(contentControls.length).toBeGreaterThan(0);
   });
   test('Generate changeset table from pipeline range', async () => {
     let dgContent = new DGContentControls(
@@ -357,7 +357,7 @@ describe('Generate json document from git Changeset', () => {
     );
 
     await dgContent.init();
-    let jsonDoc = await dgContent.addChangeDescriptionTable(
+    let contentControls = await dgContent.addChangeDescriptionTable(
       '68f2aee7-0864-458e-93ce-320303a080ed',
       244,
       244,
@@ -366,7 +366,7 @@ describe('Generate json document from git Changeset', () => {
       'change-description-content-control',
       4
     );
-    expect(jsonDoc.wordObjects.length).toBeGreaterThan(1);
+    expect(contentControls.length).toBeGreaterThan(1);
   });
   test('Generate changeset table from release range', async () => {
     let dgContent = new DGContentControls(
@@ -382,7 +382,7 @@ describe('Generate json document from git Changeset', () => {
     );
 
     await dgContent.init();
-    let jsonDoc = await dgContent.addChangeDescriptionTable(
+    let contentControls = await dgContent.addChangeDescriptionTable(
       '68f2aee7-0864-458e-93ce-320303a080ed',
       1,
       1,
@@ -391,7 +391,7 @@ describe('Generate json document from git Changeset', () => {
       'change-description-content-control',
       4
     );
-    expect(jsonDoc.wordObjects.length).toBeGreaterThan(1);
+    expect(contentControls.length).toBeGreaterThan(1);
   });
 
   test('Generate changeset table from pull requests', async () => {

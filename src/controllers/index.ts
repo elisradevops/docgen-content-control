@@ -158,7 +158,6 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.branchName,
             contentControlOptions.data.includePullRequests,
-            undefined, // content control
             contentControlOptions.data.includeChangeDescription,
             contentControlOptions.data.includeCommittedBy
           );
@@ -669,7 +668,6 @@ export default class DgContentControls {
     headingLevel?: number,
     branchName?: string,
     includePullRequests?: boolean,
-    contentControl?: contentControl,
     includeChangeDescription: boolean = false,
     includeCommittedBy: boolean = false
   ) {
@@ -698,20 +696,13 @@ export default class DgContentControls {
         includeCommittedBy,
         this.dgDataProviderAzureDevOps
       );
-      await changeDataFactory.fetchData();
-      await changeDataFactory.jsonSkinDataAdpater();
+      await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
     } catch (error) {
       throw new Error(`Error initilizing change table factory ${error}`);
     }
     try {
-      if (!contentControl) {
-        contentControl = { title: contentControlTitle, wordObjects: [] };
-      }
-      logger.debug(JSON.stringify(contentControlTitle));
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      const contentControls: contentControl[] = [];
       const baseStyles = {
         IsItalic: false,
         IsUnderline: false,
@@ -731,49 +722,100 @@ export default class DgContentControls {
         ...baseStyles,
         isBold: false, // Specific to regular styles
       };
-      for (const artifactChangesData of adoptedChangesData) {
-        if (artifactChangesData.artifact) {
-          let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
+      for (const element of adoptedChangesData) {
+        if (element.contentControl === 'required-states-and-modes') {
+          const contentControl: contentControl = await this.generateChangesSkin(
+            element.data,
             contentControlTitle,
-            this.skins.SKIN_TYPE_PARAGRAPH,
-            artifactChangesData.artifact,
             headerStyles,
             styles,
             headingLevel
           );
-          paragraphSkins.forEach((skin) => {
-            contentControl.wordObjects.push(skin);
-          });
+          contentControls.push(contentControl);
+        } else {
+          const skin = await this.skins.addNewContentToDocumentSkin(
+            element.contentControl,
+            this.skins.SKIN_TYPE_TABLE, //add another types too to support system-overview as well
+            element.data,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+          contentControls.push({ title: element.contentControl, wordObjects: skin });
         }
-        let tableSkins =
-          artifactChangesData.artifactChanges?.length > 0
-            ? await this.skins.addNewContentToDocumentSkin(
-                contentControlTitle,
-                this.skins.SKIN_TYPE_TABLE,
-                artifactChangesData.artifactChanges,
-                headerStyles,
-                styles,
-                headingLevel
-              )
-            : artifactChangesData.errorMessage
-            ? await this.skins.addNewContentToDocumentSkin(
-                contentControlTitle,
-                this.skins.SKIN_TYPE_PARAGRAPH,
-                artifactChangesData.errorMessage,
-                headerStyles,
-                styles,
-                0
-              )
-            : null;
-
-        tableSkins.forEach((skin) => {
-          contentControl.wordObjects.push(skin);
-        });
       }
-      return contentControl;
+      return contentControls;
     } catch (error) {
       throw error;
     }
+  }
+
+  private async generateChangesSkin(
+    adoptedChangesData: any,
+    contentControlTitle: string,
+    headerStyles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    styles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    headingLevel: number
+  ) {
+    const contentControl = { title: contentControlTitle, wordObjects: [] };
+    for (const artifactChangesData of adoptedChangesData) {
+      if (artifactChangesData.artifact) {
+        let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
+          contentControlTitle,
+          this.skins.SKIN_TYPE_PARAGRAPH,
+          artifactChangesData.artifact,
+          headerStyles,
+          styles,
+          headingLevel
+        );
+        paragraphSkins.forEach((skin) => {
+          contentControl.wordObjects.push(skin);
+        });
+      }
+      let tableSkins =
+        artifactChangesData.artifactChanges?.length > 0
+          ? await this.skins.addNewContentToDocumentSkin(
+              contentControlTitle,
+              this.skins.SKIN_TYPE_TABLE,
+              artifactChangesData.artifactChanges,
+              headerStyles,
+              styles,
+              headingLevel
+            )
+          : artifactChangesData.errorMessage
+          ? await this.skins.addNewContentToDocumentSkin(
+              contentControlTitle,
+              this.skins.SKIN_TYPE_PARAGRAPH,
+              artifactChangesData.errorMessage,
+              headerStyles,
+              styles,
+              0
+            )
+          : null;
+
+      tableSkins.forEach((skin) => {
+        contentControl.wordObjects.push(skin);
+      });
+    }
+    return contentControl;
   }
 
   async addPullRequestDescriptionTable(

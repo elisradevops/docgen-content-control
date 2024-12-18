@@ -3,9 +3,10 @@ import logger from '../services/logger';
 import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
-import { Artifact } from '../models/contentControl';
+import { Artifact, contentControl } from '../models/contentControl';
 import { version } from 'os';
 import JfrogDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/JfrogDataProvider';
+import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 const styles = {
   isBold: false,
   IsItalic: false,
@@ -31,7 +32,7 @@ export default class ChangeDataFactory {
   headingLevel?: number;
 
   rawChangesArray: any = [];
-  adoptedChangeData: any;
+  adoptedChangeData: any[] = [];
   branchName: string;
   includePullRequests: boolean;
   includeChangeDescription: boolean;
@@ -66,14 +67,67 @@ export default class ChangeDataFactory {
     this.tocTitle = tocTitle;
   } //constructor
 
+  async fetchSvdData() {
+    //1. get release component adoptedData release-components-content-control
+    let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+    let recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
+      this.teamProject
+    );
+    if (recentReleaseArtifactInfo?.length > 0) {
+      this.adoptedChangeData.push({
+        contentControl: 'release-components-content-control',
+        data: this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
+        skin: 'release-components-skin',
+      });
+    }
+
+    //2. Get system-overview (by query) need to be displayed in hierarchy system-overview-content-control
+    const systemOverViewData = [];
+    if (systemOverViewData.length > 0) {
+      this.adoptedChangeData.push({
+        contentControl: 'system-overview-content-control',
+        data: this.jsonSkinDataAdapter('system-overview', []), //TBD
+        skin: 'system-overview-skin',
+      });
+    }
+
+    //3. get fetch changes data required-states-and-modes
+    await this.fetchChangesData();
+    if (this.rawChangesArray.length > 0) {
+      this.adoptedChangeData.push({
+        contentControl: 'required-states-and-modes',
+        data: this.jsonSkinDataAdapter('changes', this.rawChangesArray),
+        skin: 'required-states-and-modes-skin',
+      });
+    }
+    //4.get installation data (via file) installation-instructions-content-control
+    const installationInstruction = [];
+    if (installationInstruction.length > 0) {
+      this.adoptedChangeData.push({
+        contentControl: 'installation-instructions-content-control',
+        data: this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
+        skin: 'installation-instructions-skin',
+      });
+    }
+    const knownBugs = [];
+    //5. get possible errors or change quest by query possible-problems-known-errors-content-control
+    if (knownBugs.length > 0) {
+      this.adoptedChangeData.push({
+        contentControl: 'possible-problems-known-errors-content-control',
+        data: this.jsonSkinDataAdapter('possible-problems-known-errors', knownBugs), //TBD need to fetch relevant bug queries
+        skin: 'possible-problems-known-errors-skin',
+      });
+    }
+  }
+
   /*fetches Change table data and adopts it to json skin format */
-  async fetchData() {
+  async fetchChangesData() {
     try {
       let focusedArtifact;
       let artifactChanges;
       let origin;
       let gitDataProvider = await this.dgDataProviderAzureDevOps.getGitDataProvider();
-      let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDateProvider();
+      let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDataProvider();
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
 
       const handlers: { [key: string]: Function } = {
@@ -227,7 +281,7 @@ export default class ChangeDataFactory {
     } catch (error: any) {
       logger.error(error.message);
     }
-  } //fetchData
+  } //fetchChangesData
 
   private async GetPipelineChanges(
     artifactChanges: any,
@@ -375,7 +429,7 @@ export default class ChangeDataFactory {
       this.dgDataProviderAzureDevOps,
       pipelineTitle
     );
-    await buildChangeFactory.fetchData();
+    await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
     this.rawChangesArray.push(...rawData);
   }
@@ -453,21 +507,49 @@ export default class ChangeDataFactory {
       tocTitle
     );
 
-    await buildChangeFactory.fetchData();
+    await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
     logger.debug(`raw data for ${jfrogUploader} ${JSON.stringify(rawData)}`);
     this.rawChangesArray.push(...rawData);
   }
 
+  //TODO:
+
   /*arranging the test data for json skins package*/
-  async jsonSkinDataAdpater() {
-    let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
-      this.rawChangesArray,
-      this.includeChangeDescription,
-      this.includeCommittedBy
-    );
-    changesTableDataSkinAdapter.adoptSkinData();
-    this.adoptedChangeData = changesTableDataSkinAdapter.getAdoptedData();
+  jsonSkinDataAdapter(adapterType: string, rawData: any[]) {
+    let adoptedData = undefined;
+    try {
+      switch (adapterType) {
+        case 'release-components':
+          const releaseComponentDataRawAdapter = new ReleaseComponentDataSkinAdapter();
+          adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
+          break;
+        case 'system-overview':
+          //TBD...
+          break;
+        case 'changes':
+          let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
+            this.rawChangesArray,
+            this.includeChangeDescription,
+            this.includeCommittedBy
+          );
+          changesTableDataSkinAdapter.adoptSkinData();
+          adoptedData = changesTableDataSkinAdapter.getAdoptedData();
+          break;
+        case 'installation-instructions':
+          //TBD
+          break;
+        case 'possible-problems-known-errors':
+          //TBD
+          break;
+
+        default:
+          break;
+      }
+    } catch (err: any) {
+      logger.error(`Failed adapting data for type ${adapterType}: ${err.message}`);
+    }
+    return adoptedData;
   } //jsonSkinDataAdpater
 
   getRawData() {
