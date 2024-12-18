@@ -464,17 +464,22 @@ export default class ChangeDataFactory {
 
     logger.info(`Fetch CI data from JFrog: ${jFrogUrl}`);
     const toCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, toBuildName, toBuildVersion);
-    if (toCiUrl !== '') {
+    if (toCiUrl === '') {
+      logger.warn(`cannot find source url for ${toBuildName}`);
       return;
     }
 
     const fromCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, fromBuildName, fromBuildVersion);
-    if (toCiUrl !== '') {
+    if (fromCiUrl === '') {
+      logger.warn(`cannot find source url for ${fromBuildName}`);
       return;
     }
 
     // Determine if CI or Release
-    const toUrlSuffix = toCiUrl.split('/').pop();
+    const toUrlParts = toCiUrl.split('/');
+    const fromUrlParts = fromCiUrl.split('/');
+    const toUrlSuffix = toUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
+    const fromUrlSuffix = fromUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
     let jfrogUploader = '';
     if (toUrlSuffix.startsWith('_release?releaseId=')) {
       jfrogUploader = 'release';
@@ -484,20 +489,15 @@ export default class ChangeDataFactory {
       return; // Unsupported suffix
     }
 
-    const toBuildId = toCiUrl.split('=').pop();
+    const toBuildId = toUrlSuffix.split('=').pop();
     logger.debug(`to build ${toBuildId}`);
-    const fromBuildId = fromCiUrl.split('=').pop();
-    logger.debug(`to build ${fromBuildId}`);
+    const fromBuildId = fromUrlSuffix.split('=').pop();
+    logger.debug(`from build ${fromBuildId}`);
     const tocTitle = `Artifactory ${toBuildName} ${toBuildVersion}`;
 
     try {
       // Extract project info if needed
-      const toTfsAndProject = toCiUrl.replace(toCiUrl.split('/').pop(), '');
-      logger.debug(`toTfsAndProject ${toTfsAndProject}`);
-
-      const splittedToTfSandProject = toTfsAndProject.split('/');
-      logger.debug(`splittedToTfSandProject ${JSON.stringify(splittedToTfSandProject)}`);
-      const toTeamProject = splittedToTfSandProject[splittedToTfSandProject.length - 2];
+      const toTeamProject = toUrlParts.pop(); //Ejecting the project name
       logger.debug(`toTeamProject ${toTeamProject}`);
       const buildChangeFactory = new ChangeDataFactory(
         toTeamProject,
