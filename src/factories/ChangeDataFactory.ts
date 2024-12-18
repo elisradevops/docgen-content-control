@@ -485,32 +485,43 @@ export default class ChangeDataFactory {
     }
 
     const toBuildId = toCiUrl.split('=').pop();
+    logger.debug(`to build ${toBuildId}`);
     const fromBuildId = fromCiUrl.split('=').pop();
-
-    // Extract project info if needed
-    const toTfsAndProject = toCiUrl.replace(toCiUrl.split('/').pop(), '');
-    const toTeamProject = toTfsAndProject.split('/')[toTfsAndProject.split('/').length - 2];
-
+    logger.debug(`to build ${fromBuildId}`);
     const tocTitle = `Artifactory ${toBuildName} ${toBuildVersion}`;
-    const buildChangeFactory = new ChangeDataFactory(
-      toTeamProject,
-      '',
-      fromBuildId,
-      toBuildId,
-      jfrogUploader,
-      null,
-      '',
-      true,
-      false,
-      false,
-      this.dgDataProviderAzureDevOps,
-      tocTitle
-    );
 
-    await buildChangeFactory.fetchChangesData();
-    const rawData = buildChangeFactory.getRawData();
-    logger.debug(`raw data for ${jfrogUploader} ${JSON.stringify(rawData)}`);
-    this.rawChangesArray.push(...rawData);
+    try {
+      // Extract project info if needed
+      const toTfsAndProject = toCiUrl.replace(toCiUrl.split('/').pop(), '');
+      logger.debug(`toTfsAndProject ${toTfsAndProject}`);
+
+      const splittedToTfSandProject = toTfsAndProject.split('/');
+      logger.debug(`splittedToTfSandProject ${JSON.stringify(splittedToTfSandProject)}`);
+      const toTeamProject = splittedToTfSandProject[splittedToTfSandProject.length - 2];
+      logger.debug(`toTeamProject ${toTeamProject}`);
+      const buildChangeFactory = new ChangeDataFactory(
+        toTeamProject,
+        '',
+        fromBuildId,
+        toBuildId,
+        jfrogUploader,
+        null,
+        '',
+        true,
+        false,
+        false,
+        this.dgDataProviderAzureDevOps,
+        tocTitle
+      );
+
+      await buildChangeFactory.fetchChangesData();
+      const rawData = buildChangeFactory.getRawData();
+      logger.debug(`raw data for ${jfrogUploader} ${JSON.stringify(rawData)}`);
+      this.rawChangesArray.push(...rawData);
+    } catch (error: any) {
+      logger.error(`could not handle ${tocTitle} ${error.message}`);
+      logger.error(`Error stack: `, error.stack);
+    }
   }
 
   //TODO:
