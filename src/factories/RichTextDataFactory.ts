@@ -20,8 +20,12 @@ export default class RichTextDataFactory {
     this.teamProject = teamProject;
   }
   async createRichTextContent(attachmentsBucketName, minioEndPoint, minioAccessKey, minioSecretKey, PAT) {
-    await this.htmlStrip();
+    await this.createRichTextContentWithNoImages();
     await this.downloadImages(attachmentsBucketName, minioEndPoint, minioAccessKey, minioSecretKey, PAT);
+  }
+
+  async createRichTextContentWithNoImages() {
+    await this.htmlStrip();
   }
 
   replaceTags = ({ tag, deleteFrom, deleteTo, rangesArr }) => {

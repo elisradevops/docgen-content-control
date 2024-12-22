@@ -5,8 +5,8 @@ import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/Git
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
 import { Artifact, contentControl } from '../models/contentControl';
 import { version } from 'os';
-import JfrogDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/JfrogDataProvider';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
+import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 const styles = {
   isBold: false,
   IsItalic: false,
@@ -38,7 +38,7 @@ export default class ChangeDataFactory {
   includeChangeDescription: boolean;
   includeCommittedBy: boolean;
   tocTitle?: string;
-
+  systemOverviewRequest: any;
   constructor(
     teamProjectName,
     repoId: string,
@@ -51,7 +51,8 @@ export default class ChangeDataFactory {
     includeChangeDescription: boolean,
     includeCommittedBy: boolean,
     dgDataProvider: any,
-    tocTitle?: string
+    tocTitle?: string,
+    systemOverviewRequest: any = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -65,6 +66,7 @@ export default class ChangeDataFactory {
     this.includeChangeDescription = includeChangeDescription;
     this.includeCommittedBy = includeCommittedBy;
     this.tocTitle = tocTitle;
+    this.systemOverviewRequest = systemOverviewRequest;
   } //constructor
 
   async fetchSvdData() {
@@ -76,17 +78,17 @@ export default class ChangeDataFactory {
     if (recentReleaseArtifactInfo?.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'release-components-content-control',
-        data: this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
+        data: await this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
         skin: 'release-components-skin',
       });
     }
 
     //2. Get system-overview (by query) need to be displayed in hierarchy system-overview-content-control
-    const systemOverViewData = [];
+    const systemOverViewData = await this.fetchQueryResults();
     if (systemOverViewData.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'system-overview-content-control',
-        data: this.jsonSkinDataAdapter('system-overview', []), //TBD
+        data: await this.jsonSkinDataAdapter('system-overview', systemOverViewData),
         skin: 'system-overview-skin',
       });
     }
@@ -96,7 +98,7 @@ export default class ChangeDataFactory {
     if (this.rawChangesArray.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'required-states-and-modes',
-        data: this.jsonSkinDataAdapter('changes', this.rawChangesArray),
+        data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
         skin: 'required-states-and-modes-skin',
       });
     }
@@ -105,7 +107,7 @@ export default class ChangeDataFactory {
     if (installationInstruction.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'installation-instructions-content-control',
-        data: this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
+        data: await this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
         skin: 'installation-instructions-skin',
       });
     }
@@ -114,10 +116,30 @@ export default class ChangeDataFactory {
     if (knownBugs.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'possible-problems-known-errors-content-control',
-        data: this.jsonSkinDataAdapter('possible-problems-known-errors', knownBugs), //TBD need to fetch relevant bug queries
+        data: await this.jsonSkinDataAdapter('possible-problems-known-errors', knownBugs), //TBD need to fetch relevant bug queries
         skin: 'possible-problems-known-errors-skin',
       });
     }
+  }
+
+  async fetchQueryResults(): Promise<any[]> {
+    try {
+      const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      if (this.systemOverviewRequest.selectedQuery) {
+        logger.info('starting to fetch query results');
+
+        logger.info('fetching results');
+        let systemOverviewQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          this.systemOverviewRequest.selectedQuery.wiql.href
+        );
+        logger.info(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
+        logger.debug(`system overview are ${JSON.stringify(systemOverviewQueryData)}`);
+        return systemOverviewQueryData;
+      }
+    } catch (err) {
+      logger.error(`Could not fetch query results: ${err.message}`);
+    }
+    return [];
   }
 
   /*fetches Change table data and adopts it to json skin format */
@@ -524,10 +546,8 @@ export default class ChangeDataFactory {
     }
   }
 
-  //TODO:
-
   /*arranging the test data for json skins package*/
-  jsonSkinDataAdapter(adapterType: string, rawData: any[]) {
+  async jsonSkinDataAdapter(adapterType: string, rawData: any[]) {
     let adoptedData = undefined;
     try {
       switch (adapterType) {
@@ -536,7 +556,11 @@ export default class ChangeDataFactory {
           adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
           break;
         case 'system-overview':
-          //TBD...
+          const systemOverviewDataAdapter = new SystemOverviewDataSkinAdapter(
+            this.teamProject,
+            this.templatePath
+          );
+          adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
           break;
         case 'changes':
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
