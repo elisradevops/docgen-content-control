@@ -133,7 +133,6 @@ export default class ChangeDataFactory {
           this.systemOverviewRequest.selectedQuery.wiql.href
         );
         logger.info(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
-        logger.debug(`system overview are ${JSON.stringify(systemOverviewQueryData)}`);
         return systemOverviewQueryData;
       }
     } catch (err) {

@@ -5,9 +5,10 @@ export default class ReleaseComponentDataSkinAdapter {
     try {
       return releaseComponentDataRaw.map((item: any, idx) => {
         const fields = [
-          { name: '#', value: `${idx + 1}`, width: '3.8%' },
-          { name: 'Software Components', value: item.artifactName },
-          { name: 'Version', value: item.artifactVersion },
+          { name: '#', value: `${idx + 1}`, width: '5.5%' },
+          { name: 'Software Components', value: item.artifactName, width: '36.1%' },
+          { name: 'Version', value: item.artifactVersion, width: '23.6%' },
+          { name: 'Comments', value: '' },
         ];
         return { fields };
       });
