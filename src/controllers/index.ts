@@ -159,7 +159,8 @@ export default class DgContentControls {
             contentControlOptions.data.branchName,
             contentControlOptions.data.includePullRequests,
             contentControlOptions.data.includeChangeDescription,
-            contentControlOptions.data.includeCommittedBy
+            contentControlOptions.data.includeCommittedBy,
+            contentControlOptions.data.systemOverviewQuery
           );
           break;
         case 'pr-change-description-table':
@@ -669,7 +670,8 @@ export default class DgContentControls {
     branchName?: string,
     includePullRequests?: boolean,
     includeChangeDescription: boolean = false,
-    includeCommittedBy: boolean = false
+    includeCommittedBy: boolean = false,
+    systemOverviewQuery: any = null
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -681,7 +683,6 @@ export default class DgContentControls {
       teamProjectName:${this.teamProjectName}
       branchName:${branchName}
       includePullRequests:${includePullRequests}`);
-
     try {
       let changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
@@ -694,7 +695,9 @@ export default class DgContentControls {
         includePullRequests,
         includeChangeDescription,
         includeCommittedBy,
-        this.dgDataProviderAzureDevOps
+        this.dgDataProviderAzureDevOps,
+        undefined,
+        systemOverviewQuery
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
@@ -723,25 +726,38 @@ export default class DgContentControls {
         isBold: false, // Specific to regular styles
       };
       for (const element of adoptedChangesData) {
-        if (element.contentControl === 'required-states-and-modes') {
-          const contentControl: contentControl = await this.generateChangesSkin(
-            element.data,
-            contentControlTitle,
-            headerStyles,
-            styles,
-            headingLevel
-          );
-          contentControls.push(contentControl);
-        } else {
-          const skin = await this.skins.addNewContentToDocumentSkin(
-            element.contentControl,
-            this.skins.SKIN_TYPE_TABLE, //add another types too to support system-overview as well
-            element.data,
-            headerStyles,
-            styles,
-            headingLevel
-          );
-          contentControls.push({ title: element.contentControl, wordObjects: skin });
+        switch (element.contentControl) {
+          case 'required-states-and-modes':
+            const contentControl: contentControl = await this.generateChangesSkin(
+              element.data,
+              contentControlTitle,
+              headerStyles,
+              styles,
+              headingLevel
+            );
+            contentControls.push(contentControl);
+            break;
+          case 'system-overview-content-control':
+            const overviewSkin = await this.skins.addNewContentToDocumentSkin(
+              element.contentControl,
+              this.skins.SKIN_TYPE_SYSTEM_OVERVIEW,
+              element.data,
+              headerStyles,
+              styles,
+              headingLevel
+            );
+            contentControls.push({ title: element.contentControl, wordObjects: overviewSkin });
+            break;
+          default:
+            const skin = await this.skins.addNewContentToDocumentSkin(
+              element.contentControl,
+              this.skins.SKIN_TYPE_TABLE, //add another types too to support system-overview as well
+              element.data,
+              headerStyles,
+              styles,
+              headingLevel
+            );
+            contentControls.push({ title: element.contentControl, wordObjects: skin });
         }
       }
       return contentControls;

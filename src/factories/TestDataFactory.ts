@@ -269,9 +269,9 @@ export default class TestDataFactory {
         logger.info('starting to fetch query results');
 
         logger.info('fetching requirement - test results');
-        let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
-          this.teamProject,
-          this.traceAnalysisRequest.reqTestQuery.wiql.href
+        let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          this.traceAnalysisRequest.reqTestQuery.wiql.href,
+          true
         );
         logger.info(`requirement - test results are ${reqTestQueryResults ? 'ready' : 'not found'}`);
 
@@ -281,9 +281,9 @@ export default class TestDataFactory {
         logger.info('starting to fetch query results');
 
         logger.info('fetching test - requirement results');
-        let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiqlHref(
-          this.teamProject,
-          this.traceAnalysisRequest.testReqQuery.wiql.href
+        let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          this.traceAnalysisRequest.testReqQuery.wiql.href,
+          true
         );
         logger.info(`test - requirement results are ${testReqQueryResults ? 'ready' : 'not found'}`);
         this.testReqQueryResults = testReqQueryResults;
