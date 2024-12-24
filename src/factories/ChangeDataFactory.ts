@@ -39,6 +39,7 @@ export default class ChangeDataFactory {
   includeCommittedBy: boolean;
   tocTitle?: string;
   systemOverviewRequest: any;
+  includedWorkItemByIdSet: Set<number>;
   constructor(
     teamProjectName,
     repoId: string,
@@ -52,7 +53,8 @@ export default class ChangeDataFactory {
     includeCommittedBy: boolean,
     dgDataProvider: any,
     tocTitle?: string,
-    systemOverviewRequest: any = undefined
+    systemOverviewRequest: any = undefined,
+    includedWorkItemByIdSet: Set<number> = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -67,6 +69,7 @@ export default class ChangeDataFactory {
     this.includeCommittedBy = includeCommittedBy;
     this.tocTitle = tocTitle;
     this.systemOverviewRequest = systemOverviewRequest;
+    this.includedWorkItemByIdSet = includedWorkItemByIdSet ?? new Set();
   } //constructor
 
   async fetchSvdData() {
@@ -95,6 +98,7 @@ export default class ChangeDataFactory {
 
     //3. get fetch changes data required-states-and-modes
     await this.fetchChangesData();
+    this.includedWorkItemByIdSet.clear();
     if (this.rawChangesArray.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'required-states-and-modes',
@@ -299,6 +303,7 @@ export default class ChangeDataFactory {
           break;
       }
       logger.info(`fetch ${this.rawChangesArray.length} changes for range`);
+      //Clear the set after finishing
     } catch (error: any) {
       logger.error(error.message);
     }
@@ -425,10 +430,15 @@ export default class ChangeDataFactory {
       { version: toCommit, versionType: 'commit' }
     );
     if (extendedCommits?.length > 0) {
-      const foundItems = await gitDataProvider.getItemsForPipelineRange(this.teamProject, extendedCommits, {
-        repoName: gitRepoName,
-        url: gitRepoUrl,
-      });
+      const foundItems = await gitDataProvider.getItemsForPipelineRange(
+        this.teamProject,
+        extendedCommits,
+        {
+          repoName: gitRepoName,
+          url: gitRepoUrl,
+        },
+        this.includedWorkItemByIdSet
+      );
       pipelineRangeItems.push(...foundItems);
     }
     return pipelineRangeItems;
@@ -448,7 +458,8 @@ export default class ChangeDataFactory {
       false,
       false,
       this.dgDataProviderAzureDevOps,
-      pipelineTitle
+      pipelineTitle,
+      this.includedWorkItemByIdSet
     );
     await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
@@ -532,7 +543,9 @@ export default class ChangeDataFactory {
         false,
         false,
         this.dgDataProviderAzureDevOps,
-        tocTitle
+        tocTitle,
+        undefined,
+        this.includedWorkItemByIdSet
       );
 
       await buildChangeFactory.fetchChangesData();
