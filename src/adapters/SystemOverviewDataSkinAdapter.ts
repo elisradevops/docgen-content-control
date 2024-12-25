@@ -12,10 +12,11 @@ export default class SystemOverviewDataSkinAdapter {
     this.htmlUtils = new HtmlUtils();
     this.adoptedData = [];
   }
-  public async jsonSkinAdapter(systemOverviewRawData: any[]) {
+  public async jsonSkinAdapter(rawData: any) {
     try {
-      if (systemOverviewRawData.length > 0) {
-        await this.adaptDataRecursively(systemOverviewRawData);
+      const { systemOverviewQueryData } = rawData;
+      if (systemOverviewQueryData.length > 0) {
+        await this.adaptDataRecursively(systemOverviewQueryData);
       }
     } catch (err: any) {
       logger.error(`could not create the adopted data ${err.message}`);
