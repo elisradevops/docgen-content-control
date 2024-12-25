@@ -7,6 +7,7 @@ import { Artifact, contentControl } from '../models/contentControl';
 import { version } from 'os';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
+import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
 const styles = {
   isBold: false,
   IsItalic: false,
@@ -38,7 +39,7 @@ export default class ChangeDataFactory {
   includeChangeDescription: boolean;
   includeCommittedBy: boolean;
   tocTitle?: string;
-  systemOverviewRequest: any;
+  queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
   constructor(
     teamProjectName,
@@ -53,7 +54,7 @@ export default class ChangeDataFactory {
     includeCommittedBy: boolean,
     dgDataProvider: any,
     tocTitle?: string,
-    systemOverviewRequest: any = undefined,
+    queriesRequest: any = undefined,
     includedWorkItemByIdSet: Set<number> = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
@@ -68,7 +69,7 @@ export default class ChangeDataFactory {
     this.includeChangeDescription = includeChangeDescription;
     this.includeCommittedBy = includeCommittedBy;
     this.tocTitle = tocTitle;
-    this.systemOverviewRequest = systemOverviewRequest;
+    this.queriesRequest = queriesRequest;
     this.includedWorkItemByIdSet = includedWorkItemByIdSet ?? new Set();
   } //constructor
 
@@ -87,11 +88,11 @@ export default class ChangeDataFactory {
     }
 
     //2. Get system-overview (by query) need to be displayed in hierarchy system-overview-content-control
-    const systemOverViewData = await this.fetchQueryResults();
-    if (systemOverViewData.length > 0) {
+    const queryResultData = await this.fetchQueryResults();
+    if (queryResultData.systemOverviewQueryData?.length > 0) {
       this.adoptedChangeData.push({
         contentControl: 'system-overview-content-control',
-        data: await this.jsonSkinDataAdapter('system-overview', systemOverViewData),
+        data: await this.jsonSkinDataAdapter('system-overview', queryResultData),
         skin: 'system-overview-skin',
       });
     }
@@ -115,30 +116,50 @@ export default class ChangeDataFactory {
         skin: 'installation-instructions-skin',
       });
     }
-    const knownBugs = [];
     //5. get possible errors or change quest by query possible-problems-known-errors-content-control
-    if (knownBugs.length > 0) {
+    if (queryResultData.knownBugsQueryData) {
       this.adoptedChangeData.push({
         contentControl: 'possible-problems-known-errors-content-control',
-        data: await this.jsonSkinDataAdapter('possible-problems-known-errors', knownBugs), //TBD need to fetch relevant bug queries
+        data: await this.jsonSkinDataAdapter(
+          'possible-problems-known-errors',
+          queryResultData.knownBugsQueryData
+        ),
         skin: 'possible-problems-known-errors-skin',
       });
     }
   }
 
-  async fetchQueryResults(): Promise<any[]> {
+  /**
+   * Fetch query results for both system overview and known bug query
+   * @returns
+   */
+  async fetchQueryResults(): Promise<any> {
     try {
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
-      if (this.systemOverviewRequest.selectedQuery) {
-        logger.info('starting to fetch query results');
+      let queryResults = {};
+      if (this.queriesRequest.sysOverviewQuery) {
+        logger.info('starting to fetch system overview query results');
 
         logger.info('fetching results');
         let systemOverviewQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
-          this.systemOverviewRequest.selectedQuery.wiql.href
+          this.queriesRequest.sysOverviewQuery.wiql.href
         );
         logger.info(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
-        return systemOverviewQueryData;
+        queryResults['systemOverviewQueryData'] = systemOverviewQueryData;
       }
+
+      if (this.queriesRequest.knownBugsQuery) {
+        logger.info('starting to fetch known bugs query results');
+
+        logger.info('fetching results');
+        let knownBugsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          this.queriesRequest.knownBugsQuery.wiql.href,
+          true
+        );
+        logger.info(`known bugs query results are ${knownBugsQueryData ? 'ready' : 'not found'}`);
+        queryResults['knownBugsQueryData'] = knownBugsQueryData;
+      }
+      return queryResults;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
     }
@@ -559,7 +580,7 @@ export default class ChangeDataFactory {
   }
 
   /*arranging the test data for json skins package*/
-  async jsonSkinDataAdapter(adapterType: string, rawData: any[]) {
+  async jsonSkinDataAdapter(adapterType: string, rawData: any) {
     let adoptedData = undefined;
     try {
       switch (adapterType) {
@@ -568,6 +589,7 @@ export default class ChangeDataFactory {
           adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
           break;
         case 'system-overview':
+          logger.info('adapting system overview data');
           const systemOverviewDataAdapter = new SystemOverviewDataSkinAdapter(
             this.teamProject,
             this.templatePath
@@ -587,9 +609,10 @@ export default class ChangeDataFactory {
           //TBD
           break;
         case 'possible-problems-known-errors':
-          //TBD
+          let bugsDataSkinAdapter = new BugsTableSkinAdapter(rawData);
+          bugsDataSkinAdapter.adoptSkinData();
+          adoptedData = bugsDataSkinAdapter.getAdoptedData();
           break;
-
         default:
           break;
       }
