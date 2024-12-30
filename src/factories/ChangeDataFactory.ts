@@ -142,7 +142,9 @@ export default class ChangeDataFactory {
 
         logger.info('fetching results');
         let systemOverviewQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
-          this.queriesRequest.sysOverviewQuery.wiql.href
+          this.queriesRequest.sysOverviewQuery.wiql.href,
+          false,
+          null
         );
         logger.info(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
         queryResults['systemOverviewQueryData'] = systemOverviewQueryData;
@@ -154,7 +156,8 @@ export default class ChangeDataFactory {
         logger.info('fetching results');
         let knownBugsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.knownBugsQuery.wiql.href,
-          true
+          true,
+          null
         );
         logger.info(`known bugs query results are ${knownBugsQueryData ? 'ready' : 'not found'}`);
         queryResults['knownBugsQueryData'] = knownBugsQueryData;
@@ -412,6 +415,7 @@ export default class ChangeDataFactory {
         fromPipelineRepoFound = true;
         if (fromGitRepoVersion === gitRepoVersion) {
           logger.debug(`Same repository version ${fromGitRepoVersion} nothing to compare`);
+          break;
         }
 
         let fromCommit = fromGitRepoVersion;
