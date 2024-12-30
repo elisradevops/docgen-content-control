@@ -45,6 +45,7 @@ export default class TestDataFactory {
   htmlUtils: HtmlUtils;
   requirementToTestCaseTraceMap: Map<string, string[]>;
   testCaseToRequirementsTraceMap: Map<string, string[]>;
+  testCaseToRequirementsLookup: Map<number, Set<any>>;
   stepResultDetailsMap: Map<string, any>;
 
   constructor(
@@ -89,7 +90,7 @@ export default class TestDataFactory {
     this.htmlUtils = new HtmlUtils();
     this.stepResultDetailsMap = stepResultDetailsMap;
   }
-  async fetchTestData() {
+  async fetchTestData(isByQuery: boolean = false) {
     try {
       let testfilteredPlan;
       let testDataProvider = await this.dgDataProvider.getTestDataProvider();
@@ -158,7 +159,7 @@ export default class TestDataFactory {
           plan: testfilteredPlan,
           suites: SuitesAndTestCases,
         };
-        this.adoptedTestData = await this.jsonSkinDataAdpater(null);
+        this.adoptedTestData = await this.jsonSkinDataAdpater(null, isByQuery);
       }
     } catch (err) {
       throw new Error(`Error occurred during fetching data: ${err}`);
@@ -264,15 +265,17 @@ export default class TestDataFactory {
   async fetchQueryResults() {
     try {
       const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
-
+      const testCaseToRequirementMap = new Map<number, Set<any>>();
       if (this.traceAnalysisRequest.reqTestQuery) {
         logger.info('starting to fetch query results');
 
         logger.info('fetching requirement - test results');
         let reqTestQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.traceAnalysisRequest.reqTestQuery.wiql.href,
-          true
+          true,
+          testCaseToRequirementMap
         );
+
         logger.info(`requirement - test results are ${reqTestQueryResults ? 'ready' : 'not found'}`);
 
         this.reqTestQueryResults = reqTestQueryResults;
@@ -283,13 +286,15 @@ export default class TestDataFactory {
         logger.info('fetching test - requirement results');
         let testReqQueryResults: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.traceAnalysisRequest.testReqQuery.wiql.href,
-          true
+          true,
+          testCaseToRequirementMap
         );
         logger.info(`test - requirement results are ${testReqQueryResults ? 'ready' : 'not found'}`);
         this.testReqQueryResults = testReqQueryResults;
       }
 
       this.adoptedQueryResults = await this.jsonSkinDataAdpater('query-results');
+      this.testCaseToRequirementsLookup = testCaseToRequirementMap;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
     }
@@ -308,7 +313,7 @@ export default class TestDataFactory {
   }
 
   //arranging the test data for json skins package
-  async jsonSkinDataAdpater(adapterType: string = null) {
+  async jsonSkinDataAdpater(adapterType: string = null, isByQuery: boolean = false) {
     let adoptedTestData = {} as any;
     try {
       switch (adapterType) {
@@ -401,6 +406,7 @@ export default class TestDataFactory {
           }
 
           break;
+
         default:
           //There is a problem when grabbing the data
           adoptedTestData = await Promise.all(
@@ -612,38 +618,9 @@ export default class TestDataFactory {
                         },
                       ];
                     }
-                    let testCaseRequirements = testCase.relations
-                      .filter((relation) => relation.type === 'requirement')
-                      ?.map((relation, index) => {
-                        let fields = [
-                          {
-                            name: '#',
-                            value: index + 1,
-                            width: '5.5%',
-                          },
-                          {
-                            name: 'Req ID',
-                            value: relation.id,
-                            width: '13.6%',
-                          },
-                          {
-                            name: 'Req Title',
-                            value: relation.title,
-                          },
-                        ];
-
-                        // Insert customer ID conditionally between Req ID and Req Title
-                        if (this.includeCustomerId && relation.customerId) {
-                          fields.splice(2, 0, {
-                            // Inserting at index 2, right before Req Title
-                            name: 'Customer ID',
-                            value: relation.customerId,
-                            width: '18%',
-                          });
-                        }
-
-                        return { fields };
-                      });
+                    let testCaseRequirements = this.includeRequirements
+                      ? this.AdaptTestCaseRequirements(testCase, isByQuery)
+                      : undefined;
 
                     let filteredTestCaseAttachments = testCase.attachmentsData.filter(
                       (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
@@ -684,11 +661,121 @@ export default class TestDataFactory {
       return adoptedTestData;
     } catch (error) {
       logger.error(`error caught in jsonSkinDataAdpater ${error}`);
+      logger.error(`error stack ${error.stack}`);
     }
   }
 
+  private AdaptTestCaseRequirements(testCase: any, isByQuery: boolean = false) {
+    return isByQuery
+      ? this.adaptTestCaseRequirementsByQuery(testCase)
+      : this.adaptTestCaseRequirementsByRelations(testCase);
+  }
+
+  /**
+   * Handle the scenario where the test case requirements come from
+   * `this.testCaseToRequirementsLookup`.
+   */
+  private adaptTestCaseRequirementsByQuery(testCase: any) {
+    const requirements = Array.from(this.testCaseToRequirementsLookup.get(testCase.id) || []);
+
+    return requirements.map((requirement: any, index: number) => {
+      // Get the basic fields
+      let fields = this.buildRequirementFields({
+        index,
+        requirementId: requirement.id,
+        requirementTitle: requirement.fields['System.Title'],
+        requirementUrl: requirement._links?.html?.href,
+      });
+
+      // Optionally insert the "Customer ID" field
+      if (this.includeCustomerId) {
+        const customerValue = this.findCustomerValue(requirement.fields);
+        if (customerValue) {
+          this.insertCustomerField(fields, customerValue);
+        }
+      }
+
+      return { fields };
+    });
+  }
+
+  /**
+   * Handle the scenario where the test case requirements are derived
+   * from `testCase.relations`.
+   */
+  private adaptTestCaseRequirementsByRelations(testCase: any) {
+    return testCase.relations
+      .filter((relation: any) => relation.type === 'requirement')
+      .map((relation: any, index: number) => {
+        let fields = this.buildRequirementFields({
+          index,
+          requirementId: relation.id,
+          requirementTitle: relation.title,
+          requirementUrl: '', // no URL in relations, unless you add it
+        });
+
+        // Optionally insert the "Customer ID" field
+        if (this.includeCustomerId && relation.customerId) {
+          this.insertCustomerField(fields, relation.customerId);
+        }
+
+        return { fields };
+      });
+  }
+
+  /**
+   * Build the array of `fields` for a single requirement row.
+   */
+  private buildRequirementFields(params: {
+    index: number;
+    requirementId: number;
+    requirementTitle: string;
+    requirementUrl?: string;
+  }) {
+    const { index, requirementId, requirementTitle, requirementUrl } = params;
+
+    // Common fields
+    return [
+      {
+        name: '#',
+        value: index + 1,
+        width: '5.5%',
+      },
+      {
+        name: 'Req ID',
+        value: requirementId,
+        width: '13.6%',
+        url: requirementUrl,
+      },
+      {
+        name: 'Req Title',
+        value: requirementTitle || '',
+      },
+    ];
+  }
+
+  /**
+   * Find the 'customer' property (case-insensitive) in the given `fields` object
+   * and return its value, or `null` if not found.
+   */
+  private findCustomerValue(fieldsObj: any): string | null {
+    const customerKey = Object.keys(fieldsObj).find((key) => key.toLowerCase().includes('customer'));
+    return customerKey ? fieldsObj[customerKey] : null;
+  }
+
+  /**
+   * Insert a "Customer ID" field between the "Req ID" and "Req Title" fields.
+   */
+  private insertCustomerField(fields: any[], customerValue: string) {
+    // Insert at index 2, right before "Req Title"
+    fields.splice(2, 0, {
+      name: 'Customer ID',
+      value: customerValue,
+      width: '18%',
+    });
+  }
+
   private extractStepStatus(testStep: any) {
-    logger.debug(`test step: ------------> ${JSON.stringify(testStep)}`);
     if (testStep?.isSharedStepTitle) {
       return '';
     }
