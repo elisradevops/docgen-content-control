@@ -414,13 +414,13 @@ export default class ChangeDataFactory {
     );
 
     for (const targetPipelineRepo of targetResourceRepositories) {
-      let gitRepoUrl = targetPipelineRepo.url;
+      let gitRepoUrl = this.removeUserFromGitRepoUrl(targetPipelineRepo.url);
       let gitRepoVersion = targetPipelineRepo.repoSha1;
       let gitRepoName = targetPipelineRepo.repoName;
       let toCommit = gitRepoVersion;
       logger.debug(`Repository ${gitRepoUrl} version ${gitRepoVersion.slice(0, 7)}`);
       for (const sourcePipeline of sourceResourceRepositories) {
-        let fromGitRepoUrl = sourcePipeline.url;
+        let fromGitRepoUrl = this.removeUserFromGitRepoUrl(sourcePipeline.url);
         let fromGitRepoVersion = sourcePipeline.repoSha1;
         let fromGitRepoName = sourcePipeline.repoName;
 
@@ -435,11 +435,9 @@ export default class ChangeDataFactory {
         }
 
         let fromCommit = fromGitRepoVersion;
-        let repoId = fromGitRepoUrl.split('/').pop();
         const pipelineRangeItems = await this.getCommitRangeChanges(
           gitDataProvider,
           teamProject,
-          repoId,
           fromCommit,
           toCommit,
           gitRepoName,
@@ -544,10 +542,19 @@ export default class ChangeDataFactory {
     return artifactChanges;
   }
 
+  private removeUserFromGitRepoUrl(gitRepoUrl: string) {
+    if (!gitRepoUrl.startsWith('https://')) {
+      return gitRepoUrl;
+    }
+    if (!gitRepoUrl.includes('@')) {
+      return gitRepoUrl;
+    }
+    return 'https://' + gitRepoUrl.split('@').pop();
+  }
+
   private async getCommitRangeChanges(
     gitDataProvider: GitDataProvider,
     teamProject: string,
-    repoId: any,
     fromCommit: any,
     toCommit: any,
     gitRepoName: any,
@@ -555,8 +562,7 @@ export default class ChangeDataFactory {
   ) {
     const pipelineRangeItems: any[] = [];
     let extendedCommits = await gitDataProvider.GetCommitBatch(
-      teamProject,
-      repoId,
+      gitRepoUrl,
       { version: fromCommit, versionType: 'commit' },
       { version: toCommit, versionType: 'commit' }
     );
@@ -609,10 +615,10 @@ export default class ChangeDataFactory {
   ) {
     let gitTitle = `Repository ${toArtifact.definitionReference['definition'].name}`;
     let gitRepo = await provider.GetGitRepoFromRepoId(toArtifact.definitionReference['definition'].id);
+
     const pipelineRangeItems = await this.getCommitRangeChanges(
       provider,
       teamProject,
-      toArtifact.definitionReference['definition'].id,
       fromArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['definition'].name,
