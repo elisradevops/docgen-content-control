@@ -314,14 +314,19 @@ export default class ChangeDataFactory {
               if (handler) {
                 switch (artifactType) {
                   case 'Git':
-                    await handler(fromReleaseArtifact, toReleaseArtifact, gitDataProvider);
+                    await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject, gitDataProvider);
                     break;
                   case 'Artifactory':
                   case 'JFrogArtifactory':
-                    await handler(fromReleaseArtifact, toReleaseArtifact, jfrogDataProvider);
+                    await handler(
+                      fromReleaseArtifact,
+                      toReleaseArtifact,
+                      this.teamProject,
+                      jfrogDataProvider
+                    );
                     break;
                   default:
-                    await handler(fromReleaseArtifact, toReleaseArtifact);
+                    await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
                 }
               } else {
                 logger.info(`No handler defined for artifact type ${artifactType}, skipping`);
@@ -425,7 +430,7 @@ export default class ChangeDataFactory {
 
         logger.debug(`Previous repository ${fromGitRepoUrl} version ${fromGitRepoVersion.slice(0, 7)}`);
         if (fromGitRepoVersion === gitRepoVersion) {
-          logger.debug(` Same repository version ${fromGitRepoVersion} nothing to compare`);
+          logger.debug(`Same repository version ${fromGitRepoVersion} nothing to compare`);
           break;
         }
 
@@ -433,6 +438,7 @@ export default class ChangeDataFactory {
         let repoId = fromGitRepoUrl.split('/').pop();
         const pipelineRangeItems = await this.getCommitRangeChanges(
           gitDataProvider,
+          teamProject,
           repoId,
           fromCommit,
           toCommit,
@@ -540,6 +546,7 @@ export default class ChangeDataFactory {
 
   private async getCommitRangeChanges(
     gitDataProvider: GitDataProvider,
+    teamProject: string,
     repoId: any,
     fromCommit: any,
     toCommit: any,
@@ -548,14 +555,14 @@ export default class ChangeDataFactory {
   ) {
     const pipelineRangeItems: any[] = [];
     let extendedCommits = await gitDataProvider.GetCommitBatch(
-      this.teamProject,
+      teamProject,
       repoId,
       { version: fromCommit, versionType: 'commit' },
       { version: toCommit, versionType: 'commit' }
     );
     if (extendedCommits?.length > 0) {
       const foundItems = await gitDataProvider.getItemsForPipelineRange(
-        this.teamProject,
+        teamProject,
         extendedCommits,
         {
           repoName: gitRepoName,
@@ -568,10 +575,15 @@ export default class ChangeDataFactory {
     return pipelineRangeItems;
   }
 
-  private async handleBuildArtifact(fromArtifact: Artifact, toArtifact: Artifact, provider?: any) {
+  private async handleBuildArtifact(
+    fromArtifact: Artifact,
+    toArtifact: Artifact,
+    teamProject: string,
+    provider?: any
+  ) {
     const pipelineTitle = `Pipeline ${fromArtifact.definitionReference['definition'].name}`;
     const buildChangeFactory = new ChangeDataFactory(
-      this.teamProject,
+      teamProject,
       '',
       fromArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['version'].id,
@@ -589,11 +601,17 @@ export default class ChangeDataFactory {
     const rawData = buildChangeFactory.getRawData();
     this.rawChangesArray.push(...rawData);
   }
-  private async handleGitArtifact(fromArtifact: Artifact, toArtifact: Artifact, provider?: any) {
+  private async handleGitArtifact(
+    fromArtifact: Artifact,
+    toArtifact: Artifact,
+    teamProject: string,
+    provider?: any
+  ) {
     let gitTitle = `Repository ${toArtifact.definitionReference['definition'].name}`;
     let gitRepo = await provider.GetGitRepoFromRepoId(toArtifact.definitionReference['definition'].id);
     const pipelineRangeItems = await this.getCommitRangeChanges(
       provider,
+      teamProject,
       toArtifact.definitionReference['definition'].id,
       fromArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['version'].id,
@@ -605,10 +623,15 @@ export default class ChangeDataFactory {
       changes: [...pipelineRangeItems],
     });
   }
-  private async handleArtifactoryArtifact(fromArtifact: Artifact, toArtifact: Artifact, provider?: any) {
+  private async handleArtifactoryArtifact(
+    fromArtifact: Artifact,
+    toArtifact: Artifact,
+    teamProject: string,
+    provider?: any
+  ) {
     // Extract common logic for JFrog/Artifactory here
     let jFrogUrl = await provider.getServiceConnectionUrlByConnectionId(
-      this.teamProject,
+      teamProject,
       fromArtifact.definitionReference.connection.id
     );
 
