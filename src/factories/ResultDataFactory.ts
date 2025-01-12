@@ -121,7 +121,7 @@ export default class ResultDataFactory {
             this.templatePath,
             this.teamProject
           );
-          adoptedTestResultData = detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
+          adoptedTestResultData = await detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
         case 'open-pcr-table':
           const openPCRSkinAdapter = new OpenPCRsDataSkinAdapter();

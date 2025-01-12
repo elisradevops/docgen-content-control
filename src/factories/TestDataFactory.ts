@@ -427,16 +427,15 @@ export default class TestDataFactory {
                     let richTextFactory = new RichTextDataFactory(
                       cleanedDescription,
                       this.templatePath,
-                      this.teamProject
-                    );
-
-                    await richTextFactory.createRichTextContent(
+                      this.teamProject,
                       this.attachmentsBucketName,
                       this.minioEndPoint,
                       this.minioAccessKey,
                       this.minioSecretKey,
                       this.PAT
                     );
+
+                    await richTextFactory.createRichTextContent();
                     richTextFactory.attachmentMinioData.forEach((item) => {
                       let attachmentBucketData = {
                         attachmentMinioPath: item.attachmentPath,
@@ -444,7 +443,7 @@ export default class TestDataFactory {
                       };
                       this.attachmentMinioData.push(attachmentBucketData);
                     });
-                    let richText = richTextFactory.skinDataContentControls;
+                    let richTextNodes = richTextFactory.skinDataContentControls;
                     let testCaseHeaderSkinData = {
                       fields: [
                         { name: 'Title', value: testCase.title + ' - ' },
@@ -452,7 +451,7 @@ export default class TestDataFactory {
                         {
                           name: 'Test Description',
                           value: cleanedDescription || 'No description',
-                          richText: richText,
+                          richTextNodes,
                         },
                       ],
                       level: suite.temp.level + 1,
@@ -476,39 +475,33 @@ export default class TestDataFactory {
                             let richTextFactoryAction = new RichTextDataFactory(
                               actionText,
                               this.templatePath,
-                              this.teamProject
+                              this.teamProject,
+                              this.attachmentsBucketName,
+                              this.minioEndPoint,
+                              this.minioAccessKey,
+                              this.minioSecretKey,
+                              this.PAT
                             );
                             let richTextFactoryExpected = new RichTextDataFactory(
                               expectedText,
                               this.templatePath,
-                              this.teamProject
+                              this.teamProject,
+                              this.attachmentsBucketName,
+                              this.minioEndPoint,
+                              this.minioAccessKey,
+                              this.minioSecretKey,
+                              this.PAT
                             );
-                            richTextFactoryAction.htmlStrip();
-                            richTextFactoryExpected.htmlStrip();
-                            // Define target values
-                            const targetValues = ['\n', ' ', ''];
+                            await richTextFactoryAction.createRichTextContent();
+                            await richTextFactoryExpected.createRichTextContent();
 
-                            // Check if all values in both arrays are among the target values
-                            if (
-                              this.allValuesAreTarget(
-                                richTextFactoryAction.contentControlsStrings,
-                                targetValues
-                              ) &&
-                              this.allValuesAreTarget(
-                                richTextFactoryExpected.contentControlsStrings,
-                                targetValues
-                              )
-                            ) {
-                              // Skip this iteration and move to the next one
+                            let richTextAction = richTextFactoryAction.skinDataContentControls;
+                            let richTextExpected = richTextFactoryExpected.skinDataContentControls;
+
+                            // If there is no action and expected text, skip this step
+                            if (richTextAction?.length === 0 && richTextExpected?.length === 0) {
                               return null;
                             }
-                            let action =
-                              richTextFactoryAction.skinDataContentControls[0].data.fields[0].value;
-                            let expected =
-                              richTextFactoryExpected.skinDataContentControls[0].data.fields[0].value;
-
-                            action = action.replace(/\n/g, '<BR/>');
-                            expected = expected.replace(/\n/g, '<BR/>');
 
                             // checks if there is any step attachment in the current test case
                             let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
@@ -525,10 +518,16 @@ export default class TestDataFactory {
                                 ? {
                                     fields: [
                                       { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      { name: 'Description', value: action, width: '20.8%' },
+                                      {
+                                        name: 'Description',
+                                        value: actionText,
+                                        richTextNodes: richTextAction,
+                                        width: '20.8%',
+                                      },
                                       {
                                         name: 'Expected Results',
-                                        value: expected,
+                                        value: expectedText,
+                                        richTextNodes: richTextExpected,
                                         width: '20.8%',
                                       },
                                       {
@@ -551,10 +550,16 @@ export default class TestDataFactory {
                                 : {
                                     fields: [
                                       { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      { name: 'Description', value: action, width: '31%' },
+                                      {
+                                        name: 'Description',
+                                        value: actionText,
+                                        richTextNodes: richTextAction,
+                                        width: '31%',
+                                      },
                                       {
                                         name: 'Expected Results',
-                                        value: expected,
+                                        value: expectedText,
+                                        richTextNodes: richTextExpected,
                                         width: '31%',
                                       },
                                       {
@@ -574,10 +579,16 @@ export default class TestDataFactory {
                               ? {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                    { name: 'Description', value: action, width: '26.9%' },
+                                    {
+                                      name: 'Description',
+                                      value: actionText,
+                                      richTextNodes: richTextAction,
+                                      width: '26.9%',
+                                    },
                                     {
                                       name: 'Expected Results',
-                                      value: expected,
+                                      value: expectedText,
+                                      richTextNodes: richTextExpected,
                                       width: '26.9%',
                                     },
                                     {
@@ -590,10 +601,16 @@ export default class TestDataFactory {
                               : {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                    { name: 'Description', value: action, width: '45.8%' },
+                                    {
+                                      name: 'Description',
+                                      value: actionText,
+                                      richTextNodes: richTextAction,
+                                      width: '45.8%',
+                                    },
                                     {
                                       name: 'Expected Results',
-                                      value: expected,
+                                      value: expectedText,
+                                      richTextNodes: richTextExpected,
                                     },
                                   ],
                                 };
@@ -796,7 +813,7 @@ export default class TestDataFactory {
   async getAdoptedTestData() {
     return this.adoptedTestData;
   }
-  async getAttachmentMinioData() {
+  getAttachmentMinioData() {
     return this.attachmentMinioData;
   }
 }

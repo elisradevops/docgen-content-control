@@ -10,7 +10,6 @@ import logger from '../services/logger';
 import { contentControl } from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
-import { log } from 'console';
 
 let defaultStyles = {
   isBold: false,
@@ -202,30 +201,31 @@ export default class DgContentControls {
       console.log(error);
     }
 
-    res.forEach((wi, i) => {
-      wi.fields.forEach(async (field, t) => {
+    for (const wi of res) {
+      for (const field of wi.fields) {
         if (field.name === 'Description' || field.name === 'Test Description:') {
           console.log('index field', field);
-          console.log('index t', t);
+          const i = res.indexOf(wi);
+          const t = wi.fields.indexOf(field);
+          console.log('index t', wi.fields.indexOf(field));
           let richTextFactory = new RichTextDataFactory(
             field.value || 'No description',
             this.templatePath,
-            this.teamProjectName
-          );
-          console.log('index richTextFactory', richTextFactory);
-          await richTextFactory.createRichTextContent(
+            this.teamProjectName,
             this.attachmentsBucketName,
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
             this.PAT
           );
+          console.log('index richTextFactory', richTextFactory);
+          await richTextFactory.createRichTextContent();
           this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
-          res[i].fields[t].richText = richTextFactory.skinDataContentControls;
+          res[i].fields[t].richTextNodes = richTextFactory.skinDataContentControls;
         }
         console.log('this.minioAttachmentData inedex', this.minioAttachmentData);
-      });
-    });
+      }
+    }
     try {
       if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
@@ -332,7 +332,7 @@ export default class DgContentControls {
         isBold: false, // Specific to regular styles
       };
 
-      let attachmentData = await testDataFactory.getAttachmentMinioData();
+      let attachmentData = testDataFactory.getAttachmentMinioData();
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
@@ -634,7 +634,7 @@ export default class DgContentControls {
             stepExecution?.generateRequirements?.requirementInclusionMode === 'query'
           );
 
-          let attachmentTestData = await testDataFactory.getAttachmentMinioData();
+          let attachmentTestData = testDataFactory.getAttachmentMinioData();
           this.minioAttachmentData = this.minioAttachmentData.concat(attachmentTestData);
           let skins = await this.skins.addNewContentToDocumentSkin(
             stepExecutionObject.contentControl,
@@ -711,11 +711,17 @@ export default class DgContentControls {
         includeChangeDescription,
         includeCommittedBy,
         this.dgDataProviderAzureDevOps,
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT,
         undefined,
         systemOverviewQuery
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
+      this.minioAttachmentData.push(...changeDataFactory.getAttachmentMinioData());
     } catch (error) {
       throw new Error(`Error initilizing change table factory ${error}`);
     }
@@ -759,7 +765,8 @@ export default class DgContentControls {
               element.data,
               headerStyles,
               styles,
-              headingLevel
+              headingLevel,
+              true
             );
             contentControls.push({ title: element.contentControl, wordObjects: overviewSkin });
             break;

@@ -41,6 +41,12 @@ export default class ChangeDataFactory {
   tocTitle?: string;
   queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
+  private attachmentMinioData: any[]; //attachment data
+  private attachmentsBucketName: string;
+  private minioEndPoint: string;
+  private minioAccessKey: string;
+  private minioSecretKey: string;
+  private PAT: string;
   constructor(
     teamProjectName,
     repoId: string,
@@ -53,6 +59,11 @@ export default class ChangeDataFactory {
     includeChangeDescription: boolean,
     includeCommittedBy: boolean,
     dgDataProvider: any,
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string,
     tocTitle?: string,
     queriesRequest: any = undefined,
     includedWorkItemByIdSet: Set<number> = undefined
@@ -71,6 +82,12 @@ export default class ChangeDataFactory {
     this.tocTitle = tocTitle;
     this.queriesRequest = queriesRequest;
     this.includedWorkItemByIdSet = includedWorkItemByIdSet ?? new Set();
+    this.attachmentsBucketName = attachmentsBucketName;
+    this.minioEndPoint = minioEndPoint;
+    this.minioAccessKey = minioAccessKey;
+    this.minioSecretKey = minioSecretKey;
+    this.PAT = PAT;
+    this.attachmentMinioData = [];
   } //constructor
 
   async fetchSvdData() {
@@ -600,6 +617,11 @@ export default class ChangeDataFactory {
       false,
       false,
       this.dgDataProviderAzureDevOps,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT,
       pipelineTitle,
       this.includedWorkItemByIdSet
     );
@@ -696,6 +718,11 @@ export default class ChangeDataFactory {
         false,
         false,
         this.dgDataProviderAzureDevOps,
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT,
         tocTitle,
         undefined,
         this.includedWorkItemByIdSet
@@ -724,9 +751,18 @@ export default class ChangeDataFactory {
           logger.info('adapting system overview data');
           const systemOverviewDataAdapter = new SystemOverviewDataSkinAdapter(
             this.teamProject,
-            this.templatePath
+            this.templatePath,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT
           );
           adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
+          logger.debug(
+            `attachment data ${JSON.stringify(systemOverviewDataAdapter.getAttachmentMinioData())}`
+          );
+          this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
@@ -761,4 +797,8 @@ export default class ChangeDataFactory {
   getAdoptedData() {
     return this.adoptedChangeData;
   } //getAdoptedData
+
+  getAttachmentMinioData(): any[] {
+    return this.attachmentMinioData;
+  }
 }
