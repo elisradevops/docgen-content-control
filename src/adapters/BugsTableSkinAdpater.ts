@@ -54,7 +54,7 @@ export default class BugsTableSkinAdapter {
           adaptedFields.push({
             name: fieldName,
             value: item?.fields[referenceName] || '',
-            width: '6.5%',
+            width: '9.7%',
           });
           break;
         }
@@ -95,7 +95,7 @@ export default class BugsTableSkinAdapter {
     const adaptedSourceFields: any[] = this.adaptFields(wi);
     const fields = this.buildFields({
       items: [
-        { name: 'WI ID', value: wi.id, width: '6.8%', url: wi._links.html.href },
+        { name: 'WI ID', value: wi.id, width: '8.3%', url: wi._links.html.href },
         ...adaptedSourceFields,
       ],
     });
