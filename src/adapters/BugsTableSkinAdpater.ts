@@ -80,9 +80,10 @@ export default class BugsTableSkinAdapter {
           });
           break;
         default:
+          const fieldValue = item?.fields[referenceName];
           adaptedFields.push({
             name: fieldName,
-            value: item?.fields[referenceName] || '',
+            value: typeof fieldValue === 'string' ? fieldValue : fieldValue?.displayName || '',
           });
           break;
       }

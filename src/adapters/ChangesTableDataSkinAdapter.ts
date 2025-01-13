@@ -172,7 +172,7 @@ export default class ChangesTableDataSkinAdapter {
         name: 'WI ID',
         value: `${change.workItem.id}`,
         url: change.workItem._links.html.href,
-        width: '6.8%',
+        width: '8.3%',
       },
       {
         name: 'WI Type',
