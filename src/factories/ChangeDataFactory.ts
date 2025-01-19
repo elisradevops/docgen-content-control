@@ -8,6 +8,7 @@ import { version } from 'os';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
+import { log } from 'console';
 const styles = {
   isBold: false,
   IsItalic: false,
@@ -190,7 +191,7 @@ export default class ChangeDataFactory {
   async fetchChangesData() {
     try {
       let focusedArtifact;
-      let artifactChanges;
+      let artifactChanges: any[] = [];
       let origin;
       let gitDataProvider = await this.dgDataProviderAzureDevOps.getGitDataProvider();
       let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDataProvider();
@@ -224,6 +225,16 @@ export default class ChangeDataFactory {
           });
           break;
         case 'date':
+          // Adjust 'from' to the start of the day
+          const fromDate = new Date(this.from);
+          fromDate.setHours(0, 0, 0, 0);
+          this.from = fromDate.toISOString();
+
+          // Adjust 'to' to the end of the day
+          const toDate = new Date(this.to);
+          toDate.setHours(23, 59, 59, 999);
+          this.to = toDate.toISOString();
+
           let commitsInDateRange = await gitDataProvider.GetCommitsInDateRange(
             this.teamProject,
             this.repoId,
@@ -231,7 +242,10 @@ export default class ChangeDataFactory {
             String(this.to),
             this.branchName
           );
-
+          let repo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
+          if (!repo) {
+            throw new Error(`Could not find repository with id ${this.repoId}`);
+          }
           if (this.includePullRequests) {
             console.log(this.includePullRequests);
             artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
@@ -246,9 +260,40 @@ export default class ChangeDataFactory {
               this.repoId,
               commitsInDateRange
             );
+
+            let repoName = repo.name;
+
+            if (commitsInDateRange.count > 0) {
+              const { value: commits } = commitsInDateRange;
+              let firstCommitObject = commits[commits.length - 1]; // last commit is the oldest
+              let lastCommitObject = commits[0]; // first commit is the latest
+              let fromCommit = firstCommitObject.commitId;
+              let toCommit = lastCommitObject.commitId;
+              const submoduleItems = await this.parseSubModules(
+                gitDataProvider,
+                this.teamProject,
+                repoName,
+                toCommit,
+                fromCommit,
+                commits
+              );
+
+              //add targetRepo property for each item
+              if (artifactChanges.length > 0 && submoduleItems.length > 0) {
+                for (const item of artifactChanges) {
+                  item.targetRepo = {
+                    repoName: repoName,
+                    url: repo.url,
+                    projectId: repo.project.id,
+                  };
+                }
+                artifactChanges.push(...submoduleItems);
+              }
+            }
           }
+
           this.rawChangesArray.push({
-            artifact: focusedArtifact,
+            artifact: { name: '' },
             changes: artifactChanges,
           });
           break;
@@ -354,6 +399,7 @@ export default class ChangeDataFactory {
         default:
           break;
       }
+
       logger.info(`fetch ${this.rawChangesArray.length} changes for range`);
       //Clear the set after finishing
     } catch (error: any) {
@@ -380,182 +426,189 @@ export default class ChangeDataFactory {
     from: string | number
   ): Promise<any[]> {
     const artifactChanges = [];
-    let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(to));
+    try {
+      let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(to));
 
-    if (targetBuild.result !== 'succeeded') {
-      throw new Error(`The selected ${to} build has not been succeeded`);
-    }
+      if (targetBuild.result !== 'succeeded') {
+        throw new Error(`The selected ${to} build has not been succeeded`);
+      }
 
-    let targetPipelineId = targetBuild.definition.id;
-    let sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(from));
+      let targetPipelineId = targetBuild.definition.id;
+      let sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(from));
 
-    if (!sourceBuild) {
-      sourceBuild = await pipelinesDataProvider.findPreviousPipeline(
-        teamProject,
-        targetBuild.id,
-        Number(to),
-        targetBuild,
-        true
-      );
       if (!sourceBuild) {
-        logger.warn(`Could not find a valid pipeline before build #${to}`);
-        return artifactChanges;
-      }
-    }
-
-    let sourcePipelineId = sourceBuild.definition.id;
-
-    let sourcePipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
-      teamProject,
-      sourcePipelineId,
-      Number(from)
-    );
-
-    let targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
-      teamProject,
-      targetPipelineId,
-      Number(to)
-    );
-    const sourcePipelineResourcePipelines =
-      await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(sourcePipelineRun);
-    const targetPipelineResourcePipelines =
-      await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(targetPipelineRun);
-
-    const sourceResourceRepositories = await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
-      sourcePipelineRun,
-      gitDataProvider
-    );
-    const targetResourceRepositories = await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
-      targetPipelineRun,
-      gitDataProvider
-    );
-
-    for (const targetPipelineRepo of targetResourceRepositories) {
-      let gitRepoUrl = this.removeUserFromGitRepoUrl(targetPipelineRepo.url);
-      let gitRepoVersion = targetPipelineRepo.repoSha1;
-      let gitRepoName = targetPipelineRepo.repoName;
-      let toCommit = gitRepoVersion;
-      logger.debug(`Repository ${gitRepoUrl} version ${gitRepoVersion.slice(0, 7)}`);
-      for (const sourcePipeline of sourceResourceRepositories) {
-        let fromGitRepoUrl = this.removeUserFromGitRepoUrl(sourcePipeline.url);
-        let fromGitRepoVersion = sourcePipeline.repoSha1;
-        let fromGitRepoName = sourcePipeline.repoName;
-
-        if (fromGitRepoName !== gitRepoName) {
-          continue;
-        }
-
-        logger.debug(`Previous repository ${fromGitRepoUrl} version ${fromGitRepoVersion.slice(0, 7)}`);
-        if (fromGitRepoVersion === gitRepoVersion) {
-          logger.debug(`Same repository version ${fromGitRepoVersion} nothing to compare`);
-          break;
-        }
-
-        let fromCommit = fromGitRepoVersion;
-        const pipelineRangeItems = await this.getCommitRangeChanges(
-          gitDataProvider,
+        sourceBuild = await pipelinesDataProvider.findPreviousPipeline(
           teamProject,
-          fromCommit,
-          toCommit,
-          gitRepoName,
-          gitRepoUrl
+          targetBuild.id,
+          Number(to),
+          targetBuild,
+          true
         );
-
-        artifactChanges.push(...pipelineRangeItems);
-      }
-    }
-
-    for (const targetPipeline_pipeline of targetPipelineResourcePipelines) {
-      let targetResourcePipelineRunId = targetPipeline_pipeline.buildId;
-      let targetResourcePipelineDefinitionId = targetPipeline_pipeline.definitionId;
-      let targetResourcePipelineTeamProject = targetPipeline_pipeline.teamProject;
-      let targetResourceBuildNumber = targetPipeline_pipeline.buildNumber;
-      let targetResourcePipelineName = targetPipeline_pipeline.name;
-      let targetResourcePipelineProvider = targetPipeline_pipeline.provider;
-      if (targetResourcePipelineProvider !== 'TfsGit') {
-        logger.info(
-          `resource pipeline ${targetResourcePipelineProvider} is not based on azure devops git, skipping`
-        );
-        continue;
+        if (!sourceBuild) {
+          logger.warn(`Could not find a valid pipeline before build #${to}`);
+          return artifactChanges;
+        }
       }
 
-      logger.info(`Processing resource pipeline ${targetResourceBuildNumber}`);
+      let sourcePipelineId = sourceBuild.definition.id;
 
-      logger.info(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
-
-      const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
-        targetResourcePipelineTeamProject,
-        targetResourcePipelineDefinitionId,
-        targetResourcePipelineRunId
+      let sourcePipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+        teamProject,
+        sourcePipelineId,
+        Number(from)
       );
 
-      if (!targetResourcePipeline) {
-        logger.info(
-          `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
+      let targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+        teamProject,
+        targetPipelineId,
+        Number(to)
+      );
+      const sourcePipelineResourcePipelines =
+        await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(sourcePipelineRun);
+      const targetPipelineResourcePipelines =
+        await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(targetPipelineRun);
+
+      const sourceResourceRepositories =
+        await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
+          sourcePipelineRun,
+          gitDataProvider
         );
-        continue;
+      const targetResourceRepositories =
+        await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
+          targetPipelineRun,
+          gitDataProvider
+        );
+
+      for (const targetPipelineRepo of targetResourceRepositories) {
+        let gitRepoUrl = this.removeUserFromGitRepoUrl(targetPipelineRepo.url);
+        let gitRepoVersion = targetPipelineRepo.repoSha1;
+        let gitRepoName = targetPipelineRepo.repoName;
+        let toCommit = gitRepoVersion;
+        logger.debug(`Repository ${gitRepoUrl} version ${gitRepoVersion.slice(0, 7)}`);
+        for (const sourcePipeline of sourceResourceRepositories) {
+          let fromGitRepoUrl = this.removeUserFromGitRepoUrl(sourcePipeline.url);
+          let fromGitRepoVersion = sourcePipeline.repoSha1;
+          let fromGitRepoName = sourcePipeline.repoName;
+
+          if (fromGitRepoName !== gitRepoName) {
+            continue;
+          }
+
+          logger.debug(`Previous repository ${fromGitRepoUrl} version ${fromGitRepoVersion.slice(0, 7)}`);
+          if (fromGitRepoVersion === gitRepoVersion) {
+            logger.debug(`Same repository version ${fromGitRepoVersion} nothing to compare`);
+            break;
+          }
+
+          let fromCommit = fromGitRepoVersion;
+          logger.info(`fromCommit ${fromCommit} toCommit ${toCommit}`);
+          const pipelineRangeItems = await this.getCommitRangeChanges(
+            gitDataProvider,
+            teamProject,
+            fromCommit,
+            toCommit,
+            gitRepoName,
+            gitRepoUrl,
+            this.includedWorkItemByIdSet
+          );
+
+          artifactChanges.push(...pipelineRangeItems);
+        }
       }
 
-      for (const sourcePipeline_pipeline of sourcePipelineResourcePipelines) {
-        let sourceResourcePipelineRunId = sourcePipeline_pipeline.buildId;
-        let sourceResourcePipelineDefinitionId = sourcePipeline_pipeline.definitionId;
-        let sourceResourcePipelineTeamProject = sourcePipeline_pipeline.teamProject;
-        let sourceResourceBuildNumber = sourcePipeline_pipeline.buildNumber;
-        let sourceResourcePipelineName = sourcePipeline_pipeline.name;
-        let sourceResourcePipelineProvider = sourcePipeline_pipeline.provider;
-
-        if (sourceResourcePipelineProvider !== 'TfsGit') {
+      for (const targetPipeline_pipeline of targetPipelineResourcePipelines) {
+        let targetResourcePipelineRunId = targetPipeline_pipeline.buildId;
+        let targetResourcePipelineDefinitionId = targetPipeline_pipeline.definitionId;
+        let targetResourcePipelineTeamProject = targetPipeline_pipeline.teamProject;
+        let targetResourceBuildNumber = targetPipeline_pipeline.buildNumber;
+        let targetResourcePipelineName = targetPipeline_pipeline.name;
+        let targetResourcePipelineProvider = targetPipeline_pipeline.provider;
+        if (targetResourcePipelineProvider !== 'TfsGit') {
           logger.info(
-            `resource pipeline ${sourceResourcePipelineProvider} is not based on azure devops git, skipping`
+            `resource pipeline ${targetResourcePipelineProvider} is not based on azure devops git, skipping`
           );
           continue;
         }
 
-        if (sourceResourcePipelineName !== targetResourcePipelineName) {
-          logger.info(
-            `resource pipeline ${sourceResourcePipelineName} is not the same as ${targetResourcePipelineName}, skipping`
-          );
-          continue;
-        }
+        logger.info(`Processing resource pipeline ${targetResourceBuildNumber}`);
 
-        if (sourceResourcePipelineRunId === targetResourcePipelineRunId) {
-          logger.info(
-            `resource pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber} is the same as ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
-          );
-          break;
-        }
+        logger.info(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
 
-        logger.info(
-          `Locate the previous pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}`
-        );
-
-        const sourceResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
-          sourceResourcePipelineTeamProject,
-          sourceResourcePipelineDefinitionId,
-          sourceResourcePipelineRunId
-        );
-
-        if (!sourceResourcePipeline) {
-          logger.info(
-            `Could not find pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}, skipping`
-          );
-          break;
-        }
-        //Recursive call
-        const reportPartsForRepo = await this.GetPipelineChanges(
-          pipelinesDataProvider,
-          gitDataProvider,
+        const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
           targetResourcePipelineTeamProject,
-          targetResourcePipelineRunId,
-          sourceResourcePipelineRunId
+          targetResourcePipelineDefinitionId,
+          targetResourcePipelineRunId
         );
 
-        if (reportPartsForRepo) {
-          artifactChanges.push(...reportPartsForRepo);
+        if (!targetResourcePipeline) {
+          logger.info(
+            `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
+          );
+          continue;
+        }
+
+        for (const sourcePipeline_pipeline of sourcePipelineResourcePipelines) {
+          let sourceResourcePipelineRunId = sourcePipeline_pipeline.buildId;
+          let sourceResourcePipelineDefinitionId = sourcePipeline_pipeline.definitionId;
+          let sourceResourcePipelineTeamProject = sourcePipeline_pipeline.teamProject;
+          let sourceResourceBuildNumber = sourcePipeline_pipeline.buildNumber;
+          let sourceResourcePipelineName = sourcePipeline_pipeline.name;
+          let sourceResourcePipelineProvider = sourcePipeline_pipeline.provider;
+
+          if (sourceResourcePipelineProvider !== 'TfsGit') {
+            logger.info(
+              `resource pipeline ${sourceResourcePipelineProvider} is not based on azure devops git, skipping`
+            );
+            continue;
+          }
+
+          if (sourceResourcePipelineName !== targetResourcePipelineName) {
+            logger.info(
+              `resource pipeline ${sourceResourcePipelineName} is not the same as ${targetResourcePipelineName}, skipping`
+            );
+            continue;
+          }
+
+          if (sourceResourcePipelineRunId === targetResourcePipelineRunId) {
+            logger.info(
+              `resource pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber} is the same as ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
+            );
+            break;
+          }
+
+          logger.info(
+            `Locate the previous pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}`
+          );
+
+          const sourceResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
+            sourceResourcePipelineTeamProject,
+            sourceResourcePipelineDefinitionId,
+            sourceResourcePipelineRunId
+          );
+
+          if (!sourceResourcePipeline) {
+            logger.info(
+              `Could not find pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}, skipping`
+            );
+            break;
+          }
+          //Recursive call
+          const reportPartsForRepo = await this.GetPipelineChanges(
+            pipelinesDataProvider,
+            gitDataProvider,
+            targetResourcePipelineTeamProject,
+            targetResourcePipelineRunId,
+            sourceResourcePipelineRunId
+          );
+
+          if (reportPartsForRepo) {
+            artifactChanges.push(...reportPartsForRepo);
+          }
         }
       }
+    } catch (error: any) {
+      logger.error(`could not handle pipeline ${error.message}`);
     }
-
     return artifactChanges;
   }
 
@@ -575,27 +628,91 @@ export default class ChangeDataFactory {
     fromCommit: any,
     toCommit: any,
     gitRepoName: any,
-    gitRepoUrl: any
+    gitRepoUrl: any,
+    includedWorkItemByIdSet: Set<number> = undefined
   ) {
     const pipelineRangeItems: any[] = [];
-    let extendedCommits = await gitDataProvider.GetCommitBatch(
-      gitRepoUrl,
-      { version: fromCommit, versionType: 'commit' },
-      { version: toCommit, versionType: 'commit' }
-    );
-    if (extendedCommits?.length > 0) {
-      const foundItems = await gitDataProvider.getItemsForPipelineRange(
-        teamProject,
-        extendedCommits,
-        {
-          repoName: gitRepoName,
-          url: gitRepoUrl,
-        },
-        this.includedWorkItemByIdSet
+    try {
+      let gitApisUrl = gitRepoUrl.includes('_git')
+        ? gitRepoUrl.replace('_git', '_apis/git/repositories')
+        : gitRepoUrl;
+
+      let extendedCommits = await gitDataProvider.GetCommitBatch(
+        gitApisUrl,
+        { version: fromCommit, versionType: 'commit' },
+        { version: toCommit, versionType: 'commit' }
       );
-      pipelineRangeItems.push(...foundItems);
+
+      if (extendedCommits?.length > 0) {
+        const foundItems = await gitDataProvider.getItemsForPipelineRange(
+          teamProject,
+          extendedCommits,
+          {
+            repoName: gitRepoName,
+            url: gitApisUrl,
+          },
+          includedWorkItemByIdSet
+        );
+        pipelineRangeItems.push(...foundItems);
+        const submoduleItems = await this.parseSubModules(
+          gitDataProvider,
+          teamProject,
+          gitRepoName,
+          toCommit,
+          fromCommit,
+          extendedCommits,
+          includedWorkItemByIdSet
+        );
+        pipelineRangeItems.push(...submoduleItems);
+      }
+    } catch (error: any) {
+      logger.error(`could not handle ${gitRepoName} ${error.message}`);
+      logger.error(`Error stack: `, error.stack);
     }
     return pipelineRangeItems;
+  }
+
+  private async parseSubModules(
+    gitDataProvider: GitDataProvider,
+    teamProject: string,
+    gitRepoName: any,
+    toCommit: any,
+    fromCommit: any,
+    allCommitsExtended: any[],
+    includedWorkItemByIdSet: Set<number> = undefined
+  ) {
+    const itemsToReturn: any[] = [];
+    try {
+      const submodules = await gitDataProvider.getSubmodulesData(
+        teamProject,
+        gitRepoName,
+        { version: toCommit, versionType: 'commit' },
+        { version: fromCommit, versionType: 'commit' },
+        allCommitsExtended
+      );
+
+      for (const subModule of submodules) {
+        let gitSubRepoUrl = subModule.gitSubRepoUrl;
+        let gitSubRepoName = subModule.gitSubRepoName;
+        let sourceSha1 = subModule.sourceSha1;
+        let targetSha1 = subModule.targetSha1;
+
+        const items = await this.getCommitRangeChanges(
+          gitDataProvider,
+          teamProject,
+          sourceSha1,
+          targetSha1,
+          gitSubRepoName,
+          gitSubRepoUrl,
+          includedWorkItemByIdSet
+        );
+
+        itemsToReturn.push(...items);
+      }
+    } catch (error: any) {
+      logger.error(`could not handle submodules ${error.message}`);
+    }
+    return itemsToReturn;
   }
 
   private async handleBuildArtifact(
@@ -623,6 +740,7 @@ export default class ChangeDataFactory {
       this.minioSecretKey,
       this.PAT,
       pipelineTitle,
+      undefined,
       this.includedWorkItemByIdSet
     );
     await buildChangeFactory.fetchChangesData();
@@ -644,13 +762,15 @@ export default class ChangeDataFactory {
       fromArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['version'].id,
       toArtifact.definitionReference['definition'].name,
-      gitRepo.url
+      gitRepo.url,
+      this.includedWorkItemByIdSet
     );
     this.rawChangesArray.push({
       artifact: { name: gitTitle || '' },
       changes: [...pipelineRangeItems],
     });
   }
+
   private async handleArtifactoryArtifact(
     fromArtifact: Artifact,
     toArtifact: Artifact,
