@@ -28,7 +28,7 @@ export default class RichTextDataFactory {
   minioAccessKey: string = '';
   minioSecretKey: string = '';
   PAT: string = '';
-
+  private imageCache: Map<string, string>;
   constructor(
     startHtml: string,
     templatePath: string,
@@ -48,6 +48,7 @@ export default class RichTextDataFactory {
     this.minioAccessKey = minioAccessKey;
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
+    this.imageCache = new Map<string, string>();
   }
 
   /**
@@ -59,7 +60,13 @@ export default class RichTextDataFactory {
    * @returns {Promise<void>} A promise that resolves when the rich text content has been created.
    */
   async createRichTextContent() {
-    this.skinDataContentControls = await this.parseHtmlToRichNodes();
+    try {
+      this.skinDataContentControls = await this.parseHtmlToRichNodes();
+    } catch (err: any) {
+      logger.error(`Failed to create rich text content: ${err.message}`);
+      logger.error(`Error stack: ${err.stack}`);
+      this.skinDataContentControls = [];
+    }
   }
 
   /**
@@ -77,6 +84,9 @@ export default class RichTextDataFactory {
   private async downloadImageAndReturnLocalPath(originalUrl) {
     if (!originalUrl) {
       return '';
+    }
+    if (this.imageCache.has(originalUrl)) {
+      return this.imageCache.get(originalUrl)!;
     }
 
     let imageFileName: string;
@@ -114,7 +124,9 @@ export default class RichTextDataFactory {
         const attachmentData = await downloadManager.downloadFile();
         this.attachmentMinioData.push(attachmentData);
         // Return the local path of the downloaded image
-        return `TempFiles/${attachmentData.fileName}`;
+        const localPath = `TempFiles/${attachmentData.fileName}`;
+        this.imageCache.set(originalUrl, localPath);
+        return localPath;
       } else {
         // If the attachments bucket name is not provided, return the original URL
         return originalUrl;
@@ -243,92 +255,95 @@ export default class RichTextDataFactory {
     style: textStyle = {},
     parentTagName: string = ''
   ): Promise<RichNode | RichNode[]> {
-    // 1) TEXT NODE
-    if (element.type === 'text') {
-      const textContent = (element as cheerio.TextElement).data;
-      style.InsertSpace = false;
-      if (!textContent || textContent.trim() === '') {
-        return { type: 'text', value: '' }; // Skip whitespace-only text nodes
-      }
-      // If the text node is not empty and starts/ends with a space, add a flag to insert a space
-      if (textContent !== '' && (textContent.startsWith(' ') || textContent.endsWith(' '))) {
-        style.InsertSpace = true;
-      }
-      return {
-        type: 'text',
-        value: textContent,
-        textStyling: { ...style },
-      } as TextNode;
-    }
-
-    // 2) TAG NODE
-    if (element.type === 'tag') {
-      const tagName = element.name.toLowerCase();
-      const childElements = element.children || [];
-
-      if (this.isInlineTag(tagName)) {
-        const newStyle = this.applyTagStyle(style, element);
-
-        // Parse children recursively with the updated style
-        return await this.parseChildrenWithStyle($, childElements, newStyle);
+    try {
+      // 1) TEXT NODE
+      if (element.type === 'text') {
+        const textContent = (element as cheerio.TextElement).data || '';
+        style.InsertSpace = false;
+        if (!textContent.trim()) {
+          return { type: 'text', value: '' }; // Skip whitespace-only text nodes
+        }
+        // If the text node is not empty and starts/ends with a space, add a flag to insert a space
+        if (textContent.startsWith(' ') || textContent.endsWith(' ')) {
+          style.InsertSpace = true;
+        }
+        return {
+          type: 'text',
+          value: textContent,
+          textStyling: { ...style },
+        } as TextNode;
       }
 
-      const childNodes: RichNode[] = await this.parseChildrenWithStyle($, childElements, style);
+      // 2) TAG NODE
+      if (element.type === 'tag') {
+        const tagName = element.name.toLowerCase();
+        const childElements = element.children || [];
 
-      switch (tagName) {
-        case 'p': {
-          if (childNodes.length === 0 || (childNodes.length === 1 && childNodes[0].type === 'break')) {
-            return { type: 'text', value: '' };
+        if (this.isInlineTag(tagName)) {
+          const newStyle = this.applyTagStyle(style, element);
+
+          // Parse children recursively with the updated style
+          return await this.parseChildrenWithStyle($, childElements, newStyle);
+        }
+
+        const childNodes: RichNode[] = await this.parseChildrenWithStyle($, childElements, style);
+
+        switch (tagName) {
+          case 'p': {
+            if (childNodes.length === 0 || (childNodes.length === 1 && childNodes[0].type === 'break')) {
+              return { type: 'text', value: '' };
+            }
+            return { type: 'paragraph', children: childNodes } as ParagraphNode;
           }
-          return { type: 'paragraph', children: childNodes } as ParagraphNode;
-        }
-        case 'img': {
-          const $el = $(element);
-          const src = $el.attr('src') || '';
-          const alt = $el.attr('alt') || '';
+          case 'img': {
+            const $el = $(element);
+            const src = $el.attr('src') || '';
+            const alt = $el.attr('alt') || '';
 
-          let finalLocalPath = '';
-          if (src.startsWith('data:')) {
-            finalLocalPath = await this.handleBase64Image(src);
-          } else {
-            finalLocalPath = await this.downloadImageAndReturnLocalPath(src);
+            let finalLocalPath = '';
+            if (src.startsWith('data:')) {
+              finalLocalPath = await this.handleBase64Image(src);
+            } else {
+              finalLocalPath = await this.downloadImageAndReturnLocalPath(src);
+            }
+
+            return { type: 'image', src: finalLocalPath, alt } as ImageNode;
           }
-
-          return { type: 'image', src: finalLocalPath, alt } as ImageNode;
-        }
-        case 'table': {
-          return { type: 'table', children: childNodes } as TableNode;
-        }
-        case 'br': {
-          // If the parent is a <p>, treat <br> as a line break
-          return parentTagName === 'p' ? ({ type: 'break' } as BreakNode) : { type: 'text', value: '' };
-        }
-        case 'ul': {
-          return { type: 'list', isOrdered: false, children: childNodes } as ListNode;
-        }
-        case 'ol': {
-          return { type: 'list', isOrdered: true, children: childNodes } as ListNode;
-        }
-        case 'div': {
-          const splitted = this.splitDivChildrenIntoParagraphs(childNodes);
-          if (splitted.length === 0) return { type: 'text', value: '' };
-          return {
-            type: 'other',
-            tagName,
-            children: splitted,
-          } as OtherNode;
-        }
-        default: {
-          if (childNodes.length === 0) return { type: 'text', value: '' };
-          return {
-            type: 'other',
-            tagName,
-            children: childNodes,
-          } as OtherNode;
+          case 'table': {
+            return { type: 'table', children: childNodes } as TableNode;
+          }
+          case 'br': {
+            // If the parent is a <p>, treat <br> as a line break
+            return parentTagName === 'p' ? ({ type: 'break' } as BreakNode) : { type: 'text', value: '' };
+          }
+          case 'ul': {
+            return { type: 'list', isOrdered: false, children: childNodes } as ListNode;
+          }
+          case 'ol': {
+            return { type: 'list', isOrdered: true, children: childNodes } as ListNode;
+          }
+          case 'div': {
+            const splitted = this.splitDivChildrenIntoParagraphs(childNodes);
+            if (splitted.length === 0) return { type: 'text', value: '' };
+            return {
+              type: 'other',
+              tagName,
+              children: splitted,
+            } as OtherNode;
+          }
+          default: {
+            if (childNodes.length === 0) return { type: 'text', value: '' };
+            return {
+              type: 'other',
+              tagName,
+              children: childNodes,
+            } as OtherNode;
+          }
         }
       }
+    } catch (error) {
+      logger.error(`Failed to parse node: ${error.message}`);
     }
-
     // 3) UNKNOWN NODE TYPE
     return { type: 'text', value: '' };
   }
@@ -398,6 +413,10 @@ export default class RichTextDataFactory {
    */
   private async handleBase64Image(dataUrl: string): Promise<string> {
     try {
+      if (this.imageCache.has(dataUrl)) {
+        return this.imageCache.get(dataUrl)!;
+      }
+
       const match = dataUrl.match(/^data:(.*?);base64,(.*)$/);
       if (!match) {
         // Not a standard base64 data URL or missing base64
@@ -432,7 +451,9 @@ export default class RichTextDataFactory {
       );
       const attachmentData = await downloadManager.downloadFile();
       this.attachmentMinioData.push(attachmentData);
-      return `TempFiles/${attachmentData.fileName}`;
+      const localPath = `TempFiles/${attachmentData.fileName}`;
+      this.imageCache.set(dataUrl, localPath);
+      return localPath;
     } catch (err) {
       logger.error(`Error handling base64 image: ${dataUrl}`);
       logger.error(`Error: ${err.message}`);
@@ -472,21 +493,27 @@ export default class RichTextDataFactory {
     const result: RichNode[] = [];
 
     for (const elem of rootElements) {
-      // parseNode can return RichNode or RichNode[]
-      const parsed = await this.parseNode($, elem);
+      try {
+        // parseNode can return RichNode or RichNode[]
+        const parsed = await this.parseNode($, elem);
 
-      // Convert parsed to an array in one go
-      const parsedArray = Array.isArray(parsed) ? parsed : [parsed];
+        // Convert parsed to an array in one go
+        const parsedArray = Array.isArray(parsed) ? parsed : [parsed];
 
-      // Filter out empty text nodes and push the rest
-      for (const node of parsedArray) {
-        if (node.type === 'text' && node.value === '') {
-          continue;
+        // Filter out empty text nodes and push the rest
+        for (const node of parsedArray) {
+          if (node.type === 'text' && node.value === '') {
+            continue;
+          }
+          result.push(node);
         }
-        result.push(node);
+      } catch (error) {
+        logger.error(`Error with parsing Html element: ${error.message}`);
+        logger.error(`error stack: ${error.stack}`);
       }
     }
-
+    //clear the image cache after parsing
+    this.imageCache.clear();
     return result;
   }
 }

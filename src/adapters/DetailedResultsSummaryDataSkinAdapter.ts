@@ -6,14 +6,41 @@ export default class DetailedResultsSummaryDataSkinAdapter {
   htmlUtils: HtmlUtils;
   templatePath: string;
   teamProject: string;
-  constructor(templatePath: string, teamProject: string) {
+  attachmentsBucketName: string;
+  minioEndPoint: string;
+  minioAccessKey: string;
+  minioSecretKey: string;
+  PAT: string;
+  constructor(
+    templatePath: string,
+    teamProject: string,
+    attachmentsBucketName,
+    minioEndPoint,
+    minioAccessKey,
+    minioSecretKey,
+    PAT
+  ) {
     this.htmlUtils = new HtmlUtils();
     this.templatePath = templatePath;
     this.teamProject = teamProject;
+    this.attachmentsBucketName = attachmentsBucketName || '';
+    this.minioEndPoint = minioEndPoint || '';
+    this.minioAccessKey = minioAccessKey || '';
+    this.minioSecretKey = minioSecretKey || '';
+    this.PAT = PAT || '';
   }
 
   private async fetchStripDataContentControl(text): Promise<any> {
-    const richTextFactory = new RichTextDataFactory(text, this.templatePath, this.teamProject);
+    const richTextFactory = new RichTextDataFactory(
+      text,
+      this.templatePath,
+      this.teamProject,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT
+    );
     await richTextFactory.createRichTextContent();
     const skinDataContentControls = richTextFactory.skinDataContentControls;
     return skinDataContentControls;
@@ -50,8 +77,9 @@ export default class DetailedResultsSummaryDataSkinAdapter {
           return { fields };
         })
       );
-    } catch (error) {
-      logger.error(`Error occurred while trying to build jsonSkinDataAdapter ${error.message}`);
+    } catch (error: any) {
+      logger.error(`Error while building skin data adapter for Detailed Results Summary: ${error.message}`);
+      logger.error(`Error stack: ${error.stack}`);
     }
   }
 }
