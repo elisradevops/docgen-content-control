@@ -119,7 +119,12 @@ export default class ResultDataFactory {
         case 'detailed-test-result-table':
           const detailedTestResultsSkinAdapter = new DetailedResultsSummaryDataSkinAdapter(
             this.templatePath,
-            this.teamProject
+            this.teamProject,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT
           );
           adoptedTestResultData = await detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
@@ -163,6 +168,7 @@ export default class ResultDataFactory {
       logger.error(
         `Error occurred during build json Skin data adapter for adapter type: ${adapterType}, ${error.message}`
       );
+      logger.debug(`Error stack: ${error.stack}`);
     }
   }
 

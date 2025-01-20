@@ -457,10 +457,10 @@ export default class TestDataFactory {
                       level: suite.temp.level + 1,
                     };
                     // Helper function to check if all the values in the array are among the target values
-                    let testCaseStepsSkinData;
+                    let testCaseStepsSkinData: any[] = [];
 
                     try {
-                      if (testCase.steps) {
+                      if (testCase.steps && testCase.steps.length > 0) {
                         testCaseStepsSkinData = await Promise.all(
                           testCase.steps.map(async (testStep: any, i: number) => {
                             let actionText = '';
