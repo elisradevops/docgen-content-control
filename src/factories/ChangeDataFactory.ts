@@ -4,21 +4,9 @@ import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
 import { Artifact, contentControl } from '../models/contentControl';
-import { version } from 'os';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
-import { log } from 'console';
-const styles = {
-  isBold: false,
-  IsItalic: false,
-  IsUnderline: false,
-  Size: 12,
-  Uri: null,
-  Font: 'Arial',
-  InsertLineBreak: false,
-  InsertSpace: false,
-};
 
 export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;

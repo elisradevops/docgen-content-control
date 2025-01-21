@@ -66,12 +66,12 @@ export default class SystemOverviewDataSkinAdapter {
         };
         this.attachmentMinioData.push(attachmentBucketData);
       });
-      let richTextNodes = richTextFactory.skinDataContentControls;
+      let richText = richTextFactory.skinDataContentControls;
       let skinData = {
         fields: [
           { name: 'Title', value: node.title + ' - ' },
           { name: 'ID', value: node.id, url: node.htmlUrl },
-          { name: 'WI Description', value: cleanedDescription, richTextNodes },
+          { name: 'WI Description', value: cleanedDescription, richText },
         ],
         level: headerLevel,
       };
