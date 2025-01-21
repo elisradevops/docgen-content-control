@@ -221,7 +221,7 @@ export default class DgContentControls {
           console.log('index richTextFactory', richTextFactory);
           await richTextFactory.createRichTextContent();
           this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
-          res[i].fields[t].richTextNodes = richTextFactory.skinDataContentControls;
+          res[i].fields[t].richText = richTextFactory.skinDataContentControls;
         }
         console.log('this.minioAttachmentData inedex', this.minioAttachmentData);
       }
