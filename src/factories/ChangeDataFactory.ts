@@ -215,12 +215,12 @@ export default class ChangeDataFactory {
         case 'date':
           // Adjust 'from' to the start of the day
           const fromDate = new Date(this.from);
-          fromDate.setHours(0, 0, 0, 0);
+          fromDate.setSeconds(0); // set to the start of the minute
           this.from = fromDate.toISOString();
 
           // Adjust 'to' to the end of the day
           const toDate = new Date(this.to);
-          toDate.setHours(23, 59, 59, 999);
+          toDate.setSeconds(59);
           this.to = toDate.toISOString();
 
           let commitsInDateRange = await gitDataProvider.GetCommitsInDateRange(
@@ -263,7 +263,8 @@ export default class ChangeDataFactory {
                 repoName,
                 toCommit,
                 fromCommit,
-                commits
+                commits,
+                this.includedWorkItemByIdSet
               );
 
               //add targetRepo property for each item
@@ -667,7 +668,7 @@ export default class ChangeDataFactory {
     toCommit: any,
     fromCommit: any,
     allCommitsExtended: any[],
-    includedWorkItemByIdSet: Set<number> = undefined
+    includedWorkItemByIdSet: Set<number>
   ) {
     const itemsToReturn: any[] = [];
     try {
