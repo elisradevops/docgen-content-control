@@ -7,25 +7,41 @@ export default class HtmlUtils {
   constructor() {}
 
   /**
-   * Clears the inline styles of all elements within the current context.
-   * This method selects all elements using a wildcard selector and removes the 'style' attribute from each.
+   * Removes all attributes from all elements in the HTML content.
    */
-  private clearElementStyles = () => {
-    this.$('*').removeAttr('style');
+  private removeAllElementAttributes = () => {
+    this.$('*').each((_, element) => {
+      const $element = this.$(element);
+      const attributes = $element.attr();
+      for (const attr in attributes) {
+        $element.removeAttr(attr);
+      }
+    });
   };
 
-  // Replace '\n' with a white space in all <span> text nodes, without removing nested elements
-  private replaceNewlinesInSpans = () => {
-    this.$('span').each((_, element) => {
-      const $span = this.$(element);
+  // Replace '\n' or '&nbsp;' with a white space in all inline element text nodes, without removing nested elements
+  private replaceNewlinesInInlineElements = () => {
+    this.$('span, li, b, u, i, em, strong').each((_, element) => {
+      const $inlineElement = this.$(element);
 
-      // Iterate over each text node within the <span> element
-      $span.contents().each((_, node) => {
+      // Iterate over each text node within the inline element
+      $inlineElement.contents().each((_, node) => {
         if (node.type === 'text') {
-          let content = node.data || ''; // Get the text content of the text node
+          let content = (node.data || '').toString(); // Get the text content of the text node and ensure it's a string
 
-          // Replace newlines with white space in text nodes
-          content = content.replace(/\n/g, ' ');
+          // Decode HTML entities first
+          content = this.decodeHtmlEntities(content);
+
+          // Replace newlines and '&nbsp;' with white space in text nodes
+          content = content.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+          // If the original text starts or ends with a space, preserve it
+          if ((node.data || '').startsWith(' ')) {
+            content = ' ' + content;
+          }
+          if ((node.data || '').endsWith(' ')) {
+            content = content + ' ';
+          }
 
           // Update the text content of the node
           node.data = content;
@@ -34,67 +50,32 @@ export default class HtmlUtils {
     });
   };
 
-  // Replace remaining '\n' with <br/> in other elements
-  private replaceNewlinesWithBr = () => {
-    this.$('*').each((_, element) => {
-      const $element = this.$(element);
-      const content = $element.html();
-
-      if (content) {
-        // Replace newline or <br> before </p> with an empty string
-        const updatedContent = content
-          .replace(/<br>(?=\s*<\/p>)/g, '') // Remove <br> before closing tags
-          .replace(/\n(?=\s*<\/p>)/g, ''); // Remove newline before closing tags
-
-        $element.html(updatedContent);
-      }
-    });
-  };
-
   /**
-   * Unifies chained span elements within block-level elements (div, p, li, b, u).
+   * Decodes HTML entities in a given string.
    *
-   * This method iterates over specified block-level elements and identifies chains of span elements
-   * that contain only text. When such a chain is found, it concatenates the text content of these spans
-   * and replaces the chain with a single unified span containing the concatenated text.
+   * This function replaces common HTML entities with their corresponding characters.
+   * The supported entities are:
+   * - `&nbsp;` -> `' '`
+   * - `&amp;` -> `'&'`
+   * - `&lt;` -> `'<'`
+   * - `&gt;` -> `'>'`
+   * - `&quot;` -> `'"'`
+   * - `&#39;` -> `'\''`
    *
-   * The method processes each block-level element individually and handles any remaining span chains
-   * at the end of each block element.
-   *
-   * @private
+   * @param text - The string containing HTML entities to be decoded.
+   * @returns The decoded string with HTML entities replaced by their corresponding characters.
    */
-  private unifyChainedSpans = () => {
-    // Select all block-level elements where spans may be chained
-    this.$('div, p, li, b, u').each((_, blockElement) => {
-      const $blockElement = this.$(blockElement);
-      let spanChain: cheerio.Cheerio[] = [];
-      let concatenatedText = '';
+  private decodeHtmlEntities = (text: string): string => {
+    const entities = {
+      '&nbsp;': ' ',
+      '&amp;': '&',
+      '&lt;': '<',
+      '&gt;': '>',
+      '&quot;': '"',
+      '&#39;': "'",
+    };
 
-      // Iterate over the child nodes of the block-level element
-      $blockElement.contents().each((_, node) => {
-        const $node = this.$(node);
-
-        // If the node is a span with only text, add it to the chain
-        if ($node.is('span') && $node.contents().length === 1 && $node.contents().first().text()) {
-          spanChain.push($node);
-          concatenatedText += $node.text().trim() + ' '; // Concatenate the text
-        } else {
-          // If the chain is broken or we hit a non-span element, process the span chain
-          if (spanChain.length > 1) {
-            this.replaceSpanChainWithUnifiedSpan(spanChain, concatenatedText);
-          }
-
-          // Reset the chain and concatenated text for the next group of spans
-          spanChain = [];
-          concatenatedText = '';
-        }
-      });
-
-      // Handle any remaining span chain at the end of the block element
-      if (spanChain.length > 1) {
-        this.replaceSpanChainWithUnifiedSpan(spanChain, concatenatedText);
-      }
-    });
+    return text.replace(/&nbsp;|&amp;|&lt;|&gt;|&quot;|&#39;/g, (match) => entities[match]);
   };
 
   /**
@@ -112,19 +93,6 @@ export default class HtmlUtils {
 
     // Remove all spans in the chain
     spanChain.forEach(($span) => $span.remove());
-  };
-
-  /**
-   * Creates a new paragraph (`<p>`) element and sets its HTML content
-   * to the HTML content of the provided Cheerio element.
-   *
-   * @param $element - The Cheerio element whose HTML content will be used.
-   * @returns A new Cheerio paragraph element with the HTML content of the provided element.
-   */
-  private createParagraph = ($element: cheerio.Cheerio) => {
-    const $p = this.$('<p></p>').html($element.html());
-    // Clear any existing style
-    return $p;
   };
 
   /**
@@ -298,21 +266,6 @@ export default class HtmlUtils {
   };
 
   /**
-   * Replaces all `<span>` elements that are direct children of `<div>` elements
-   * with `<p>` (paragraph) elements. This method iterates over each matching
-   * `<span>` element, creates a new paragraph element using the `createParagraph`
-   * method, and replaces the original `<span>` element with the newly created
-   * paragraph element.
-   *
-   * @private
-   */
-  private replaceSpansWithParagraphs = () => {
-    this.$('div > span').each((_, span) => {
-      this.$(span).replaceWith(this.createParagraph(this.$(span)));
-    });
-  };
-
-  /**
    * Handles the transformation of `<div>` elements within the HTML content.
    *
    * This method processes each `<div>` element and performs the following actions:
@@ -403,6 +356,35 @@ export default class HtmlUtils {
     });
   };
 
+  private removeAllSpans = () => {
+    this.$('span').each((_, span) => {
+      const $span = this.$(span);
+      // Recursively remove nested spans
+      $span.find('span').each((_, nestedSpan) => {
+        const $nestedSpan = this.$(nestedSpan);
+        $nestedSpan.replaceWith($nestedSpan.html());
+      });
+      $span.replaceWith($span.html());
+    });
+  };
+
+  private removeFontTags = () => {
+    this.$('font').each((_, font) => {
+      const $font = this.$(font);
+      $font.replaceWith($font.html());
+    });
+  };
+
+  private removeSuffixWhiteSpace = () => {
+    this.$('div, p, li').each((_, element) => {
+      const $element = this.$(element);
+      const content = $element.html();
+      if (content) {
+        $element.html(content.trim());
+      }
+    });
+  };
+
   /**
    * Cleans the provided HTML string by performing a series of transformations.
    *
@@ -426,14 +408,14 @@ export default class HtmlUtils {
    */
   public cleanHtml(html): any {
     try {
-      this.$ = cheerio.load(html);
-      this.clearElementStyles();
-      this.unifyChainedSpans();
-      this.replaceNewlinesInSpans();
-      this.replaceNewlinesWithBr();
+      this.$ = cheerio.load(html, { decodeEntities: false, normalizeWhitespace: true });
+      this.removeAllElementAttributes();
+      this.replaceNewlinesInInlineElements();
+      this.removeAllSpans();
+      this.removeFontTags();
+      this.removeSuffixWhiteSpace();
       this.processParagraphGroups();
       this.replaceNestedBrWithSimpleBr();
-      this.replaceSpansWithParagraphs();
       this.handleDivs();
       this.replaceBrInDivs();
       this.wrapTextNodesInDivs();

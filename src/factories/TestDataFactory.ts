@@ -6,7 +6,6 @@ import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
 import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
-import { val } from 'cheerio/dist/commonjs/api/attributes';
 
 const styles = {
   isBold: false,
@@ -444,7 +443,7 @@ export default class TestDataFactory {
                       };
                       this.attachmentMinioData.push(attachmentBucketData);
                     });
-                    let richText = richTextFactory.skinDataContentControls;
+                    let richTextNodes = richTextFactory.skinDataContentControls;
                     let testCaseHeaderSkinData = {
                       fields: [
                         { name: 'Title', value: testCase.title + ' - ' },
@@ -452,7 +451,7 @@ export default class TestDataFactory {
                         {
                           name: 'Test Description',
                           value: cleanedDescription || 'No description',
-                          richText,
+                          richTextNodes,
                         },
                       ],
                       level: suite.temp.level + 1,
@@ -495,25 +494,14 @@ export default class TestDataFactory {
                             );
                             await richTextFactoryAction.createRichTextContent();
                             await richTextFactoryExpected.createRichTextContent();
-                            // Define target values
-                            const targetValues = ['\n', ' ', ''];
 
-                            // Check if all values in both arrays are among the target values
-                            if (
-                              this.allValuesAreTarget(
-                                richTextFactoryAction.contentControlsStrings,
-                                targetValues
-                              ) &&
-                              this.allValuesAreTarget(
-                                richTextFactoryExpected.contentControlsStrings,
-                                targetValues
-                              )
-                            ) {
-                              // Skip this iteration and move to the next one
+                            let richTextAction = richTextFactoryAction.skinDataContentControls;
+                            let richTextExpected = richTextFactoryExpected.skinDataContentControls;
+
+                            // If there is no action and expected text, skip this step
+                            if (richTextAction?.length === 0 && richTextExpected?.length === 0) {
                               return null;
                             }
-                            let actionRichText = richTextFactoryAction.skinDataContentControls;
-                            let expectedRichText = richTextFactoryExpected.skinDataContentControls;
 
                             // checks if there is any step attachment in the current test case
                             let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
@@ -533,13 +521,13 @@ export default class TestDataFactory {
                                       {
                                         name: 'Description',
                                         value: actionText,
-                                        richText: actionRichText,
+                                        richTextNodes: richTextAction,
                                         width: '20.8%',
                                       },
                                       {
                                         name: 'Expected Results',
                                         value: expectedText,
-                                        richText: expectedRichText,
+                                        richTextNodes: richTextExpected,
                                         width: '20.8%',
                                       },
                                       {
@@ -565,13 +553,13 @@ export default class TestDataFactory {
                                       {
                                         name: 'Description',
                                         value: actionText,
-                                        richText: actionRichText,
+                                        richTextNodes: richTextAction,
                                         width: '31%',
                                       },
                                       {
                                         name: 'Expected Results',
                                         value: expectedText,
-                                        richText: expectedRichText,
+                                        richTextNodes: richTextExpected,
                                         width: '31%',
                                       },
                                       {
@@ -594,13 +582,13 @@ export default class TestDataFactory {
                                     {
                                       name: 'Description',
                                       value: actionText,
-                                      richText: actionRichText,
+                                      richTextNodes: richTextAction,
                                       width: '26.9%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: expectedText,
-                                      richText: expectedRichText,
+                                      richTextNodes: richTextExpected,
                                       width: '26.9%',
                                     },
                                     {
@@ -616,13 +604,13 @@ export default class TestDataFactory {
                                     {
                                       name: 'Description',
                                       value: actionText,
-                                      richText: actionRichText,
+                                      richTextNodes: richTextAction,
                                       width: '45.8%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: expectedText,
-                                      richText: expectedRichText,
+                                      richTextNodes: richTextExpected,
                                     },
                                   ],
                                 };
