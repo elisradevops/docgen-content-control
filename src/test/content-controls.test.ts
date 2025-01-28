@@ -421,7 +421,7 @@ describe('Generate json document from git Changeset', () => {
   });
 });
 describe.skip('Rich Text Data factory Tests', () => {
-  test('testing rich text factory with image table and paragraph', () => {
+  test('testing rich text factory with image table and paragraph', async () => {
     let RichTextData = require('../../samples/data/richTextData.json');
     let richTextFactory = new RichTextDataFactory(
       RichTextData.description,
@@ -433,13 +433,12 @@ describe.skip('Rich Text Data factory Tests', () => {
       'minioSecretKey',
       'placeholderPat'
     );
-    richTextFactory.createRichTextContent(); //change with actual props
-    let richText = richTextFactory.skinDataContentControls;
+    const richText = await richTextFactory.factorizeRichTextData(); //change with actual props
     const SnapShot = require('../../samples/snapshots/common/richTextWithimageTableAndParagraph.json');
     expect(richText).toMatchObject(SnapShot);
   });
 
-  test('testing rich text factory with only text', () => {
+  test('testing rich text factory with only text', async () => {
     let RichTextData = require('../../samples/data/richTextParagraph.json');
     let richTextFactory = new RichTextDataFactory(
       RichTextData.description,
@@ -451,8 +450,7 @@ describe.skip('Rich Text Data factory Tests', () => {
       'minioSecretKey',
       'placeholderPat'
     );
-    richTextFactory.createRichTextContent(); //change with actual props
-    let richText = richTextFactory.skinDataContentControls;
+    const richText = await richTextFactory.factorizeRichTextData(); //change with actual props
     const SnapShot = require('../../samples/snapshots/common/richTextParagraphOnly-contentControl.json');
     expect(richText).toMatchObject(SnapShot);
   });

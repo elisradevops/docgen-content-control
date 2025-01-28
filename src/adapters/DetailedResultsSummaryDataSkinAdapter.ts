@@ -30,7 +30,7 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     this.PAT = PAT || '';
   }
 
-  private async htmlStrip(text): Promise<any[]> {
+  private async htmlStrip(text): Promise<any> {
     const richTextFactory = new RichTextDataFactory(
       text,
       this.templatePath,
@@ -41,8 +41,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
       this.minioSecretKey,
       this.PAT
     );
-    await richTextFactory.createRichTextContent();
-    return richTextFactory.skinDataContentControls;
+    const richText = await richTextFactory.factorizeRichTextData();
+    return richText;
   }
 
   public async jsonSkinDataAdapter(resultDataRaw: any[]) {
@@ -60,8 +60,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
             { name: 'Test Id', value: `${item.testId}`, width: '7.6%' },
             { name: 'Test Name', value: `${item.testName}` },
             { name: 'Step', value: `${item.stepNo}`, width: '5.3%' },
-            { name: 'Action', value: cleanedActionHtml, richText: action, width: '20.8%' },
-            { name: 'Expected Result', value: cleanedExpectedHtml, richText: expected, width: '20.8%' },
+            { name: 'Action', value: action, width: '20.8%' },
+            { name: 'Expected Result', value: expected, width: '20.8%' },
             { name: 'Actual Result', value: `${item.stepComments}` },
             { name: 'Step Status', value: `${item.stepStatus}`, width: '10%' },
             // TBD

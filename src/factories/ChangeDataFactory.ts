@@ -865,7 +865,8 @@ export default class ChangeDataFactory {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
+            await this.dgDataProviderAzureDevOps.getTicketsDataProvider()
           );
           adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
           logger.debug(

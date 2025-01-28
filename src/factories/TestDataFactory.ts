@@ -7,6 +7,7 @@ import HtmlUtils from '../services/htmlUtils';
 import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
 import { val } from 'cheerio/dist/commonjs/api/attributes';
+import { log } from 'console';
 
 const styles = {
   isBold: false,
@@ -316,6 +317,7 @@ export default class TestDataFactory {
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null, isByQuery: boolean = false) {
     let adoptedTestData = {} as any;
+    let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
     try {
       switch (adapterType) {
         case 'test-result-group-summary':
@@ -433,10 +435,11 @@ export default class TestDataFactory {
                       this.minioEndPoint,
                       this.minioAccessKey,
                       this.minioSecretKey,
-                      this.PAT
+                      this.PAT,
+                      ticketsDataProvider
                     );
-
-                    await richTextFactory.createRichTextContent();
+                    // Add this here:
+                    const descriptionRichText = await richTextFactory.factorizeRichTextData();
                     richTextFactory.attachmentMinioData.forEach((item) => {
                       let attachmentBucketData = {
                         attachmentMinioPath: item.attachmentPath,
@@ -444,15 +447,13 @@ export default class TestDataFactory {
                       };
                       this.attachmentMinioData.push(attachmentBucketData);
                     });
-                    let richText = richTextFactory.skinDataContentControls;
                     let testCaseHeaderSkinData = {
                       fields: [
                         { name: 'Title', value: testCase.title + ' - ' },
                         { name: 'ID', value: testCase.id, url: testCase.url },
                         {
                           name: 'Test Description',
-                          value: cleanedDescription || 'No description',
-                          richText,
+                          value: descriptionRichText || 'No description',
                         },
                       ],
                       level: suite.temp.level + 1,
@@ -481,7 +482,8 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT
+                              this.PAT,
+                              ticketsDataProvider
                             );
                             let richTextFactoryExpected = new RichTextDataFactory(
                               expectedText,
@@ -491,30 +493,17 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT
+                              this.PAT,
+                              ticketsDataProvider
                             );
-                            await richTextFactoryAction.createRichTextContent();
-                            await richTextFactoryExpected.createRichTextContent();
-                            // Define target values
-                            const targetValues = ['\n', ' ', ''];
+                            const richTextHtmlAction = await richTextFactoryAction.factorizeRichTextData();
+                            const richTextHtmlExpected =
+                              await richTextFactoryExpected.factorizeRichTextData();
 
-                            // Check if all values in both arrays are among the target values
-                            if (
-                              this.allValuesAreTarget(
-                                richTextFactoryAction.contentControlsStrings,
-                                targetValues
-                              ) &&
-                              this.allValuesAreTarget(
-                                richTextFactoryExpected.contentControlsStrings,
-                                targetValues
-                              )
-                            ) {
+                            if (!richTextFactoryAction.hasValues && !richTextFactoryExpected.hasValues) {
                               // Skip this iteration and move to the next one
                               return null;
                             }
-                            let actionRichText = richTextFactoryAction.skinDataContentControls;
-                            let expectedRichText = richTextFactoryExpected.skinDataContentControls;
-
                             // checks if there is any step attachment in the current test case
                             let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
                               return attachment.attachmentComment.includes('TestStep=');
@@ -532,14 +521,12 @@ export default class TestDataFactory {
                                       { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                       {
                                         name: 'Description',
-                                        value: actionText,
-                                        richText: actionRichText,
+                                        value: richTextHtmlAction,
                                         width: '20.8%',
                                       },
                                       {
                                         name: 'Expected Results',
-                                        value: expectedText,
-                                        richText: expectedRichText,
+                                        value: richTextHtmlExpected,
                                         width: '20.8%',
                                       },
                                       {
@@ -564,14 +551,12 @@ export default class TestDataFactory {
                                       { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                       {
                                         name: 'Description',
-                                        value: actionText,
-                                        richText: actionRichText,
+                                        value: richTextHtmlAction,
                                         width: '31%',
                                       },
                                       {
                                         name: 'Expected Results',
-                                        value: expectedText,
-                                        richText: expectedRichText,
+                                        value: richTextHtmlExpected,
                                         width: '31%',
                                       },
                                       {
@@ -593,14 +578,12 @@ export default class TestDataFactory {
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
-                                      value: actionText,
-                                      richText: actionRichText,
+                                      value: richTextHtmlAction,
                                       width: '26.9%',
                                     },
                                     {
                                       name: 'Expected Results',
-                                      value: expectedText,
-                                      richText: expectedRichText,
+                                      value: richTextHtmlExpected,
                                       width: '26.9%',
                                     },
                                     {
@@ -615,14 +598,12 @@ export default class TestDataFactory {
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
-                                      value: actionText,
-                                      richText: actionRichText,
+                                      value: richTextHtmlAction,
                                       width: '45.8%',
                                     },
                                     {
                                       name: 'Expected Results',
-                                      value: expectedText,
-                                      richText: expectedRichText,
+                                      value: richTextHtmlExpected,
                                     },
                                   ],
                                 };
