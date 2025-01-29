@@ -193,8 +193,8 @@ export default class DgContentControls {
       queryId:${queryId}
       teamProjectName:${this.teamProjectName}`);
     let res: any;
+    let ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
     try {
-      let ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
       res = await ticketsDataProvider.GetQueryResultById(queryId, this.teamProjectName);
     } catch (error) {
       logger.error(`Error Quering Azure with query id :${queryId}`);
@@ -216,12 +216,13 @@ export default class DgContentControls {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
+            ticketsDataProvider
           );
           console.log('index richTextFactory', richTextFactory);
-          await richTextFactory.createRichTextContent();
-          this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
-          res[i].fields[t].richTextNodes = richTextFactory.skinDataContentControls;
+          const richText = await richTextFactory.factorizeRichTextData();
+          // this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
+          res[i].fields[t].value = richText;
         }
         console.log('this.minioAttachmentData inedex', this.minioAttachmentData);
       }

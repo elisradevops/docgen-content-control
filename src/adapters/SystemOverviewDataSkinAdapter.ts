@@ -1,3 +1,4 @@
+import TicketsDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/TicketsDataProvider';
 import RichTextDataFactory from '../factories/RichTextDataFactory';
 import HtmlUtils from '../services/htmlUtils';
 import logger from '../services/logger';
@@ -12,6 +13,7 @@ export default class SystemOverviewDataSkinAdapter {
   private minioSecretKey: string;
   private PAT: string;
   private attachmentMinioData: any[];
+  private ticketsProvider: TicketsDataProvider;
   constructor(
     teamProject,
     templatePath,
@@ -19,7 +21,8 @@ export default class SystemOverviewDataSkinAdapter {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    ticketsProvider
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -31,6 +34,7 @@ export default class SystemOverviewDataSkinAdapter {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
+    this.ticketsProvider = ticketsProvider;
   }
   public async jsonSkinAdapter(rawData: any) {
     try {
@@ -56,22 +60,15 @@ export default class SystemOverviewDataSkinAdapter {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        this.ticketsProvider
       );
-      await richTextFactory.createRichTextContent();
-      richTextFactory.attachmentMinioData.forEach((item) => {
-        let attachmentBucketData = {
-          attachmentMinioPath: item.attachmentPath,
-          minioFileName: item.fileName,
-        };
-        this.attachmentMinioData.push(attachmentBucketData);
-      });
-      let richTextNodes = richTextFactory.skinDataContentControls;
+      const descriptionRichText = await richTextFactory.factorizeRichTextData();
       let skinData = {
         fields: [
           { name: 'Title', value: node.title + ' - ' },
           { name: 'ID', value: node.id, url: node.htmlUrl },
-          { name: 'WI Description', value: cleanedDescription, richTextNodes },
+          { name: 'WI Description', value: descriptionRichText },
         ],
         level: headerLevel,
       };
