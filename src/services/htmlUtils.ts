@@ -251,12 +251,18 @@ export default class HtmlUtils {
     const inlineElements = 'b, u, i, em, strong, span';
     const blockElements = 'div, p, h1, h2, h3, h4, h5, h6';
 
-    // Find all inline elements that directly contain block elements in one query
+    // Process deepest inline elements first
+    this.$(`${inlineElements} ${inlineElements}`).each((_, element) => {
+      const $element = this.$(element);
+      if ($element.children(blockElements).length > 0) {
+        $element.replaceWith($element.html());
+      }
+    });
+
+    // Then process top-level inline elements
     this.$(inlineElements).each((_, element) => {
       const $element = this.$(element);
-      // Use children() instead of find() to only check immediate children
-      const hasBlockChild = $element.children(blockElements).length > 0;
-      if (hasBlockChild) {
+      if ($element.children(blockElements).length > 0) {
         $element.replaceWith($element.html());
       }
     });
@@ -268,7 +274,7 @@ export default class HtmlUtils {
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();
-      this.removeInvalidInlineWrappersAroundBlocks(); // Add this before other cleanups
+      this.removeInvalidInlineWrappersAroundBlocks();
       this.removeFormattingTags();
       this.removeEmptyNodes();
       this.clearBrBeforeEndOfParagraph();
