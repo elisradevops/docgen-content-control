@@ -435,8 +435,7 @@ export default class TestDataFactory {
                       this.minioEndPoint,
                       this.minioAccessKey,
                       this.minioSecretKey,
-                      this.PAT,
-                      ticketsDataProvider
+                      this.PAT
                     );
                     // Add this here:
                     const descriptionRichText = await richTextFactory.factorizeRichTextData();
@@ -482,9 +481,9 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT,
-                              ticketsDataProvider
+                              this.PAT
                             );
+
                             let richTextFactoryExpected = new RichTextDataFactory(
                               expectedText,
                               this.templatePath,
@@ -493,12 +492,27 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT,
-                              ticketsDataProvider
+                              this.PAT
                             );
+
                             const richTextHtmlAction = await richTextFactoryAction.factorizeRichTextData();
+                            richTextFactoryAction.attachmentMinioData.forEach((item) => {
+                              let attachmentBucketData = {
+                                attachmentMinioPath: item.attachmentPath,
+                                minioFileName: item.fileName,
+                              };
+                              this.attachmentMinioData.push(attachmentBucketData);
+                            });
                             const richTextHtmlExpected =
                               await richTextFactoryExpected.factorizeRichTextData();
+
+                            richTextFactoryExpected.attachmentMinioData.forEach((item) => {
+                              let attachmentBucketData = {
+                                attachmentMinioPath: item.attachmentPath,
+                                minioFileName: item.fileName,
+                              };
+                              this.attachmentMinioData.push(attachmentBucketData);
+                            });
 
                             if (!richTextFactoryAction.hasValues && !richTextFactoryExpected.hasValues) {
                               // Skip this iteration and move to the next one

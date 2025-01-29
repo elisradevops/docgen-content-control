@@ -216,8 +216,7 @@ export default class DgContentControls {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT,
-            ticketsDataProvider
+            this.PAT
           );
           console.log('index richTextFactory', richTextFactory);
           const richText = await richTextFactory.factorizeRichTextData();
