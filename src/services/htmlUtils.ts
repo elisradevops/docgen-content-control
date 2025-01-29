@@ -247,12 +247,28 @@ export default class HtmlUtils {
     emptyElements.remove();
   };
 
+  private removeInvalidInlineWrappersAroundBlocks = () => {
+    const inlineElements = 'b, u, i, em, strong, span';
+    const blockElements = 'div, p, h1, h2, h3, h4, h5, h6';
+
+    // Find all inline elements that directly contain block elements in one query
+    this.$(inlineElements).each((_, element) => {
+      const $element = this.$(element);
+      // Use children() instead of find() to only check immediate children
+      const hasBlockChild = $element.children(blockElements).length > 0;
+      if (hasBlockChild) {
+        $element.replaceWith($element.html());
+      }
+    });
+  };
+
   public cleanHtml(html): any {
     try {
       this.$ = cheerio.load(html, { decodeEntities: false });
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();
+      this.removeInvalidInlineWrappersAroundBlocks(); // Add this before other cleanups
       this.removeFormattingTags();
       this.removeEmptyNodes();
       this.clearBrBeforeEndOfParagraph();
