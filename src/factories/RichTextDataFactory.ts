@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import logger from '../services/logger';
 import TicketsDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/TicketsDataProvider';
+import DownloadManager from '../services/DownloadManager';
 
 export default class RichTextDataFactory {
   richTextString: string;
@@ -17,7 +18,6 @@ export default class RichTextDataFactory {
   minioAccessKey: string = '';
   minioSecretKey: string = '';
   PAT: string = '';
-  ticketProvider: TicketsDataProvider;
   hasValues: boolean = false;
   $: cheerio.Root;
   private imageCache: Map<string, string>;
@@ -29,8 +29,7 @@ export default class RichTextDataFactory {
     minioEndPoint: string = '',
     minioAccessKey: string = '',
     minioSecretKey: string = '',
-    PAT: string = '',
-    ticketsProvider: TicketsDataProvider = undefined
+    PAT: string = ''
   ) {
     this.richTextString = startHtml;
     this.insideTableFlag = false;
@@ -42,7 +41,6 @@ export default class RichTextDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.imageCache = new Map<string, string>();
-    this.ticketProvider = ticketsProvider;
   }
 
   private async replaceImgSrcWithLocalPath() {
@@ -54,10 +52,64 @@ export default class RichTextDataFactory {
         logger.warn('Image source not found');
         continue;
       }
-      if (!src.startsWith('data:')) {
-        const baseImg64 = await this.downloadRemoteImage(src);
-        image.attr('src', baseImg64);
+      if (src.startsWith('data:')) {
+        const localPath = await this.handleBase64Image(src);
+        image.attr('src', localPath);
+      } else {
+        const localPath = await this.downloadImageAndReturnLocalPath(src);
+        image.attr('src', localPath);
       }
+    }
+  }
+
+  private async handleBase64Image(dataUrl: string): Promise<string> {
+    try {
+      if (this.imageCache.has(dataUrl)) {
+        return this.imageCache.get(dataUrl)!;
+      }
+
+      const match = dataUrl.match(/^data:(.*?);base64,(.*)$/);
+      if (!match) {
+        // Not a standard base64 data URL or missing base64
+        return '';
+      }
+
+      const [, mimeType] = match;
+
+      let extension = '';
+      if (mimeType === 'image/jpeg') {
+        extension = 'jpg';
+      } else if (mimeType === 'image/png') {
+        extension = 'png';
+      } else if (mimeType === 'image/gif') {
+        extension = 'gif';
+      } else {
+        //fallback to bin
+        extension = 'bin';
+        throw new Error(`Unsupported image type: ${mimeType}`);
+      }
+
+      const fileName = `base64-image-${Date.now()}.${extension}`;
+
+      const downloadManager = new DownloadManager(
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        dataUrl,
+        fileName,
+        this.teamProject,
+        this.PAT
+      );
+      const attachmentData = await downloadManager.downloadFile();
+      this.attachmentMinioData.push(attachmentData);
+      const localPath = `TempFiles/${attachmentData.fileName}`;
+      this.imageCache.set(dataUrl, localPath);
+      return localPath;
+    } catch (err) {
+      logger.error(`Error handling base64 image: ${dataUrl}`);
+      logger.error(`Error: ${err.message}`);
+      return '';
     }
   }
 
@@ -96,10 +148,60 @@ export default class RichTextDataFactory {
     return this.richTextString;
   }
 
-  private async downloadRemoteImage(imageUrl: string) {
-    if (this.ticketProvider !== undefined) {
-      return await this.ticketProvider.FetchImageAsBase64(imageUrl);
+  private async downloadImageAndReturnLocalPath(originalUrl) {
+    if (!originalUrl) {
+      return '';
     }
-    return '';
+    if (this.imageCache.has(originalUrl)) {
+      return this.imageCache.get(originalUrl)!;
+    }
+
+    let imageFileName: string;
+    let rawUrl: string;
+
+    const idx = originalUrl.indexOf('?');
+    if (idx !== -1) {
+      imageFileName = originalUrl.substring(idx + 10);
+      rawUrl = originalUrl.substring(0, idx);
+    } else {
+      // If there is no query string, just use the original URL
+      // and extract the image file name from the URL
+      const lastSlash = originalUrl.lastIndexOf('/');
+      if (lastSlash === -1) {
+        imageFileName = 'unknown.png';
+        rawUrl = originalUrl;
+      } else {
+        imageFileName = originalUrl.substring(lastSlash + 1);
+        rawUrl = originalUrl;
+      }
+    }
+
+    try {
+      if (this.attachmentsBucketName) {
+        const downloadManager = new DownloadManager(
+          this.attachmentsBucketName,
+          this.minioEndPoint,
+          this.minioAccessKey,
+          this.minioSecretKey,
+          rawUrl,
+          imageFileName,
+          this.teamProject,
+          this.PAT
+        );
+        const attachmentData = await downloadManager.downloadFile();
+        this.attachmentMinioData.push(attachmentData);
+        // Return the local path of the downloaded image
+        const localPath = `TempFiles/${attachmentData.fileName}`;
+        this.imageCache.set(originalUrl, localPath);
+        return localPath;
+      } else {
+        // If the attachments bucket name is not provided, return the original URL
+        return originalUrl;
+      }
+    } catch (e) {
+      logger.error(`Error downloading image from URL: ${originalUrl}`);
+      logger.error(`Error: ${e.message}`);
+      return originalUrl;
+    }
   }
 }

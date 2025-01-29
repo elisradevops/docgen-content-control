@@ -60,10 +60,16 @@ export default class SystemOverviewDataSkinAdapter {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT,
-        this.ticketsProvider
+        this.PAT
       );
       const descriptionRichText = await richTextFactory.factorizeRichTextData();
+      richTextFactory.attachmentMinioData.forEach((item) => {
+        let attachmentBucketData = {
+          attachmentMinioPath: item.attachmentPath,
+          minioFileName: item.fileName,
+        };
+        this.attachmentMinioData.push(attachmentBucketData);
+      });
       let skinData = {
         fields: [
           { name: 'Title', value: node.title + ' - ' },
