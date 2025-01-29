@@ -251,19 +251,28 @@ export default class HtmlUtils {
     const inlineElements = 'b, u, i, em, strong, span';
     const blockElements = 'div, p, h1, h2, h3, h4, h5, h6';
 
-    // Process deepest inline elements first
-    this.$(`${inlineElements} ${inlineElements}`).each((_, element) => {
-      const $element = this.$(element);
-      if ($element.children(blockElements).length > 0) {
-        $element.replaceWith($element.html());
-      }
-    });
+    // Process from bottom-up to handle nested cases efficiently
+    const allInlines = this.$(inlineElements).get().reverse();
 
-    // Then process top-level inline elements
-    this.$(inlineElements).each((_, element) => {
+    allInlines.forEach((element) => {
       const $element = this.$(element);
-      if ($element.children(blockElements).length > 0) {
-        $element.replaceWith($element.html());
+      const hasDirectBlockChild = $element.children(blockElements).length > 0;
+
+      if (hasDirectBlockChild) {
+        // Collect non-block and block children separately
+        const $children = $element.children();
+        const nonBlockContent = $element.clone().empty();
+
+        $element.contents().each((_, node) => {
+          const $node = this.$(node);
+          if (!$node.is(blockElements)) {
+            nonBlockContent.append($node.clone());
+          }
+        });
+
+        // Replace element with: wrapped inline content + unwrapped block content
+        const replacement = nonBlockContent.html() + $children.filter(blockElements).toString();
+        $element.replaceWith(replacement);
       }
     });
   };
