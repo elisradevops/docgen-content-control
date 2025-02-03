@@ -828,6 +828,7 @@ export default class DgContentControls {
           contentControl.wordObjects.push(skin);
         });
       }
+
       let tableSkins =
         artifactChangesData.artifactChanges?.length > 0
           ? await this.skins.addNewContentToDocumentSkin(
@@ -877,10 +878,17 @@ export default class DgContentControls {
         repoId,
         prIds,
         linkTypeFilterArray,
-        this.dgDataProviderAzureDevOps
+        this.dgDataProviderAzureDevOps,
+        this.templatePath,
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT
       );
       await pullRequestDataFactory.fetchData();
       await pullRequestDataFactory.jsonSkinDataAdpater();
+      this.minioAttachmentData.push(...pullRequestDataFactory.attachmentMinioData);
       adoptedChangesData = pullRequestDataFactory.getAdoptedData();
     } catch (error) {
       throw new Error(`Error initializing change table factory: ${error}`);

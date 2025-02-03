@@ -24,19 +24,38 @@ export default class PullRequestDataFactory {
   headingLevel?: number;
   rawChangesArray: any = [];
   adoptedChangeData: any;
+  attachmentsBucketName: string;
+  minioEndPoint: string;
+  minioAccessKey: string;
+  minioSecretKey: string;
+  attachmentMinioData: any[];
+  PAT: string;
 
   constructor(
     teamProjectName,
     repoId: string,
     prIds: any[],
     linkTypeFilterArray: string[],
-    dgDataProvider: any
+    dgDataProvider: any,
+    templatePath: string,
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
     this.repoId = repoId;
     this.prIds = prIds;
     this.linkTypeFilterArray = linkTypeFilterArray;
+    this.templatePath = templatePath;
+    this.attachmentsBucketName = attachmentsBucketName;
+    this.minioEndPoint = minioEndPoint;
+    this.minioAccessKey = minioAccessKey;
+    this.minioSecretKey = minioSecretKey;
+    this.PAT = PAT;
+    this.attachmentMinioData = [];
   } //constructor
 
   /*fetches Change table data and adopts it to json skin format */
@@ -61,8 +80,20 @@ export default class PullRequestDataFactory {
 
   /*arranging the test data for json skins package*/
   async jsonSkinDataAdpater() {
-    let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(this.rawChangesArray, true, true);
-    changesTableDataSkinAdapter.adoptSkinData();
+    let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
+      this.rawChangesArray,
+      true,
+      true,
+      this.teamProject,
+      this.templatePath,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT
+    );
+    await changesTableDataSkinAdapter.adoptSkinData();
+    this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);
     this.adoptedChangeData = changesTableDataSkinAdapter.getAdoptedData();
   } //jsonSkinDataAdpater
 

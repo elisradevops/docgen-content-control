@@ -44,6 +44,7 @@ export default class SystemOverviewDataSkinAdapter {
       }
     } catch (err: any) {
       logger.error(`could not create the adopted data ${err.message}`);
+      logger.error(err.stack);
     }
     return this.adoptedData;
   }
@@ -51,7 +52,7 @@ export default class SystemOverviewDataSkinAdapter {
   private async adaptDataRecursively(nodes: any[], headerLevel: number = 3) {
     for (const node of nodes) {
       let Description = node.description || 'No description';
-      let cleanedDescription = this.htmlUtils.cleanHtml(Description);
+      let cleanedDescription = await this.htmlUtils.cleanHtml(Description);
       let richTextFactory = new RichTextDataFactory(
         cleanedDescription,
         this.templatePath,

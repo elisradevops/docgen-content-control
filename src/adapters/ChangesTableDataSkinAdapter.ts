@@ -1,6 +1,7 @@
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
 import { writeFileSync } from 'fs';
+import RichTextDataFactory from '../factories/RichTextDataFactory';
 
 export default class ChangesTableDataSkinAdapter {
   rawChangesArray: any = [];
@@ -8,12 +9,39 @@ export default class ChangesTableDataSkinAdapter {
   includeChangeDescription: boolean = false;
   includeCommittedBy: boolean = false;
   htmlUtils: HtmlUtils;
+  templatePath: string;
+  teamProject: string;
+  attachmentsBucketName: string;
+  minioEndPoint: string;
+  minioAccessKey: string;
+  minioSecretKey: string;
+  attachmentMinioData: any[];
+  PAT: string;
 
-  constructor(rawChangesArray: any[], includeChangeDescription: boolean, includeCommittedBy: boolean) {
+  constructor(
+    rawChangesArray: any[],
+    includeChangeDescription: boolean,
+    includeCommittedBy: boolean,
+    teamProject: string,
+    templatePath: string,
+    attachmentsBucketName: string,
+    minioEndPoint: string,
+    minioAccessKey: string,
+    minioSecretKey: string,
+    PAT: string
+  ) {
     this.rawChangesArray = rawChangesArray;
     this.includeChangeDescription = includeChangeDescription;
     this.includeCommittedBy = includeCommittedBy;
     this.htmlUtils = new HtmlUtils();
+    this.templatePath = templatePath;
+    this.teamProject = teamProject;
+    this.attachmentsBucketName = attachmentsBucketName;
+    this.minioEndPoint = minioEndPoint;
+    this.minioAccessKey = minioAccessKey;
+    this.minioSecretKey = minioSecretKey;
+    this.PAT = PAT;
+    this.attachmentMinioData = [];
   }
 
   getAdoptedData() {
@@ -103,7 +131,7 @@ export default class ChangesTableDataSkinAdapter {
         let changeRow;
         if (change.workItem) {
           // Changes that have a work item
-          changeRow = this.buildWorkItemChangeRow(change, changeCounter);
+          changeRow = await this.buildWorkItemChangeRow(change, changeCounter);
         } else {
           // Changes that are pull requests
           changeRow = this.buildPullRequestChangeRow(change, changeCounter);
@@ -151,8 +179,32 @@ export default class ChangesTableDataSkinAdapter {
   }
 
   // Helper function to build a work item change row
-  private buildWorkItemChangeRow(change: any, index: number) {
+  private async buildWorkItemChangeRow(change: any, index: number) {
     const description: string = change.workItem.fields['System.Description'];
+    let cleanedDescription = '';
+    if (description) {
+      cleanedDescription = await this.htmlUtils.cleanHtml(description);
+    }
+    let richTextFactory = new RichTextDataFactory(
+      cleanedDescription,
+      this.templatePath,
+      this.teamProject,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT
+    );
+
+    const descriptionRichText = await richTextFactory.factorizeRichTextData();
+    richTextFactory.attachmentMinioData.forEach((item) => {
+      let attachmentBucketData = {
+        attachmentMinioPath: item.attachmentPath,
+        minioFileName: item.fileName,
+      };
+      this.attachmentMinioData.push(attachmentBucketData);
+    });
+
     const fields = [
       { name: '#', value: index + 1, width: '3.8%' },
       change.targetRepo
@@ -186,7 +238,7 @@ export default class ChangesTableDataSkinAdapter {
       {
         name: 'Change description',
         condition: this.includeChangeDescription,
-        value: description ? this.htmlUtils.cleanHtml(description) : '',
+        value: descriptionRichText ?? '',
         width: '20.8%',
       },
       { name: 'Committed Date & Time', ...this.applyClosedDateData(change), width: '10%' },
@@ -196,7 +248,7 @@ export default class ChangesTableDataSkinAdapter {
         width: '11.4%',
         condition: this.includeCommittedBy,
       },
-    ].filter((field) => field !== null && (field.condition === undefined || field.condition === true));
+    ].filter((field: any) => field !== null && (field.condition === undefined || field.condition === true));
 
     return { fields };
   }

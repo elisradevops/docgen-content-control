@@ -12,7 +12,7 @@ export default class RichTextDataFactory {
   skinDataContentControls: any[] = [];
   templatePath: string = '';
   teamProject: string = '';
-  attachmentMinioData: any[] = [];
+  attachmentMinioData: any[];
   attachmentsBucketName: string = '';
   minioEndPoint: string = '';
   minioAccessKey: string = '';
@@ -41,6 +41,7 @@ export default class RichTextDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.imageCache = new Map<string, string>();
+    this.attachmentMinioData = [];
   }
 
   private async replaceImgSrcWithLocalPath() {

@@ -343,11 +343,10 @@ export default class TestDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${
-                    type === 'req-test'
+                  value: `${type === 'req-test'
                       ? 'Trace Analysis Table: Requirements to Test cases'
                       : 'Trace Analysis Table : Test cases to Requirement'
-                  }`,
+                    }`,
                 },
               ],
               level: 2,
@@ -384,11 +383,10 @@ export default class TestDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${
-                    type === 'req-test'
+                  value: `${type === 'req-test'
                       ? 'Trace Analysis Table: Requirements to Test cases'
                       : 'Trace Analysis Table: Test cases to Requirement'
-                  }`,
+                    }`,
                 },
               ],
               level: 2,
@@ -426,7 +424,7 @@ export default class TestDataFactory {
                 suite.testCases.map(async (testCase) => {
                   try {
                     let Description = testCase.description || 'No description';
-                    let cleanedDescription = this.htmlUtils.cleanHtml(Description);
+                    let cleanedDescription = await this.htmlUtils.cleanHtml(Description);
                     let richTextFactory = new RichTextDataFactory(
                       cleanedDescription,
                       this.templatePath,
@@ -467,10 +465,10 @@ export default class TestDataFactory {
                             let actionText = '';
                             let expectedText = '';
                             if (testStep.action) {
-                              actionText = this.htmlUtils.cleanHtml(testStep.action);
+                              actionText = await this.htmlUtils.cleanHtml(testStep.action);
                             }
                             if (testStep.expected) {
-                              expectedText = this.htmlUtils.cleanHtml(testStep.expected);
+                              expectedText = await this.htmlUtils.cleanHtml(testStep.expected);
                             }
 
                             let richTextFactoryAction = new RichTextDataFactory(
@@ -531,96 +529,96 @@ export default class TestDataFactory {
                             if (this.stepResultDetailsMap) {
                               return this.includeAttachments && hasAnyStepAttachment
                                 ? {
-                                    fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      {
-                                        name: 'Description',
-                                        value: richTextHtmlAction,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Expected Results',
-                                        value: richTextHtmlExpected,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Attachments',
-                                        value: testStepAttachments,
-                                        attachmentType: this.attachmentType,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Actual Result',
-                                        value: this.extractStepComment(testStep),
-                                      },
-                                      {
-                                        name: 'Run Status',
-                                        value: this.extractStepStatus(testStep),
-                                        width: '13%',
-                                      },
-                                    ],
-                                  }
-                                : {
-                                    fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      {
-                                        name: 'Description',
-                                        value: richTextHtmlAction,
-                                        width: '31%',
-                                      },
-                                      {
-                                        name: 'Expected Results',
-                                        value: richTextHtmlExpected,
-                                        width: '31%',
-                                      },
-                                      {
-                                        name: 'Actual Result',
-                                        value: this.extractStepComment(testStep),
-                                      },
-                                      {
-                                        name: 'Run Status',
-                                        value: this.extractStepStatus(testStep),
-                                        width: '13%',
-                                      },
-                                    ],
-                                  };
-                            }
-
-                            return this.includeAttachments && hasAnyStepAttachment
-                              ? {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
                                       value: richTextHtmlAction,
-                                      width: '26.9%',
+                                      width: '20.8%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: richTextHtmlExpected,
-                                      width: '26.9%',
+                                      width: '20.8%',
                                     },
                                     {
                                       name: 'Attachments',
                                       value: testStepAttachments,
                                       attachmentType: this.attachmentType,
+                                      width: '20.8%',
+                                    },
+                                    {
+                                      name: 'Actual Result',
+                                      value: this.extractStepComment(testStep),
+                                    },
+                                    {
+                                      name: 'Run Status',
+                                      value: this.extractStepStatus(testStep),
+                                      width: '13%',
                                     },
                                   ],
                                 }
-                              : {
+                                : {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
                                       value: richTextHtmlAction,
-                                      width: '45.8%',
+                                      width: '31%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: richTextHtmlExpected,
+                                      width: '31%',
+                                    },
+                                    {
+                                      name: 'Actual Result',
+                                      value: this.extractStepComment(testStep),
+                                    },
+                                    {
+                                      name: 'Run Status',
+                                      value: this.extractStepStatus(testStep),
+                                      width: '13%',
                                     },
                                   ],
                                 };
+                            }
+
+                            return this.includeAttachments && hasAnyStepAttachment
+                              ? {
+                                fields: [
+                                  { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
+                                  {
+                                    name: 'Description',
+                                    value: richTextHtmlAction,
+                                    width: '26.9%',
+                                  },
+                                  {
+                                    name: 'Expected Results',
+                                    value: richTextHtmlExpected,
+                                    width: '26.9%',
+                                  },
+                                  {
+                                    name: 'Attachments',
+                                    value: testStepAttachments,
+                                    attachmentType: this.attachmentType,
+                                  },
+                                ],
+                              }
+                              : {
+                                fields: [
+                                  { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
+                                  {
+                                    name: 'Description',
+                                    value: richTextHtmlAction,
+                                    width: '45.8%',
+                                  },
+                                  {
+                                    name: 'Expected Results',
+                                    value: richTextHtmlExpected,
+                                  },
+                                ],
+                              };
                           })
                         );
                         // Filter out null entries (those iterations that were skipped)
