@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import logger from './logger';
-
+import { minify } from 'html-minifier-terser';
 export default class HtmlUtils {
   $: cheerio.Root;
 
@@ -90,32 +90,34 @@ export default class HtmlUtils {
 
   // Replace '\n' or '&nbsp;' with a white space in all inline element text nodes, without removing nested elements
   private replaceNewlinesInInlineElements = () => {
-    this.$('span, li, b, u, i, em, strong').each((_, element) => {
+    this.$('span, li, b, u, i, em, strong').each((_, element: any) => {
       const $inlineElement = this.$(element);
+      // Get the raw HTML content
+      let rawContent = this.$.html($inlineElement);
+      // Extract the inner HTML (remove the outer tags)
+      const tagName = element.tagName;
+      const startTag = new RegExp(`^<${tagName}[^>]*>`);
+      const endTag = new RegExp(`<\\/${tagName}>$`);
+      rawContent = rawContent.replace(startTag, '').replace(endTag, '');
 
-      // Iterate over each text node within the inline element
-      $inlineElement.contents().each((_, node) => {
-        if (node.type === 'text') {
-          let content = (node.data || '').toString(); // Get the text content of the text node and ensure it's a string
+      // Process the content while preserving &nbsp;
+      const hasLeadingSpace = /^\s|^&nbsp;/.test(rawContent);
+      const hasTrailingSpace = /\s$|&nbsp;$/.test(rawContent);
 
-          // Decode HTML entities first
-          content = this.decodeHtmlEntities(content);
+      let processedContent = rawContent
+        .replace(/\n/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-          // Replace newlines and '&nbsp;' with white space in text nodes
-          content = content.replace(/\n/g, ' ').replace('&nbsp;', ' ').replace(/\s+/g, ' ').trim();
+      if (hasLeadingSpace) {
+        processedContent = ' ' + processedContent;
+      }
+      if (hasTrailingSpace) {
+        processedContent += ' ';
+      }
 
-          // If the original text starts or ends with a space, preserve it
-          if ((node.data || '').startsWith(' ')) {
-            content = ' ' + content;
-          }
-          if ((node.data || '').endsWith(' ')) {
-            content = content + ' ';
-          }
-
-          // Update the text content of the node
-          node.data = content;
-        }
-      });
+      $inlineElement.html(processedContent);
     });
   };
 
@@ -124,25 +126,18 @@ export default class HtmlUtils {
     const blockSelector = 'div, p, h1, h2, h3, h4, h5, h6';
 
     // Step 2: Process text nodes and remove &nbsp;
-    this.$(blockSelector).each((_, element) => {
-      const $block = this.$(element);
-
-      // Handle text nodes
-      $block.contents().each((_, node) => {
-        if (node.type === 'text') {
-          let content = (node.data || '').toString();
-          // Remove &nbsp; and normalize spaces
-          content = content
-            .replace(/&nbsp;/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-          node.data = content;
-        }
-      });
+    this.$(blockSelector).each((_, element: any) => {
+      const $blockElement = this.$(element);
+      let rawContent = this.$.html($blockElement);
+      const tagName = element.tagName;
+      const startTag = new RegExp(`^<${tagName}[^>]*>`);
+      const endTag = new RegExp(`<\\/${tagName}>$`);
+      rawContent = rawContent.replace(startTag, '').replace(endTag, '');
+      let processedContent = rawContent.replace(/\n/g, '<br>').trim();
+      $blockElement.html(processedContent);
 
       // Step 3: Remove br tags before closing block element
-      const lastChild = $block.contents().last();
+      const lastChild = $blockElement.contents().last();
       if (lastChild.is('br')) {
         lastChild.remove();
       }
@@ -277,9 +272,21 @@ export default class HtmlUtils {
     });
   };
 
-  public cleanHtml(html): any {
+  public async cleanHtml(html): Promise<any> {
     try {
-      this.$ = cheerio.load(html, { decodeEntities: false });
+      // Replace newlines within <p> elements
+      html = html.replace(/<p>([\s\S]*?)<\/p>/gi, (match, content) => {
+        return `<p>${content.replace(/\n/g, '<br>')}</p>`;
+      });
+      const minifiedHtml = await minify(html, {
+        noNewlinesBeforeTagClose: true,
+        collapseWhitespace: true,
+        collapseInlineTagWhitespace: true,
+        preserveLineBreaks: false,
+        removeEmptyElements: true,
+        removeOptionalTags: true,
+      });
+      this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();

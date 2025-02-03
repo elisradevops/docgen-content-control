@@ -80,58 +80,63 @@ export default class ChangeDataFactory {
   } //constructor
 
   async fetchSvdData() {
-    //1. get release component adoptedData release-components-content-control
-    let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
-    let recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
-      this.teamProject
-    );
-    if (recentReleaseArtifactInfo?.length > 0) {
-      this.adoptedChangeData.push({
-        contentControl: 'release-components-content-control',
-        data: await this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
-        skin: 'release-components-skin',
-      });
-    }
+    try {
+      //1. get release component adoptedData release-components-content-control
+      let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+      let recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
+        this.teamProject
+      );
+      if (recentReleaseArtifactInfo?.length > 0) {
+        this.adoptedChangeData.push({
+          contentControl: 'release-components-content-control',
+          data: await this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
+          skin: 'release-components-skin',
+        });
+      }
 
-    //2. Get system-overview (by query) need to be displayed in hierarchy system-overview-content-control
-    const queryResultData = await this.fetchQueryResults();
-    if (queryResultData.systemOverviewQueryData?.length > 0) {
-      this.adoptedChangeData.push({
-        contentControl: 'system-overview-content-control',
-        data: await this.jsonSkinDataAdapter('system-overview', queryResultData),
-        skin: 'system-overview-skin',
-      });
-    }
+      //2. Get system-overview (by query) need to be displayed in hierarchy system-overview-content-control
+      const queryResultData = await this.fetchQueryResults();
+      if (queryResultData.systemOverviewQueryData?.length > 0) {
+        this.adoptedChangeData.push({
+          contentControl: 'system-overview-content-control',
+          data: await this.jsonSkinDataAdapter('system-overview', queryResultData),
+          skin: 'system-overview-skin',
+        });
+      }
 
-    //3. get fetch changes data required-states-and-modes
-    await this.fetchChangesData();
-    this.includedWorkItemByIdSet.clear();
-    if (this.rawChangesArray.length > 0) {
-      this.adoptedChangeData.push({
-        contentControl: 'required-states-and-modes',
-        data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
-        skin: 'required-states-and-modes-skin',
-      });
-    }
-    //4.get installation data (via file) installation-instructions-content-control
-    const installationInstruction = [];
-    if (installationInstruction.length > 0) {
-      this.adoptedChangeData.push({
-        contentControl: 'installation-instructions-content-control',
-        data: await this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
-        skin: 'installation-instructions-skin',
-      });
-    }
-    //5. get possible errors or change quest by query possible-problems-known-errors-content-control
-    if (queryResultData.knownBugsQueryData) {
-      this.adoptedChangeData.push({
-        contentControl: 'possible-problems-known-errors-content-control',
-        data: await this.jsonSkinDataAdapter(
-          'possible-problems-known-errors',
-          queryResultData.knownBugsQueryData
-        ),
-        skin: 'possible-problems-known-errors-skin',
-      });
+      //3. get fetch changes data required-states-and-modes
+      await this.fetchChangesData();
+      this.includedWorkItemByIdSet.clear();
+      if (this.rawChangesArray.length > 0) {
+        this.adoptedChangeData.push({
+          contentControl: 'required-states-and-modes',
+          data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
+          skin: 'required-states-and-modes-skin',
+        });
+      }
+      //4.get installation data (via file) installation-instructions-content-control
+      const installationInstruction = [];
+      if (installationInstruction.length > 0) {
+        this.adoptedChangeData.push({
+          contentControl: 'installation-instructions-content-control',
+          data: await this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
+          skin: 'installation-instructions-skin',
+        });
+      }
+      //5. get possible errors or change quest by query possible-problems-known-errors-content-control
+      if (queryResultData.knownBugsQueryData) {
+        this.adoptedChangeData.push({
+          contentControl: 'possible-problems-known-errors-content-control',
+          data: await this.jsonSkinDataAdapter(
+            'possible-problems-known-errors',
+            queryResultData.knownBugsQueryData
+          ),
+          skin: 'possible-problems-known-errors-skin',
+        });
+      }
+    } catch (error: any) {
+      logger.error(`could not fetch svd data ${error.message}`);
+      logger.error(`error stack: ${error.stack}`);
     }
   }
 
@@ -878,9 +883,17 @@ export default class ChangeDataFactory {
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
             this.rawChangesArray,
             this.includeChangeDescription,
-            this.includeCommittedBy
+            this.includeCommittedBy,
+            this.teamProject,
+            this.templatePath,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT
           );
-          changesTableDataSkinAdapter.adoptSkinData();
+          await changesTableDataSkinAdapter.adoptSkinData();
+          this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);
           adoptedData = changesTableDataSkinAdapter.getAdoptedData();
           break;
         case 'installation-instructions':

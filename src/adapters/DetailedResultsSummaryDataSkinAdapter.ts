@@ -49,8 +49,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     try {
       return await Promise.all(
         resultDataRaw.map(async (item, idx) => {
-          const cleanedActionHtml = this.htmlUtils.cleanHtml(`${item.stepAction}`);
-          const cleanedExpectedHtml = this.htmlUtils.cleanHtml(`${item.stepExpected}`);
+          const cleanedActionHtml = await this.htmlUtils.cleanHtml(`${item.stepAction}`);
+          const cleanedExpectedHtml = await this.htmlUtils.cleanHtml(`${item.stepExpected}`);
 
           const action = await this.htmlStrip(cleanedActionHtml);
           const expected = await this.htmlStrip(cleanedExpectedHtml);
