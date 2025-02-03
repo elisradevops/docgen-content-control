@@ -60,7 +60,6 @@ export default class DownloadManager {
         isBase64: true,
         base64Content: chunks,
       });
-      logger.debug(`sendBase64Chunks response: ${JSON.stringify(response.data)}`);
       return response.data;
     } catch (error) {
       logger.error(`Error processing base64 content: ${error.message}`);
