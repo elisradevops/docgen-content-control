@@ -288,6 +288,9 @@ export default class DgContentControls {
         this.PAT
       );
 
+      //init the adopted data
+      await testDataFactory.fetchTestData(traceAnalysisRequest.traceAnalysisMode === 'query');
+
       //if selectedMode by query
       switch (traceAnalysisRequest.traceAnalysisMode) {
         case 'query':
@@ -299,8 +302,6 @@ export default class DgContentControls {
         default:
           break;
       }
-      //init the adopted data
-      await testDataFactory.fetchTestData(traceAnalysisRequest.traceAnalysisMode === 'query');
     } catch (error) {
       throw new Error(`Error initializing test data factory ${error}`);
     }
@@ -618,6 +619,10 @@ export default class DgContentControls {
             stepExecutionObject.data
           );
 
+          await testDataFactory.fetchTestData(
+            stepExecution?.generateRequirements?.requirementInclusionMode === 'query'
+          );
+
           //if selectedMode by query
           switch (stepExecution?.generateRequirements?.requirementInclusionMode) {
             case 'query':
@@ -629,10 +634,6 @@ export default class DgContentControls {
             default:
               break;
           }
-
-          await testDataFactory.fetchTestData(
-            stepExecution?.generateRequirements?.requirementInclusionMode === 'query'
-          );
 
           let attachmentTestData = testDataFactory.getAttachmentMinioData();
           this.minioAttachmentData = this.minioAttachmentData.concat(attachmentTestData);

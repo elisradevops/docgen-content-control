@@ -91,6 +91,8 @@ export default class TestDataFactory {
     this.attachmentsBucketName = attachmentsBucketName;
     this.htmlUtils = new HtmlUtils();
     this.stepResultDetailsMap = stepResultDetailsMap;
+    this.testCaseToRequirementsTraceMap = new Map<string, string[]>();
+    this.requirementToTestCaseTraceMap = new Map<string, string[]>();
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -310,14 +312,9 @@ export default class TestDataFactory {
     }
   }
 
-  private allValuesAreTarget(array, targetValues) {
-    return array.every((obj) => targetValues.includes(obj.value));
-  }
-
   //arranging the test data for json skins package
   async jsonSkinDataAdpater(adapterType: string = null, isByQuery: boolean = false) {
     let adoptedTestData = {} as any;
-    let ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
     try {
       switch (adapterType) {
         case 'test-result-group-summary':
@@ -325,7 +322,7 @@ export default class TestDataFactory {
           // adoptedTestData = await testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdpater(this.testDataRaw);
           break;
         case 'linked-requirements-trace':
-          const configs2 = [
+          const linkedRequirementConfigs = [
             {
               mapData: this.requirementToTestCaseTraceMap,
               type: 'req-test',
@@ -338,7 +335,7 @@ export default class TestDataFactory {
             },
           ];
 
-          for (const { mapData, type, adoptedDataKey } of configs2) {
+          for (const { mapData, type, adoptedDataKey } of linkedRequirementConfigs) {
             const title = {
               fields: [
                 {
@@ -365,7 +362,7 @@ export default class TestDataFactory {
           break;
 
         case 'query-results':
-          const configs = [
+          const queryConfigs = [
             {
               queryResults: this.reqTestQueryResults,
               type: 'req-test',
@@ -378,7 +375,7 @@ export default class TestDataFactory {
             },
           ];
 
-          for (const { queryResults, type, adoptedDataKey } of configs) {
+          for (const { queryResults, type, adoptedDataKey } of queryConfigs) {
             const title = {
               fields: [
                 {
