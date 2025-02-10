@@ -168,7 +168,7 @@ export default class ResultDataFactory {
       logger.error(
         `Error occurred during build json Skin data adapter for adapter type: ${adapterType}, ${error.message}`
       );
-      logger.debug(`Error stack: ${error.stack}`);
+      throw error;
     }
   }
 

@@ -203,7 +203,8 @@ export default class HtmlUtils {
         removeEmptyElements: true,
         removeOptionalTags: true,
       });
-      this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
+      // this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
+      this.$ = cheerio.load(minifiedHtml);
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();
@@ -212,8 +213,7 @@ export default class HtmlUtils {
       return this.$.html();
     } catch (error: any) {
       logger.error(`Error occurred during clean HTML: ${error.message}`);
-      logger.error(`Error Stack: ${error.stack}`);
-      return '';
+      throw error;
     }
   }
 }

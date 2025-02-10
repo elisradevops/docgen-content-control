@@ -168,8 +168,10 @@ export default class StepAnalysisSkinAdapter {
         return skins;
       });
     } catch (error) {
-      logger.error(`Error occurred while trying to build jsonSkinDataAdapter: ${error.message}`);
-      logger.error(`Error stack ${error.stack}`);
+      logger.error(
+        `Error occurred while trying to build jsonSkinDataAdapter for step analysis: ${error.message}`
+      );
+      throw error;
     }
   }
 
@@ -208,17 +210,22 @@ export default class StepAnalysisSkinAdapter {
   };
 
   private async generateAttachmentsFromRawRunResultsData(runResults: any[]): Promise<any[]> {
-    return await Promise.all(
-      runResults.map(async (result) => {
-        let attachmentsData = await this.generateAttachmentData(result);
-        if (!attachmentsData) {
-          return result;
-        }
+    try {
+      return await Promise.all(
+        runResults.map(async (result) => {
+          let attachmentsData = await this.generateAttachmentData(result);
+          if (!attachmentsData) {
+            return result;
+          }
 
-        this.processAttachmentData(attachmentsData);
-        return { ...result, attachmentsData };
-      })
-    );
+          this.processAttachmentData(attachmentsData);
+          return { ...result, attachmentsData };
+        })
+      );
+    } catch (error) {
+      logger.error(`Error occurred while trying to fetch attachments for run results: ${error.message}`);
+      throw error;
+    }
   }
 
   public getAttachmentMinioData(): any[] {
@@ -246,6 +253,8 @@ export default class StepAnalysisSkinAdapter {
       logger.error(
         `error fetching attachments data for run result ${runResult.lastRunId}:${runResult.lastResultId}`
       );
+      logger.error(e.message);
+      throw e;
     }
   }
 }

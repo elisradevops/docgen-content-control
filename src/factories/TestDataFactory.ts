@@ -93,6 +93,7 @@ export default class TestDataFactory {
     this.stepResultDetailsMap = stepResultDetailsMap;
     this.testCaseToRequirementsTraceMap = new Map<string, string[]>();
     this.requirementToTestCaseTraceMap = new Map<string, string[]>();
+    this.testCaseToRequirementsLookup = new Map<number, Set<any>>();
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -166,7 +167,8 @@ export default class TestDataFactory {
         this.adoptedTestData = await this.jsonSkinDataAdpater(null, isByQuery);
       }
     } catch (err) {
-      throw new Error(`Error occurred during fetching data: ${err}`);
+      logger.error(`Error occurred during fetching data: ${err.message}`);
+      throw err;
     }
   }
 
@@ -340,10 +342,11 @@ export default class TestDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${type === 'req-test'
+                  value: `${
+                    type === 'req-test'
                       ? 'Trace Analysis Table: Requirements to Test cases'
-                      : 'Trace Analysis Table : Test cases to Requirement'
-                    }`,
+                      : 'Trace Analysis Table: Test cases to Requirement'
+                  }`,
                 },
               ],
               level: 2,
@@ -380,10 +383,11 @@ export default class TestDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${type === 'req-test'
+                  value: `${
+                    type === 'req-test'
                       ? 'Trace Analysis Table: Requirements to Test cases'
                       : 'Trace Analysis Table: Test cases to Requirement'
-                    }`,
+                  }`,
                 },
               ],
               level: 2,
@@ -411,7 +415,7 @@ export default class TestDataFactory {
             this.testDataRaw.suites.map(async (suite: any) => {
               let suiteSkinData = {
                 fields: [
-                  { name: 'Title', value: suite.temp.name + ' - ' },
+                  { name: 'Title', value: suite.temp.name?.trim() + ' - ' },
                   { name: 'ID', value: suite.temp.id, url: suite.temp.url },
                 ],
                 level: suite.temp.level,
@@ -432,7 +436,6 @@ export default class TestDataFactory {
                       this.minioSecretKey,
                       this.PAT
                     );
-                    // Add this here:
                     const descriptionRichText = await richTextFactory.factorizeRichTextData();
                     richTextFactory.attachmentMinioData.forEach((item) => {
                       let attachmentBucketData = {
@@ -526,104 +529,107 @@ export default class TestDataFactory {
                             if (this.stepResultDetailsMap) {
                               return this.includeAttachments && hasAnyStepAttachment
                                 ? {
+                                    fields: [
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
+                                      {
+                                        name: 'Description',
+                                        value: richTextHtmlAction,
+                                        width: '20.8%',
+                                      },
+                                      {
+                                        name: 'Expected Results',
+                                        value: richTextHtmlExpected,
+                                        width: '20.8%',
+                                      },
+                                      {
+                                        name: 'Attachments',
+                                        value: testStepAttachments,
+                                        attachmentType: this.attachmentType,
+                                        width: '20.8%',
+                                      },
+                                      {
+                                        name: 'Actual Result',
+                                        value: this.extractStepComment(testStep),
+                                      },
+                                      {
+                                        name: 'Run Status',
+                                        value: this.extractStepStatus(testStep),
+                                        width: '13%',
+                                      },
+                                    ],
+                                  }
+                                : {
+                                    fields: [
+                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
+                                      {
+                                        name: 'Description',
+                                        value: richTextHtmlAction,
+                                        width: '31%',
+                                      },
+                                      {
+                                        name: 'Expected Results',
+                                        value: richTextHtmlExpected,
+                                        width: '31%',
+                                      },
+                                      {
+                                        name: 'Actual Result',
+                                        value: this.extractStepComment(testStep),
+                                      },
+                                      {
+                                        name: 'Run Status',
+                                        value: this.extractStepStatus(testStep),
+                                        width: '13%',
+                                      },
+                                    ],
+                                  };
+                            }
+
+                            return this.includeAttachments && hasAnyStepAttachment
+                              ? {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
                                       value: richTextHtmlAction,
-                                      width: '20.8%',
+                                      width: '26.9%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: richTextHtmlExpected,
-                                      width: '20.8%',
+                                      width: '26.9%',
                                     },
                                     {
                                       name: 'Attachments',
                                       value: testStepAttachments,
                                       attachmentType: this.attachmentType,
-                                      width: '20.8%',
-                                    },
-                                    {
-                                      name: 'Actual Result',
-                                      value: this.extractStepComment(testStep),
-                                    },
-                                    {
-                                      name: 'Run Status',
-                                      value: this.extractStepStatus(testStep),
-                                      width: '13%',
                                     },
                                   ],
                                 }
-                                : {
+                              : {
                                   fields: [
                                     { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
                                     {
                                       name: 'Description',
                                       value: richTextHtmlAction,
-                                      width: '31%',
+                                      width: '45.8%',
                                     },
                                     {
                                       name: 'Expected Results',
                                       value: richTextHtmlExpected,
-                                      width: '31%',
-                                    },
-                                    {
-                                      name: 'Actual Result',
-                                      value: this.extractStepComment(testStep),
-                                    },
-                                    {
-                                      name: 'Run Status',
-                                      value: this.extractStepStatus(testStep),
-                                      width: '13%',
                                     },
                                   ],
                                 };
-                            }
-
-                            return this.includeAttachments && hasAnyStepAttachment
-                              ? {
-                                fields: [
-                                  { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                  {
-                                    name: 'Description',
-                                    value: richTextHtmlAction,
-                                    width: '26.9%',
-                                  },
-                                  {
-                                    name: 'Expected Results',
-                                    value: richTextHtmlExpected,
-                                    width: '26.9%',
-                                  },
-                                  {
-                                    name: 'Attachments',
-                                    value: testStepAttachments,
-                                    attachmentType: this.attachmentType,
-                                  },
-                                ],
-                              }
-                              : {
-                                fields: [
-                                  { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                  {
-                                    name: 'Description',
-                                    value: richTextHtmlAction,
-                                    width: '45.8%',
-                                  },
-                                  {
-                                    name: 'Expected Results',
-                                    value: richTextHtmlExpected,
-                                  },
-                                ],
-                              };
                           })
                         );
                         // Filter out null entries (those iterations that were skipped)
                         testCaseStepsSkinData = testCaseStepsSkinData.filter((entry) => entry !== null);
                       }
                     } catch (err) {
+                      logger.error(
+                        `Error occurred while mapping test steps for test case ${testCase.id} - ${err.message}`
+                      );
                       logger.warn(
-                        `potential error - this could also mean no teststeps property found for testcase - ${testCase.id}`
+                        `potential error - this could also mean no test steps property found for testcase - ${testCase.id}`
                       );
                       //return empty array of teststeps
                       testCaseStepsSkinData = [
@@ -663,8 +669,11 @@ export default class TestDataFactory {
                     };
                     return adoptedTestCaseData;
                   } catch (error) {
-                    logger.error(`Error occurred while mapping test cases: ${error.message}`);
-                    logger.error(`Error Stack: ${error.stack}`);
+                    logger.error(
+                      `Error occurred while mapping test suite ${suite.temp.id} test case ${testCase.id} - ${error.message}`
+                    );
+                    logger.error(`error stack ${error.stack}`);
+                    throw error;
                   }
                 })
               );
@@ -679,8 +688,8 @@ export default class TestDataFactory {
       }
       return adoptedTestData;
     } catch (error) {
-      logger.error(`error caught in jsonSkinDataAdpater ${error}`);
-      logger.error(`error stack ${error.stack}`);
+      logger.error(`Cannot adapt data of Test Data - ${error.message}`);
+      throw error;
     }
   }
 

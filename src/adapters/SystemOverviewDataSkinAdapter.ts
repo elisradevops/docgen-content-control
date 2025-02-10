@@ -13,7 +13,6 @@ export default class SystemOverviewDataSkinAdapter {
   private minioSecretKey: string;
   private PAT: string;
   private attachmentMinioData: any[];
-  private ticketsProvider: TicketsDataProvider;
   constructor(
     teamProject,
     templatePath,
@@ -21,8 +20,7 @@ export default class SystemOverviewDataSkinAdapter {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT,
-    ticketsProvider
+    PAT
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -34,7 +32,6 @@ export default class SystemOverviewDataSkinAdapter {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
-    this.ticketsProvider = ticketsProvider;
   }
   public async jsonSkinAdapter(rawData: any) {
     try {
@@ -42,11 +39,11 @@ export default class SystemOverviewDataSkinAdapter {
       if (systemOverviewQueryData.length > 0) {
         await this.adaptDataRecursively(systemOverviewQueryData);
       }
+      return this.adoptedData;
     } catch (err: any) {
-      logger.error(`could not create the adopted data ${err.message}`);
-      logger.error(err.stack);
+      logger.error(`could not create the adopted data for system overview ${err.message}`);
+      throw err;
     }
-    return this.adoptedData;
   }
 
   private async adaptDataRecursively(nodes: any[], headerLevel: number = 3) {
@@ -73,7 +70,7 @@ export default class SystemOverviewDataSkinAdapter {
       });
       let skinData = {
         fields: [
-          { name: 'Title', value: node.title + ' - ' },
+          { name: 'Title', value: node.title.trim() + ' - ' },
           { name: 'ID', value: node.id, url: node.htmlUrl },
           { name: 'WI Description', value: descriptionRichText },
         ],
