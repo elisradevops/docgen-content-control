@@ -136,7 +136,7 @@ export default class ChangeDataFactory {
       }
     } catch (error: any) {
       logger.error(`could not fetch svd data ${error.message}`);
-      logger.error(`error stack: ${error.stack}`);
+      throw error;
     }
   }
 
@@ -659,11 +659,11 @@ export default class ChangeDataFactory {
         );
         pipelineRangeItems.push(...submoduleItems);
       }
+      return pipelineRangeItems;
     } catch (error: any) {
-      logger.error(`could not handle ${gitRepoName} ${error.message}`);
-      logger.error(`Error stack: `, error.stack);
+      logger.error(`Cannot get commits for commit range ${gitRepoName} - ${error.message}`);
+      throw error;
     }
-    return pipelineRangeItems;
   }
 
   private async parseSubModules(
@@ -848,7 +848,7 @@ export default class ChangeDataFactory {
       this.rawChangesArray.push(...rawData);
     } catch (error: any) {
       logger.error(`could not handle ${tocTitle} ${error.message}`);
-      logger.error(`Error stack: `, error.stack);
+      throw error;
     }
   }
 
@@ -870,8 +870,7 @@ export default class ChangeDataFactory {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT,
-            await this.dgDataProviderAzureDevOps.getTicketsDataProvider()
+            this.PAT
           );
           adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
           logger.debug(
@@ -909,6 +908,7 @@ export default class ChangeDataFactory {
       }
     } catch (err: any) {
       logger.error(`Failed adapting data for type ${adapterType}: ${err.message}`);
+      throw err;
     }
     return adoptedData;
   } //jsonSkinDataAdpater

@@ -177,7 +177,12 @@ export default class DgContentControls {
       this.deleteFile(jsonLocalData);
       return jsonData;
     } catch (error) {
-      logger.error(`Error initlizing Skins: ${error.message}`);
+      logger.error(
+        `Error initializing Skins: ${error.message} ${
+          contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
+        } `
+      );
+      logger.error(`Error stack: ${error.stack}`);
       throw error;
     }
   }
@@ -247,8 +252,8 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error) {
-      console.log(error.data);
-      throw new Error(`Error adding content control: ${error}`);
+      logger.error(`Error adding content control: ${error}`);
+      throw new Error(`Error adding content control: ${error.message}`);
     }
   }
 
@@ -288,22 +293,19 @@ export default class DgContentControls {
         this.PAT
       );
 
+      if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
+        await testDataFactory.fetchQueryResults();
+      }
+
       //init the adopted data
       await testDataFactory.fetchTestData(traceAnalysisRequest.traceAnalysisMode === 'query');
 
-      //if selectedMode by query
-      switch (traceAnalysisRequest.traceAnalysisMode) {
-        case 'query':
-          await testDataFactory.fetchQueryResults();
-          break;
-        case 'linkedRequirement':
-          await testDataFactory.fetchLinkedRequirementsTrace();
-          break;
-        default:
-          break;
+      if (traceAnalysisRequest?.traceAnalysisMode === 'linkedRequirement') {
+        await testDataFactory.fetchLinkedRequirementsTrace();
       }
     } catch (error) {
-      throw new Error(`Error initializing test data factory ${error}`);
+      logger.error(`Error initializing test data factory ${error.message}`);
+      throw error;
     }
     try {
       const contentControls: contentControl[] = [];
@@ -360,9 +362,8 @@ export default class DgContentControls {
 
       return contentControls;
     } catch (error: any) {
-      logger.error(`Error adding content control: ${error}`);
-      logger.error(`Error stack:\n`, error.stack);
-      throw new Error(`Error adding content control: ${error}`);
+      logger.error(`Error adding Test Description content ${error}`);
+      throw error;
     }
   }
 
@@ -391,40 +392,46 @@ export default class DgContentControls {
     headingLevel: number,
     contentControls: contentControl[]
   ) {
-    const queryResultsConfig = [
-      {
-        data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData || {},
-        title: 'requirements-to-test-cases-content-control',
-        noDataMessage: 'No Requirement - Test Case query result data',
-      },
-      {
-        data: testDataFactory.adoptedQueryResults?.testReqAdoptedData || undefined,
-        title: 'test-cases-to-requirements-content-control',
-        noDataMessage: 'No Test Case - Requirement query result data',
-      },
-    ];
+    try {
+      const queryResultsConfig = [
+        {
+          data: testDataFactory.adoptedQueryResults?.reqTestAdoptedData || {},
+          title: 'requirements-to-test-cases-content-control',
+          noDataMessage: 'No Requirement - Test Case query result data',
+        },
+        {
+          data: testDataFactory.adoptedQueryResults?.testReqAdoptedData || undefined,
+          title: 'test-cases-to-requirements-content-control',
+          noDataMessage: 'No Test Case - Requirement query result data',
+        },
+      ];
 
-    for (const { data, title, noDataMessage } of queryResultsConfig) {
-      data['errorMessage'] = !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+      for (const { data, title, noDataMessage } of queryResultsConfig) {
+        data['errorMessage'] =
+          !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
 
-      const contentControlResults: contentControl = {
-        title,
-        wordObjects: [],
-      };
-      const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
-        title,
-        this.skins.SKIN_TYPE_TRACE,
-        data,
-        headerStyles,
-        styles,
-        headingLevel
-      );
+        const contentControlResults: contentControl = {
+          title,
+          wordObjects: [],
+        };
+        const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
+          title,
+          this.skins.SKIN_TYPE_TRACE,
+          data,
+          headerStyles,
+          styles,
+          headingLevel
+        );
 
-      queryResultSkins.forEach((skin) => {
-        contentControlResults.wordObjects.push(skin);
-      });
+        queryResultSkins.forEach((skin) => {
+          contentControlResults.wordObjects.push(skin);
+        });
 
-      contentControls.push(contentControlResults);
+        contentControls.push(contentControlResults);
+      }
+    } catch (error) {
+      logger.debug(`Error structuring trace skins: ${error.message}`);
+      throw error;
     }
   }
 
@@ -455,8 +462,8 @@ export default class DgContentControls {
       );
       await traceFactory.fetchData();
     } catch (error) {
-      logger.error(`Error initilizing tracedata factory`);
-      console.log(error);
+      logger.error(`Error initializing trace data factory: ${error.message}`);
+      throw error;
     }
     try {
       if (!contentControl) {
@@ -479,7 +486,7 @@ export default class DgContentControls {
       });
       return contentControl;
     } catch (error) {
-      console.log(error.data);
+      logger.error(`Error adding Trace Table: ${error.message}`);
       throw new Error(`Error adding content control: ${error}`);
     }
   }
@@ -533,7 +540,7 @@ export default class DgContentControls {
 
       await resultDataFactory.fetchGetCombinedResultsSummary();
     } catch (error) {
-      logger.error(`Error initilizing result data factory: ${error.message}`);
+      logger.error(`Error initializing result data factory: ${error.message}`);
       throw error;
     }
     try {
@@ -619,20 +626,16 @@ export default class DgContentControls {
             stepExecutionObject.data
           );
 
+          if (stepExecution?.generateRequirements?.requirementInclusionMode === 'query') {
+            await testDataFactory.fetchQueryResults();
+          }
+
           await testDataFactory.fetchTestData(
             stepExecution?.generateRequirements?.requirementInclusionMode === 'query'
           );
 
-          //if selectedMode by query
-          switch (stepExecution?.generateRequirements?.requirementInclusionMode) {
-            case 'query':
-              await testDataFactory.fetchQueryResults();
-              break;
-            case 'linkedRequirement':
-              await testDataFactory.fetchLinkedRequirementsTrace();
-              break;
-            default:
-              break;
+          if (stepExecution?.generateRequirements?.requirementInclusionMode === 'linkedRequirement') {
+            await testDataFactory.fetchLinkedRequirementsTrace();
           }
 
           let attachmentTestData = testDataFactory.getAttachmentMinioData();
@@ -661,15 +664,13 @@ export default class DgContentControls {
           contentControls.push({ title: stepExecutionObject.contentControl, wordObjects });
         } catch (error) {
           logger.error(`Error fetching STR Data: ${error.message}`);
-          logger.error(`Error Stack: ${error.stack}`);
-
           throw error;
         }
       }
       return contentControls;
     } catch (error) {
-      console.log(error.data);
-      throw new Error(`Error adding content control: ${error}`);
+      logger.error(`Error adding Combined Test results skins for STR ${error.message}`);
+      throw error;
     }
   }
 
@@ -724,7 +725,8 @@ export default class DgContentControls {
       adoptedChangesData = changeDataFactory.getAdoptedData();
       this.minioAttachmentData.push(...changeDataFactory.getAttachmentMinioData());
     } catch (error) {
-      throw new Error(`Error initilizing change table factory ${error}`);
+      logger.error(`Error initializing change table factory: ${error}`);
+      throw error;
     }
     try {
       const contentControls: contentControl[] = [];
@@ -785,6 +787,7 @@ export default class DgContentControls {
       }
       return contentControls;
     } catch (error) {
+      logger.error(`Error adding change description table: ${error.message}`);
       throw error;
     }
   }
@@ -814,48 +817,54 @@ export default class DgContentControls {
     },
     headingLevel: number
   ) {
-    const contentControl = { title: contentControlTitle, wordObjects: [] };
-    for (const artifactChangesData of adoptedChangesData) {
-      if (artifactChangesData.artifact) {
-        let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
-          contentControlTitle,
-          this.skins.SKIN_TYPE_PARAGRAPH,
-          artifactChangesData.artifact,
-          headerStyles,
-          styles,
-          headingLevel
-        );
-        paragraphSkins.forEach((skin) => {
+    try {
+      const contentControl = { title: contentControlTitle, wordObjects: [] };
+
+      for (const artifactChangesData of adoptedChangesData) {
+        if (artifactChangesData.artifact) {
+          let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
+            contentControlTitle,
+            this.skins.SKIN_TYPE_PARAGRAPH,
+            artifactChangesData.artifact,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+          paragraphSkins.forEach((skin) => {
+            contentControl.wordObjects.push(skin);
+          });
+        }
+
+        let tableSkins =
+          artifactChangesData.artifactChanges?.length > 0
+            ? await this.skins.addNewContentToDocumentSkin(
+                contentControlTitle,
+                this.skins.SKIN_TYPE_TABLE,
+                artifactChangesData.artifactChanges,
+                headerStyles,
+                styles,
+                headingLevel
+              )
+            : artifactChangesData.errorMessage
+            ? await this.skins.addNewContentToDocumentSkin(
+                contentControlTitle,
+                this.skins.SKIN_TYPE_PARAGRAPH,
+                artifactChangesData.errorMessage,
+                headerStyles,
+                styles,
+                0
+              )
+            : null;
+
+        tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
         });
       }
-
-      let tableSkins =
-        artifactChangesData.artifactChanges?.length > 0
-          ? await this.skins.addNewContentToDocumentSkin(
-              contentControlTitle,
-              this.skins.SKIN_TYPE_TABLE,
-              artifactChangesData.artifactChanges,
-              headerStyles,
-              styles,
-              headingLevel
-            )
-          : artifactChangesData.errorMessage
-          ? await this.skins.addNewContentToDocumentSkin(
-              contentControlTitle,
-              this.skins.SKIN_TYPE_PARAGRAPH,
-              artifactChangesData.errorMessage,
-              headerStyles,
-              styles,
-              0
-            )
-          : null;
-
-      tableSkins.forEach((skin) => {
-        contentControl.wordObjects.push(skin);
-      });
+      return contentControl;
+    } catch (error) {
+      logger.error(`Error generating changes skins: ${error.message}`);
+      throw error;
     }
-    return contentControl;
   }
 
   async addPullRequestDescriptionTable(
@@ -892,7 +901,8 @@ export default class DgContentControls {
       this.minioAttachmentData.push(...pullRequestDataFactory.attachmentMinioData);
       adoptedChangesData = pullRequestDataFactory.getAdoptedData();
     } catch (error) {
-      throw new Error(`Error initializing change table factory: ${error}`);
+      logger.error(`Error initializing pull request data factory: ${error}`);
+      throw error;
     }
     try {
       if (!contentControl) {
@@ -930,8 +940,8 @@ export default class DgContentControls {
         return contentControl;
       }
     } catch (error) {
-      console.log(error.data);
-      throw new Error(`Error adding content control: ${error}`);
+      logger.error(`Error adding pull request description table: ${error.message}`);
+      throw error;
     }
   }
 

@@ -60,8 +60,7 @@ export default class TestResultsAttachmentDataFactory {
       return attachmentMap;
     } catch (error) {
       logger.error(`Error occurred while trying to fetch test results attachment: ${error.message}`);
-      logger.error(`Error stack: ${error.stack}`);
-      return null;
+      throw error;
     }
   }
 
