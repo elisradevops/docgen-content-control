@@ -45,28 +45,21 @@ export default class RichTextDataFactory {
   }
 
   private async replaceImgSrcWithLocalPath() {
-    // Use filter to remove data: images
-    this.$('img').each((index, imgElement) => {
-      const image = this.$(imgElement);
-      const src = image.attr('src') || '';
-      if (src.startsWith('data:')) {
-        //TODO: restore this.handleBase64Image(src) later
-        image.remove();
-      }
-    });
-
-    // Handle remaining images
-    const remainingImages = this.$('img');
-    for (let i = 0; i < remainingImages.length; i++) {
-      const image = this.$(remainingImages[i]);
+    const images = this.$('img');
+    for (let i = 0; i < images.length; i++) {
+      const image = this.$(images[i]);
       const src = image.attr('src');
       if (!src) {
         logger.warn('Image source not found');
         continue;
       }
-
-      const localPath = await this.downloadImageAndReturnLocalPath(src);
-      image.attr('src', localPath);
+      if (src.startsWith('data:')) {
+        const localPath = await this.handleBase64Image(src);
+        image.attr('src', localPath);
+      } else {
+        const localPath = await this.downloadImageAndReturnLocalPath(src);
+        image.attr('src', localPath);
+      }
     }
   }
 
