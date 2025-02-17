@@ -299,7 +299,13 @@ export default class TestDataFactory {
         this.testReqQueryResults = testReqQueryResults;
       }
 
-      this.adoptedQueryResults = await this.jsonSkinDataAdpater('query-results');
+      const includeCommonColumnsMode = this.traceAnalysisRequest.includeCommonColumnsMode;
+
+      this.adoptedQueryResults = await this.jsonSkinDataAdpater(
+        'query-results',
+        false,
+        includeCommonColumnsMode
+      );
       this.testCaseToRequirementsLookup = testCaseToRequirementMap;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
@@ -315,7 +321,11 @@ export default class TestDataFactory {
   }
 
   //arranging the test data for json skins package
-  async jsonSkinDataAdpater(adapterType: string = null, isByQuery: boolean = false) {
+  async jsonSkinDataAdpater(
+    adapterType: string = null,
+    isByQuery: boolean = false,
+    includeCommonColumnsMode: string = 'both'
+  ) {
     let adoptedTestData = {} as any;
     try {
       switch (adapterType) {
@@ -396,7 +406,8 @@ export default class TestDataFactory {
               const queryResultSkinAdapter = new QueryResultsSkinAdapter(
                 queryResults,
                 type,
-                this.includeCustomerId
+                this.includeCustomerId,
+                includeCommonColumnsMode
               );
 
               queryResultSkinAdapter.adoptSkinData();

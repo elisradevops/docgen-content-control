@@ -6,15 +6,22 @@ export default class QueryResultsSkinAdapter {
   includeCustomerId: boolean;
   sortingSourceColumnsMap: Map<string, string>;
   sortingTargetsColumnsMap: Map<string, string>;
+  private includeCommonColumnsMode: string;
   private adoptedData: any[] = [];
 
-  constructor(rawResults, queryMode = 'none', includeCustomerId = false) {
+  constructor(
+    rawResults,
+    queryMode = 'none',
+    includeCustomerId = false,
+    includeCommonColumns: string = 'both'
+  ) {
     const { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap } = rawResults;
     this.rawQueryMapping = sourceTargetsMap;
     this.sortingSourceColumnsMap = sortingSourceColumnsMap;
     this.sortingTargetsColumnsMap = sortingTargetsColumnsMap;
     this.queryMode = queryMode;
     this.includeCustomerId = includeCustomerId;
+    this.includeCommonColumnsMode = includeCommonColumns;
   }
 
   adoptSkinData() {
@@ -50,7 +57,13 @@ export default class QueryResultsSkinAdapter {
 
   // Helper Methods
 
-  private adaptFields(item: any, color: string, isSource: boolean) {
+  private adaptFields(
+    item: any,
+    color: string,
+    isSource: boolean,
+    type: string,
+    excludeCommonColumnInstance: boolean = false
+  ) {
     const adaptedFields: any[] = [];
     const mapToUse: Map<string, string> = !isSource
       ? this.sortingTargetsColumnsMap
@@ -62,7 +75,7 @@ export default class QueryResultsSkinAdapter {
 
     if (item && titleReferenceName && item.fields[titleReferenceName] !== undefined) {
       adaptedFields.push({
-        name: 'Title',
+        name: `${type} Title`,
         value: item.fields[titleReferenceName],
         color: color,
       });
@@ -72,6 +85,15 @@ export default class QueryResultsSkinAdapter {
     for (const [referenceName, fieldName] of mapToUse.entries()) {
       // Skip 'Title' and 'Work Item Type' as per original logic
       if (fieldName === 'Title' || fieldName === 'Work Item Type' || fieldName === 'ID') {
+        continue;
+      }
+      // Skip common columns if only one instance is allowed
+      if (
+        excludeCommonColumnInstance &&
+        (fieldName === 'Test Phase' ||
+          fieldName === 'Verification Method' ||
+          fieldName === 'System Discipline')
+      ) {
         continue;
       }
 
@@ -112,7 +134,10 @@ export default class QueryResultsSkinAdapter {
         default:
           adaptedFields.push({
             name: fieldName,
-            value: item?.fields[referenceName] || '',
+            value:
+              typeof item?.fields[referenceName] === 'object'
+                ? item?.fields[referenceName]?.displayName || ''
+                : item?.fields[referenceName] || '',
             color: color,
           });
           break;
@@ -129,15 +154,30 @@ export default class QueryResultsSkinAdapter {
     currentTestColor: string,
     baseShading: any
   ) {
-    const adaptedSourceFields: any[] = this.adaptFields(source, currentReqColor, true);
+    // Determine if common columns should be excluded
+
+    const adaptedSourceFields: any[] = this.adaptFields(
+      source,
+      currentReqColor,
+      false,
+      'Req',
+      this.includeCommonColumnsMode === 'testOnly'
+    );
     if (targets.length === 0) {
-      const adaptedTargetFields: any[] = this.adaptFields(null, currentTestColor, false);
+      const adaptedTargetFields: any[] = this.adaptFields(
+        null,
+        currentTestColor,
+        false,
+        'Test Case',
+        this.includeCommonColumnsMode === 'reqOnly'
+      );
+
       const fields = this.buildFields({
         items: [
           { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
           ...adaptedSourceFields,
           { name: 'Test Case ID', value: '', width: '6.8%', color: currentTestColor },
-          { name: 'Title', value: '', color: currentTestColor },
+          { name: 'Test Case Title', value: '', color: currentTestColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -145,7 +185,13 @@ export default class QueryResultsSkinAdapter {
       this.adoptedData.push({ fields });
     } else {
       targets.forEach((target) => {
-        const adaptedTargetFields: any[] = this.adaptFields(target, currentTestColor, false);
+        const adaptedTargetFields: any[] = this.adaptFields(
+          target,
+          currentTestColor,
+          false,
+          'Test Case',
+          this.includeCommonColumnsMode === 'reqOnly'
+        );
         const fields = this.buildFields({
           items: [
             { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
@@ -167,15 +213,27 @@ export default class QueryResultsSkinAdapter {
     currentTestColor: string,
     baseShading: any
   ) {
-    const adaptedSourceFields: any[] = this.adaptFields(source, currentTestColor, true);
+    const adaptedSourceFields: any[] = this.adaptFields(
+      source,
+      currentTestColor,
+      true,
+      'Test Case',
+      this.includeCommonColumnsMode === 'reqOnly'
+    );
     if (targets.length === 0) {
-      const adaptedTargetFields: any[] = this.adaptFields(null, currentReqColor, false);
+      const adaptedTargetFields: any[] = this.adaptFields(
+        null,
+        currentReqColor,
+        false,
+        'Req',
+        this.includeCommonColumnsMode === 'testOnly'
+      );
       const fields = this.buildFields({
         items: [
           { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
           ...adaptedSourceFields,
           { name: 'Req ID', value: '', width: '6.8%', color: currentReqColor },
-          { name: 'Title', value: '', color: currentReqColor },
+          { name: 'Req Title', value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -183,7 +241,13 @@ export default class QueryResultsSkinAdapter {
       this.adoptedData.push({ fields });
     } else {
       targets.forEach((target) => {
-        const adaptedTargetFields: any[] = this.adaptFields(target, currentReqColor, false);
+        const adaptedTargetFields: any[] = this.adaptFields(
+          target,
+          currentReqColor,
+          false,
+          'Req',
+          this.includeCommonColumnsMode === 'testOnly'
+        );
         const fields = this.buildFields({
           items: [
             { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
