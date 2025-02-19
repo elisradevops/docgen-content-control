@@ -195,9 +195,10 @@ export default class HtmlUtils {
       html = html.replace(/<p>([\s\S]*?)<\/p>/gi, (match, content) => {
         return `<p>${content.replace(/\n/g, '<br>')}</p>`;
       });
-
       const minifiedHtml = await minify(html, {
         noNewlinesBeforeTagClose: true,
+        collapseWhitespace: true,
+        conservativeCollapse: true,
         preserveLineBreaks: false,
         removeEmptyElements: true,
         removeOptionalTags: true,
