@@ -119,6 +119,7 @@ export default class StepAnalysisSkinAdapter {
                 attachmentLink: attachment.attachmentLink,
                 attachmentFileName: attachment.attachmentFileName,
                 attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
+                includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
               });
             });
           }
@@ -135,6 +136,7 @@ export default class StepAnalysisSkinAdapter {
                     attachmentLink: attachment.attachmentLink,
                     attachmentFileName: attachment.attachmentFileName,
                     attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
+                    includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
                   });
                 });
               }
@@ -158,6 +160,7 @@ export default class StepAnalysisSkinAdapter {
                     attachmentLink: attachment.attachmentLink,
                     attachmentFileName: attachment.attachmentFileName,
                     attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
+                    includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
                   });
                 }
               }

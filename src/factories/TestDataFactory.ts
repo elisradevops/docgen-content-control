@@ -32,6 +32,7 @@ export default class TestDataFactory {
   templatePath: string;
   includeAttachments: boolean;
   attachmentType: string;
+  includeAttachmentContent: boolean;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   traceAnalysisRequest: any;
@@ -57,6 +58,7 @@ export default class TestDataFactory {
     testSuiteArray: number[] = null,
     includeAttachments: boolean = true,
     attachmentType: string = 'asEmbedded',
+    includeAttachmentContent: boolean = false,
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
     traceAnalysisRequest: any = undefined,
@@ -74,6 +76,7 @@ export default class TestDataFactory {
     this.testSuiteArray = testSuiteArray;
     this.includeAttachments = includeAttachments;
     this.attachmentType = attachmentType;
+    this.includeAttachmentContent = includeAttachmentContent;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
     this.traceAnalysisRequest = traceAnalysisRequest;
@@ -556,6 +559,7 @@ export default class TestDataFactory {
                                         name: 'Attachments',
                                         value: testStepAttachments,
                                         attachmentType: this.attachmentType,
+                                        includeAttachmentContent: this.includeAttachmentContent,
                                         width: '20.8%',
                                       },
                                       {
@@ -613,6 +617,7 @@ export default class TestDataFactory {
                                       name: 'Attachments',
                                       value: testStepAttachments,
                                       attachmentType: this.attachmentType,
+                                      includeAttachmentContent: this.includeAttachmentContent,
                                     },
                                   ],
                                 }
@@ -666,7 +671,12 @@ export default class TestDataFactory {
                         return {
                           fields: [
                             { name: '#', value: i + 1, width: '5.5%' },
-                            { name: 'Attachments', value: [attachment], attachmentType: this.attachmentType },
+                            {
+                              name: 'Attachments',
+                              value: [attachment],
+                              attachmentType: this.attachmentType,
+                              includeAttachmentContent: this.includeAttachmentContent,
+                            },
                           ],
                         };
                       })
