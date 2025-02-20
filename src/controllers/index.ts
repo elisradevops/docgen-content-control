@@ -117,6 +117,7 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
             contentControlOptions.data.attachmentType,
+            contentControlOptions.data.includeAttachmentContent,
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
             contentControlOptions.data.traceAnalysisRequest
@@ -264,6 +265,7 @@ export default class DgContentControls {
     headingLevel?: number,
     includeAttachments: boolean = true,
     attachmentType: string = 'asEmbedded',
+    includeAttachmentContent: boolean = false,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
     traceAnalysisRequest?: any
@@ -281,6 +283,7 @@ export default class DgContentControls {
         testSuiteArray,
         includeAttachments,
         attachmentType,
+        includeAttachmentContent,
         includeRequirements,
         includeCustomerId,
         traceAnalysisRequest,
@@ -613,6 +616,7 @@ export default class DgContentControls {
             testSuiteArray,
             stepExecution?.generateAttachments.isEnabled,
             stepExecution?.generateAttachments.attachmentType,
+            stepExecution?.generateAttachments.includeAttachmentContent,
             stepExecution?.generateRequirements.isEnabled,
             stepExecution?.generateRequirements.includeCustomerId,
             stepExecution?.generateRequirements,
