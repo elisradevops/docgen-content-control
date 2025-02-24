@@ -111,7 +111,6 @@ export default class StepAnalysisSkinAdapter {
 
           //Analysis attachment
           if (analysisLevel) {
-            this.AddResultAnalysisType('Analysis', skins);
             //Here we got an array of values that need to be uploaded
             analysisLevel.forEach((attachment) => {
               // iterate through all the analysis attachments
@@ -135,7 +134,6 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test case attachments
             if (caseLevel) {
-              this.AddResultAnalysisType('Test Case', skins);
               if (caseLevel.length > 0) {
                 caseLevel.forEach((attachment) => {
                   this.AddAttachmentFileName(
@@ -156,7 +154,6 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test steps
             if (stepLevels) {
-              this.AddResultAnalysisType('Test Step', skins);
               for (let [key, attachments] of Object.entries(stepLevels)) {
                 skins.push({
                   field: {
@@ -194,17 +191,6 @@ export default class StepAnalysisSkinAdapter {
       );
       throw error;
     }
-  }
-
-  private AddResultAnalysisType(level: string, skins: any[]) {
-    skins.push({
-      field: {
-        name: 'Title',
-        type: 'SubHeader',
-        value: `${level} Attachments:`,
-      },
-      type: 'SubHeader',
-    });
   }
 
   private AddAttachmentFileName(includeAttachmentContent: boolean, attachment: any, skins: any[]) {
