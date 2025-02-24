@@ -8,6 +8,7 @@ import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
 import { val } from 'cheerio/dist/commonjs/api/attributes';
 import { log } from 'console';
+import { value } from '@elisra-devops/docgen-data-provider/bin/models/tfs-data';
 
 const styles = {
   isBold: false,
@@ -471,7 +472,10 @@ export default class TestDataFactory {
                     };
                     // Helper function to check if all the values in the array are among the target values
                     let testCaseStepsSkinData: any[] = [];
-
+                    let testCaseDocAttachmentsAdoptedData: { testCaseLevel: any[]; stepLevel: any[] } = {
+                      testCaseLevel: [],
+                      stepLevel: [],
+                    };
                     try {
                       if (testCase.steps && testCase.steps.length > 0) {
                         testCaseStepsSkinData = await Promise.all(
@@ -539,6 +543,29 @@ export default class TestDataFactory {
                               return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
                             });
 
+                            if (this.includeAttachmentContent) {
+                              // Extract .doc and .docx files into a separate list
+                              let docAttachments: any[] =
+                                testStepAttachments?.filter((attachment) =>
+                                  attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)
+                                ) || [];
+
+                              // Remove .doc and .docx files from testStepAttachments
+                              testStepAttachments = testStepAttachments.filter(
+                                (attachment) => !attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)
+                              );
+
+                              //Insert the title of the test step attachments
+
+                              if (docAttachments?.length > 0) {
+                                this.adaptStepAttachmentContent(
+                                  testCaseDocAttachmentsAdoptedData.stepLevel,
+                                  testStep,
+                                  docAttachments
+                                );
+                              }
+                            }
+
                             //If runs status and result are included
                             if (this.stepResultDetailsMap) {
                               return this.includeAttachments && hasAnyStepAttachment
@@ -559,7 +586,7 @@ export default class TestDataFactory {
                                         name: 'Attachments',
                                         value: testStepAttachments,
                                         attachmentType: this.attachmentType,
-                                        includeAttachmentContent: this.includeAttachmentContent,
+                                        includeAttachmentContent: false,
                                         width: '20.8%',
                                       },
                                       {
@@ -617,7 +644,7 @@ export default class TestDataFactory {
                                       name: 'Attachments',
                                       value: testStepAttachments,
                                       attachmentType: this.attachmentType,
-                                      includeAttachmentContent: this.includeAttachmentContent,
+                                      includeAttachmentContent: false,
                                     },
                                   ],
                                 }
@@ -666,6 +693,25 @@ export default class TestDataFactory {
                     let filteredTestCaseAttachments = testCase.attachmentsData.filter(
                       (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
                     );
+
+                    if (this.includeAttachmentContent) {
+                      // Extract .doc and .docx files into a separate list
+                      let docAttachments: any[] =
+                        filteredTestCaseAttachments.filter((attachment) =>
+                          attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)
+                        ) || [];
+
+                      // Remove .doc and .docx files from testStepAttachments
+                      filteredTestCaseAttachments = filteredTestCaseAttachments.filter(
+                        (attachment) => !attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)
+                      );
+
+                      this.adaptTestCaseAttachmentContent(
+                        docAttachments,
+                        testCaseDocAttachmentsAdoptedData.testCaseLevel
+                      );
+                    }
+
                     let testCaseAttachments = await Promise.all(
                       filteredTestCaseAttachments.map(async (attachment, i) => {
                         return {
@@ -687,6 +733,7 @@ export default class TestDataFactory {
                       testCaseStepsSkinData,
                       testCaseAttachments,
                       testCaseRequirements,
+                      testCaseDocAttachmentsAdoptedData,
                     };
                     return adoptedTestCaseData;
                   } catch (error) {
@@ -714,6 +761,75 @@ export default class TestDataFactory {
     }
   }
 
+  /**
+   * Adapts the content of test case attachments and appends them to the test case level items.
+   *
+   * @param docAttachments - An array of document attachments, each containing an attachment file name and link.
+   * @param testCaseLevelItems - An array to which the adapted test case attachment content will be pushed.
+   */
+  private adaptTestCaseAttachmentContent(docAttachments: any[], testCaseLevelItems: any[]) {
+    docAttachments.forEach((docAttachment, idx) => {
+      const attachmentName = docAttachment.attachmentFileName.replace(/\.[^/.]+$/, '');
+      testCaseLevelItems.push({
+        field: {
+          name: 'Title',
+          type: 'SubHeader',
+          value: `Attachment #${idx + 1} Content - ${attachmentName}`,
+        },
+        type: 'SubHeader',
+      });
+
+      testCaseLevelItems.push({
+        type: 'File',
+        attachmentLink: docAttachment.attachmentLink,
+        attachmentFileName: docAttachment.attachmentFileName,
+        attachmentType: this.attachmentType,
+        includeAttachmentContent: this.includeAttachmentContent,
+      });
+    });
+  }
+
+  /**
+   * Adapts the step attachment content by adding step-level items and document attachments.
+   *
+   * @param stepLevelAdaptedItems - The array to which step-level items will be added.
+   * @param testStep - The test step object containing step details.
+   * @param docAttachments - The array of document attachments to be processed.
+   */
+  private adaptStepAttachmentContent(stepLevelAdaptedItems: any[], testStep: any, docAttachments: any[]) {
+    stepLevelAdaptedItems.push({
+      field: {
+        name: 'Title',
+        type: 'SubHeader',
+        value: `Step #${testStep.stepPosition} Attachments:`,
+      },
+      type: 'SubHeader',
+    });
+
+    docAttachments.forEach((docAttachment) => {
+      const attachmentName = docAttachment.attachmentFileName.replace(/\.[^/.]+$/, '');
+      stepLevelAdaptedItems.push({
+        field: {
+          name: 'Title',
+          type: 'SubHeader',
+          value: `${attachmentName}`,
+        },
+        type: 'SubHeader',
+      });
+
+      stepLevelAdaptedItems.push({
+        type: 'File',
+        attachmentLink: docAttachment.attachmentLink,
+        attachmentFileName: docAttachment.attachmentFileName,
+        attachmentType: this.attachmentType,
+        includeAttachmentContent: this.includeAttachmentContent,
+      });
+    });
+  }
+
+  /**
+   * Adapt the test case requirements.
+   */
   private AdaptTestCaseRequirements(testCase: any, isByQuery: boolean = false) {
     return isByQuery
       ? this.adaptTestCaseRequirementsByQuery(testCase)

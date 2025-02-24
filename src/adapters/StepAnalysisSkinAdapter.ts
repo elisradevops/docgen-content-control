@@ -111,9 +111,15 @@ export default class StepAnalysisSkinAdapter {
 
           //Analysis attachment
           if (analysisLevel) {
+            this.AddResultAnalysisType('Analysis', skins);
             //Here we got an array of values that need to be uploaded
             analysisLevel.forEach((attachment) => {
               // iterate through all the analysis attachments
+              this.AddAttachmentFileName(
+                stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                attachment,
+                skins
+              );
               skins.push({
                 type: 'File',
                 attachmentLink: attachment.attachmentLink,
@@ -129,8 +135,14 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test case attachments
             if (caseLevel) {
+              this.AddResultAnalysisType('Test Case', skins);
               if (caseLevel.length > 0) {
                 caseLevel.forEach((attachment) => {
+                  this.AddAttachmentFileName(
+                    stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                    attachment,
+                    skins
+                  );
                   skins.push({
                     type: 'File',
                     attachmentLink: attachment.attachmentLink,
@@ -144,6 +156,7 @@ export default class StepAnalysisSkinAdapter {
 
             //iterate through all the test steps
             if (stepLevels) {
+              this.AddResultAnalysisType('Test Step', skins);
               for (let [key, attachments] of Object.entries(stepLevels)) {
                 skins.push({
                   field: {
@@ -155,6 +168,11 @@ export default class StepAnalysisSkinAdapter {
                 });
 
                 for (let attachment of attachments as any[]) {
+                  this.AddAttachmentFileName(
+                    stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                    attachment,
+                    skins
+                  );
                   skins.push({
                     type: 'File',
                     attachmentLink: attachment.attachmentLink,
@@ -175,6 +193,31 @@ export default class StepAnalysisSkinAdapter {
         `Error occurred while trying to build jsonSkinDataAdapter for step analysis: ${error.message}`
       );
       throw error;
+    }
+  }
+
+  private AddResultAnalysisType(level: string, skins: any[]) {
+    skins.push({
+      field: {
+        name: 'Title',
+        type: 'SubHeader',
+        value: `${level} Attachments:`,
+      },
+      type: 'SubHeader',
+    });
+  }
+
+  private AddAttachmentFileName(includeAttachmentContent: boolean, attachment: any, skins: any[]) {
+    if (includeAttachmentContent && attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)) {
+      const attachmentName = attachment.attachmentFileName.replace(/\.[^/.]+$/, '');
+      skins.push({
+        field: {
+          name: 'Title',
+          type: 'SubHeader',
+          value: `${attachmentName}`,
+        },
+        type: 'SubHeader',
+      });
     }
   }
 
