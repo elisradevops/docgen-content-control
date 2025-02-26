@@ -1,4 +1,3 @@
-import { level } from 'winston';
 import logger from '../services/logger';
 import TestResultsAttachmentDataFactory from '../factories/TestResultsAttachmentDataFactory';
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
@@ -113,10 +112,12 @@ export default class StepAnalysisSkinAdapter {
           if (analysisLevel) {
             //Here we got an array of values that need to be uploaded
             analysisLevel.forEach((attachment) => {
+              const isDocFile = attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/);
               // iterate through all the analysis attachments
               this.AddAttachmentFileName(
                 stepAnalysis.generateRunAttachments.includeAttachmentContent,
                 attachment,
+                isDocFile,
                 skins
               );
               skins.push({
@@ -124,7 +125,9 @@ export default class StepAnalysisSkinAdapter {
                 attachmentLink: attachment.attachmentLink,
                 attachmentFileName: attachment.attachmentFileName,
                 attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
-                includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                includeAttachmentContent: isDocFile
+                  ? stepAnalysis.generateRunAttachments.includeAttachmentContent
+                  : false,
               });
             });
           }
@@ -136,9 +139,11 @@ export default class StepAnalysisSkinAdapter {
             if (caseLevel) {
               if (caseLevel.length > 0) {
                 caseLevel.forEach((attachment) => {
+                  const isDocFile = attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/);
                   this.AddAttachmentFileName(
                     stepAnalysis.generateRunAttachments.includeAttachmentContent,
                     attachment,
+                    isDocFile,
                     skins
                   );
                   skins.push({
@@ -146,7 +151,9 @@ export default class StepAnalysisSkinAdapter {
                     attachmentLink: attachment.attachmentLink,
                     attachmentFileName: attachment.attachmentFileName,
                     attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
-                    includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                    includeAttachmentContent: isDocFile
+                      ? stepAnalysis.generateRunAttachments.includeAttachmentContent
+                      : false,
                   });
                 });
               }
@@ -165,9 +172,11 @@ export default class StepAnalysisSkinAdapter {
                 });
 
                 for (let attachment of attachments as any[]) {
+                  const isDocFile = attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/);
                   this.AddAttachmentFileName(
                     stepAnalysis.generateRunAttachments.includeAttachmentContent,
                     attachment,
+                    isDocFile,
                     skins
                   );
                   skins.push({
@@ -175,7 +184,9 @@ export default class StepAnalysisSkinAdapter {
                     attachmentLink: attachment.attachmentLink,
                     attachmentFileName: attachment.attachmentFileName,
                     attachmentType: stepAnalysis.generateRunAttachments.attachmentType,
-                    includeAttachmentContent: stepAnalysis.generateRunAttachments.includeAttachmentContent,
+                    includeAttachmentContent: isDocFile
+                      ? stepAnalysis.generateRunAttachments.includeAttachmentContent
+                      : false,
                   });
                 }
               }
@@ -193,8 +204,13 @@ export default class StepAnalysisSkinAdapter {
     }
   }
 
-  private AddAttachmentFileName(includeAttachmentContent: boolean, attachment: any, skins: any[]) {
-    if (includeAttachmentContent && attachment.attachmentFileName.match(/\.(docx?|DOCX?)$/)) {
+  private AddAttachmentFileName(
+    includeAttachmentContent: boolean,
+    attachment: any,
+    isDocFile: boolean,
+    skins: any[]
+  ) {
+    if (includeAttachmentContent && isDocFile) {
       const attachmentName = attachment.attachmentFileName.replace(/\.[^/.]+$/, '');
       skins.push({
         field: {

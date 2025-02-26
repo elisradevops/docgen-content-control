@@ -118,7 +118,7 @@ export default class TestResultsAttachmentDataFactory {
         actionPath !== undefined
           ? actionPath === ''
             ? 'caseLevel'
-            : `${actionPath}-${stepNo + 1}`
+            : `${actionPath}-${stepNo}`
           : 'analysisLevel';
 
       if (!map[actionPathKey]) {

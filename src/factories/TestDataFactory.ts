@@ -34,6 +34,7 @@ export default class TestDataFactory {
   includeAttachments: boolean;
   attachmentType: string;
   includeAttachmentContent: boolean;
+  runAttachmentMode: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   traceAnalysisRequest: any;
@@ -60,6 +61,7 @@ export default class TestDataFactory {
     includeAttachments: boolean = true,
     attachmentType: string = 'asEmbedded',
     includeAttachmentContent: boolean = false,
+    runAttachmentMode: string = 'both',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
     traceAnalysisRequest: any = undefined,
@@ -78,6 +80,7 @@ export default class TestDataFactory {
     this.includeAttachments = includeAttachments;
     this.attachmentType = attachmentType;
     this.includeAttachmentContent = includeAttachmentContent;
+    this.runAttachmentMode = runAttachmentMode;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
     this.traceAnalysisRequest = traceAnalysisRequest;
@@ -184,26 +187,28 @@ export default class TestDataFactory {
     if (testCases.length != 0) {
       let testCasesWithAttachments: any = [];
       for (const testCase of testCases) {
-        let attachmentsData = [];
-        if (this.includeAttachments) {
-          attachmentsData = await this.generateAttachmentData(testCase.id);
-          attachmentsData.forEach((item) => {
-            let attachmentBucketData = {
-              attachmentMinioPath: item.attachmentMinioPath,
-              minioFileName: item.minioFileName,
-            };
-            this.attachmentMinioData.push(attachmentBucketData);
-            if (item.ThumbMinioPath && item.minioThumbName) {
-              let thumbBucketData = {
-                attachmentMinioPath: item.ThumbMinioPath,
-                minioFileName: item.minioThumbName,
-              };
-              this.attachmentMinioData.push(thumbBucketData);
-            }
-          });
+        let planAttachmentData = [];
+        let runAttachmentData = [];
+
+        // Fetch plan attachments if needed
+        if (
+          (this.runAttachmentMode === 'both' || this.runAttachmentMode === 'planOnly') &&
+          this.includeAttachments
+        ) {
+          planAttachmentData = await this.fetchAttachmentData(testCase);
         }
-        let testCaseWithAttachments: any = JSON.parse(JSON.stringify(testCase));
-        testCaseWithAttachments.attachmentsData = attachmentsData;
+
+        // Fetch run attachments if needed and available
+        if (
+          (this.runAttachmentMode === 'both' || this.runAttachmentMode === 'runOnly') &&
+          testCase.caseEvidenceAttachments?.length > 0
+        ) {
+          runAttachmentData = await this.fetchAttachmentData(testCase, testCase.caseEvidenceAttachments);
+        }
+
+        // Clone and add attachment data to test case
+        const testCaseWithAttachments = JSON.parse(JSON.stringify(testCase));
+        testCaseWithAttachments.attachmentsData = [...planAttachmentData, ...runAttachmentData];
         testCasesWithAttachments.push(testCaseWithAttachments);
       }
 
@@ -215,6 +220,25 @@ export default class TestDataFactory {
       return testCasesWithAttachments;
     }
   }
+  private async fetchAttachmentData(testCase: any, additionalAttachments: any[] = []) {
+    let structuredAttachmentData = await this.generateAttachmentData(testCase.id, additionalAttachments);
+    structuredAttachmentData.forEach((item) => {
+      let attachmentBucketData = {
+        attachmentMinioPath: item.attachmentMinioPath,
+        minioFileName: item.minioFileName,
+      };
+      this.attachmentMinioData.push(attachmentBucketData);
+      if (item.ThumbMinioPath && item.minioThumbName) {
+        let thumbBucketData = {
+          attachmentMinioPath: item.ThumbMinioPath,
+          minioFileName: item.minioThumbName,
+        };
+        this.attachmentMinioData.push(thumbBucketData);
+      }
+    });
+    return structuredAttachmentData;
+  }
+
   async populateTestRunData(testCasesWithAttachments: any) {
     await Promise.all(
       testCasesWithAttachments.map(async (testcase, i) => {
@@ -250,7 +274,7 @@ export default class TestDataFactory {
     );
     return testCasesWithAttachments;
   }
-  async generateAttachmentData(testCaseId) {
+  async generateAttachmentData(testCaseId, runAttachments: any[] = []) {
     try {
       let attachmentsfactory = new AttachmentsDataFactory(
         this.teamProject,
@@ -263,7 +287,8 @@ export default class TestDataFactory {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        runAttachments
       );
 
       return attachmentsData;
@@ -536,11 +561,17 @@ export default class TestDataFactory {
                             }
                             // checks if there is any step attachment in the current test case
                             let hasAnyStepAttachment = testCase.attachmentsData.some((attachment) => {
-                              return attachment.attachmentComment.includes('TestStep=');
+                              return (
+                                attachment.attachmentStepNo !== '' ||
+                                attachment.attachmentComment.includes('TestStep=')
+                              );
                             });
 
                             let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
-                              return attachment.attachmentComment.includes(`TestStep=${i + 2}`);
+                              return (
+                                attachment.attachmentStepNo === `${testStep.stepPosition}` ||
+                                attachment.attachmentComment.includes(`[TestStep=${testStep.stepId || ''}]`)
+                              );
                             });
 
                             if (this.includeAttachmentContent) {
@@ -690,9 +721,12 @@ export default class TestDataFactory {
                       ? this.AdaptTestCaseRequirements(testCase, isByQuery)
                       : undefined;
 
-                    let filteredTestCaseAttachments = testCase.attachmentsData.filter(
-                      (attachment) => !attachment.attachmentComment.includes(`TestStep=`)
-                    );
+                    let filteredTestCaseAttachments = testCase.attachmentsData.filter((attachment) => {
+                      return (
+                        attachment.attachmentStepNo === '' &&
+                        !attachment.attachmentComment.includes('TestStep=')
+                      );
+                    });
 
                     if (this.includeAttachmentContent) {
                       // Extract .doc and .docx files into a separate list
