@@ -84,7 +84,8 @@ export default class ResultDataFactory {
         this.includeOpenPCRs,
         this.includeTestLog,
         this.stepExecution,
-        this.stepAnalysis
+        this.stepAnalysis,
+        this.includeHardCopyRun
       );
 
       if (combinedResultsItems.length === 0) {
@@ -108,18 +109,14 @@ export default class ResultDataFactory {
       switch (adapterType) {
         case 'test-result-test-group-summary-table':
           const testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
-          adoptedTestResultData = testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdapter(
-            rawData,
-            this.includeHardCopyRun
-          );
+          adoptedTestResultData = testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
 
         case 'test-result-table':
           const testResultsSummaryDataSkinAdapter = new TestResultsSummaryDataSkinAdapter();
           adoptedTestResultData = testResultsSummaryDataSkinAdapter.jsonSkinDataAdapter(
             rawData,
-            this.includeConfigurations,
-            this.includeHardCopyRun
+            this.includeConfigurations
           );
           break;
 

@@ -1,11 +1,7 @@
 import logger from '../services/logger';
 
 export default class TestResultsSummaryDataSkinAdapter {
-  public jsonSkinDataAdapter(
-    resultDataRaw: any[],
-    includeConfigurations: boolean,
-    includeHardCopyRun: boolean
-  ) {
+  public jsonSkinDataAdapter(resultDataRaw: any[], includeConfigurations: boolean) {
     try {
       return resultDataRaw.map((item, idx) => {
         const fields = [
@@ -15,7 +11,7 @@ export default class TestResultsSummaryDataSkinAdapter {
           { name: 'Test Name', value: `${item.testName}` },
           {
             name: 'Run Status',
-            value: `${!includeHardCopyRun ? item.runStatus : ''}`,
+            value: `${item.runStatus}`,
             width: includeConfigurations ? '9.4%' : '10.8%',
           },
         ];
