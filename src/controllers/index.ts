@@ -277,6 +277,14 @@ export default class DgContentControls {
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}`);
+
+    if (!testPlanId) {
+      throw new Error('No plan has been selected');
+    }
+
+    if (testSuiteArray?.length === 0) {
+      throw new Error('No test suites have been selected');
+    }
     let testDataFactory: TestDataFactory;
     try {
       testDataFactory = new TestDataFactory(
@@ -516,6 +524,10 @@ export default class DgContentControls {
     try {
       if (!testPlanId) {
         throw new Error('No plan has been selected');
+      }
+
+      if (testSuiteArray?.length === 0) {
+        throw new Error('No test suites have been selected');
       }
 
       if (!this.teamProjectName) {
