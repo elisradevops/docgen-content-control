@@ -117,6 +117,7 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.includeAttachments,
             contentControlOptions.data.attachmentType,
+            contentControlOptions.data.includeHardCopyRun,
             contentControlOptions.data.includeAttachmentContent,
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
@@ -144,7 +145,8 @@ export default class DgContentControls {
             contentControlOptions.data.includeConfigurations,
             contentControlOptions.data.includeHierarchy,
             contentControlOptions.data.includeOpenPCRs,
-            contentControlOptions.data.includeTestLog
+            contentControlOptions.data.includeTestLog,
+            contentControlOptions.data.includeHardCopyRun
           );
           break;
         case 'change-description-table':
@@ -265,6 +267,7 @@ export default class DgContentControls {
     headingLevel?: number,
     includeAttachments: boolean = true,
     attachmentType: string = 'asEmbedded',
+    includeHardCopyRun: boolean = false,
     includeAttachmentContent: boolean = false,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
@@ -283,6 +286,7 @@ export default class DgContentControls {
         testSuiteArray,
         includeAttachments,
         attachmentType,
+        includeHardCopyRun,
         includeAttachmentContent,
         'planOnly',
         includeRequirements,
@@ -504,7 +508,8 @@ export default class DgContentControls {
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
     includeOpenPCRs: boolean = false,
-    includeTestLog: boolean = false
+    includeTestLog: boolean = false,
+    includeHardCopyRun: boolean = false
   ) {
     let resultDataFactory: ResultDataFactory;
     let testDataFactory: TestDataFactory;
@@ -539,7 +544,8 @@ export default class DgContentControls {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        includeHardCopyRun
       );
 
       await resultDataFactory.fetchGetCombinedResultsSummary();
@@ -617,6 +623,7 @@ export default class DgContentControls {
             testSuiteArray,
             stepExecution?.generateAttachments.isEnabled,
             stepExecution?.generateAttachments.attachmentType,
+            includeHardCopyRun,
             stepExecution?.generateAttachments.includeAttachmentContent,
             stepExecution?.generateAttachments.runAttachmentMode,
             stepExecution?.generateRequirements.isEnabled,

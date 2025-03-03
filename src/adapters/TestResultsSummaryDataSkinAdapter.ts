@@ -9,7 +9,11 @@ export default class TestResultsSummaryDataSkinAdapter {
           { name: 'Test Group', value: `${item.testGroupName}` },
           { name: 'Test Id', value: `${item.testId}`, width: '7.8%' },
           { name: 'Test Name', value: `${item.testName}` },
-          { name: 'Run Status', value: `${item.runStatus}`, width: includeConfigurations ? '9.4%' : '10.8%' },
+          {
+            name: 'Run Status',
+            value: `${item.runStatus}`,
+            width: includeConfigurations ? '9.4%' : '10.8%',
+          },
         ];
 
         if (includeConfigurations) {

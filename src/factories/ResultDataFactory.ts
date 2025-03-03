@@ -28,6 +28,7 @@ export default class ResultDataFactory {
   PAT: string;
   attachmentsBucketName: string;
   attachmentMinioData: any[];
+  includeHardCopyRun: boolean;
 
   constructor(
     attachmentBucketName: string = '',
@@ -45,7 +46,8 @@ export default class ResultDataFactory {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    includeHardCopyRun: boolean = false
   ) {
     this.attachmentsBucketName = attachmentBucketName;
     this.teamProject = teamProject;
@@ -67,6 +69,7 @@ export default class ResultDataFactory {
     this.minioAccessKey = minioAccessKey;
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
+    this.includeHardCopyRun = includeHardCopyRun;
   }
 
   public async fetchGetCombinedResultsSummary() {
@@ -81,7 +84,8 @@ export default class ResultDataFactory {
         this.includeOpenPCRs,
         this.includeTestLog,
         this.stepExecution,
-        this.stepAnalysis
+        this.stepAnalysis,
+        this.includeHardCopyRun
       );
 
       if (combinedResultsItems.length === 0) {
