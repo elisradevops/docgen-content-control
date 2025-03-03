@@ -28,6 +28,7 @@ export default class ResultDataFactory {
   PAT: string;
   attachmentsBucketName: string;
   attachmentMinioData: any[];
+  includeHardCopyRun: boolean;
 
   constructor(
     attachmentBucketName: string = '',
@@ -45,7 +46,8 @@ export default class ResultDataFactory {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    includeHardCopyRun: boolean = false
   ) {
     this.attachmentsBucketName = attachmentBucketName;
     this.teamProject = teamProject;
@@ -67,6 +69,7 @@ export default class ResultDataFactory {
     this.minioAccessKey = minioAccessKey;
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
+    this.includeHardCopyRun = includeHardCopyRun;
   }
 
   public async fetchGetCombinedResultsSummary() {
@@ -105,14 +108,18 @@ export default class ResultDataFactory {
       switch (adapterType) {
         case 'test-result-test-group-summary-table':
           const testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
-          adoptedTestResultData = testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdapter(rawData);
+          adoptedTestResultData = testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdapter(
+            rawData,
+            this.includeHardCopyRun
+          );
           break;
 
         case 'test-result-table':
           const testResultsSummaryDataSkinAdapter = new TestResultsSummaryDataSkinAdapter();
           adoptedTestResultData = testResultsSummaryDataSkinAdapter.jsonSkinDataAdapter(
             rawData,
-            this.includeConfigurations
+            this.includeConfigurations,
+            this.includeHardCopyRun
           );
           break;
 

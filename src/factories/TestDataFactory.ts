@@ -33,6 +33,7 @@ export default class TestDataFactory {
   templatePath: string;
   includeAttachments: boolean;
   attachmentType: string;
+  includeHardCopyRun: boolean;
   includeAttachmentContent: boolean;
   runAttachmentMode: string;
   includeRequirements: boolean;
@@ -60,6 +61,7 @@ export default class TestDataFactory {
     testSuiteArray: number[] = null,
     includeAttachments: boolean = true,
     attachmentType: string = 'asEmbedded',
+    includeHardCopyRun: boolean = false,
     includeAttachmentContent: boolean = false,
     runAttachmentMode: string = 'both',
     includeRequirements: boolean = false,
@@ -79,6 +81,7 @@ export default class TestDataFactory {
     this.testSuiteArray = testSuiteArray;
     this.includeAttachments = includeAttachments;
     this.attachmentType = attachmentType;
+    this.includeHardCopyRun = includeHardCopyRun;
     this.includeAttachmentContent = includeAttachmentContent;
     this.runAttachmentMode = runAttachmentMode;
     this.includeRequirements = includeRequirements;
@@ -597,102 +600,60 @@ export default class TestDataFactory {
                               }
                             }
 
-                            //If runs status and result are included
-                            if (this.stepResultDetailsMap) {
-                              return this.includeAttachments && hasAnyStepAttachment
-                                ? {
-                                    fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      {
-                                        name: 'Description',
-                                        value: richTextHtmlAction,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Expected Results',
-                                        value: richTextHtmlExpected,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Attachments',
-                                        value: testStepAttachments,
-                                        attachmentType: this.attachmentType,
-                                        includeAttachmentContent: false,
-                                        width: '20.8%',
-                                      },
-                                      {
-                                        name: 'Actual Result',
-                                        value: this.extractStepComment(testStep),
-                                      },
-                                      {
-                                        name: 'Run Status',
-                                        value: this.extractStepStatus(testStep),
-                                        width: '13%',
-                                      },
-                                    ],
-                                  }
-                                : {
-                                    fields: [
-                                      { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                      {
-                                        name: 'Description',
-                                        value: richTextHtmlAction,
-                                        width: '31%',
-                                      },
-                                      {
-                                        name: 'Expected Results',
-                                        value: richTextHtmlExpected,
-                                        width: '31%',
-                                      },
-                                      {
-                                        name: 'Actual Result',
-                                        value: this.extractStepComment(testStep),
-                                      },
-                                      {
-                                        name: 'Run Status',
-                                        value: this.extractStepStatus(testStep),
-                                        width: '13%',
-                                      },
-                                    ],
-                                  };
+                            const columnWidth = this.calculateColumnWidth(
+                              this.stepResultDetailsMap?.size > 0,
+                              this.includeAttachments && hasAnyStepAttachment,
+                              this.includeHardCopyRun
+                            );
+
+                            const fields: any[] = [
+                              { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
+                              {
+                                name: 'Description',
+                                value: richTextHtmlAction,
+                                width: columnWidth,
+                              },
+                              {
+                                name: 'Expected Results',
+                                value: richTextHtmlExpected,
+                                //In the 3rd from calculateColumnWidth case the column width is not set
+                                width: columnWidth === '45.8%' ? undefined : columnWidth,
+                              },
+                            ];
+
+                            if (this.includeAttachments && hasAnyStepAttachment) {
+                              fields.push({
+                                name: 'Attachments',
+                                value: testStepAttachments,
+                                attachmentType: this.attachmentType,
+                                includeAttachmentContent: false,
+                                width: columnWidth,
+                              });
                             }
 
-                            return this.includeAttachments && hasAnyStepAttachment
-                              ? {
-                                  fields: [
-                                    { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                    {
-                                      name: 'Description',
-                                      value: richTextHtmlAction,
-                                      width: '26.9%',
-                                    },
-                                    {
-                                      name: 'Expected Results',
-                                      value: richTextHtmlExpected,
-                                      width: '26.9%',
-                                    },
-                                    {
-                                      name: 'Attachments',
-                                      value: testStepAttachments,
-                                      attachmentType: this.attachmentType,
-                                      includeAttachmentContent: false,
-                                    },
-                                  ],
-                                }
-                              : {
-                                  fields: [
-                                    { name: '#', value: `${testStep.stepPosition}`, width: '8.3%' },
-                                    {
-                                      name: 'Description',
-                                      value: richTextHtmlAction,
-                                      width: '45.8%',
-                                    },
-                                    {
-                                      name: 'Expected Results',
-                                      value: richTextHtmlExpected,
-                                    },
-                                  ],
-                                };
+                            if (this.includeHardCopyRun) {
+                              fields.push({
+                                name: 'Actual Result',
+                                value: '',
+                              });
+                              fields.push({
+                                name: 'Run Status',
+                                value: '',
+                                width: '13%',
+                              });
+                            } else if (this.stepResultDetailsMap) {
+                              fields.push({
+                                name: 'Actual Result',
+                                value: this.extractStepComment(testStep),
+                              });
+                              fields.push({
+                                name: 'Run Status',
+                                value: this.extractStepStatus(testStep),
+                                width: '13%',
+                              });
+                            }
+
+                            return { fields: fields };
                           })
                         );
                         // Filter out null entries (those iterations that were skipped)
@@ -898,6 +859,38 @@ export default class TestDataFactory {
     });
   }
 
+  /**
+   * Determines the appropriate column width based on step result details, attachments,
+   * and soft copy run settings
+   *
+   * @param hasStepResultDetail Whether there is a step result detail
+   * @param hasAttachment Whether there is an attachment
+   * @param includeSoftCopyRun Whether soft copy run is included
+   * @returns The appropriate column width as a string with percentage
+   */
+  private calculateColumnWidth(
+    hasStepResultDetail: boolean,
+    hasAttachment: boolean,
+    includeSoftCopyRun: boolean
+  ): string {
+    // Case 1: Step result detail exists or soft copy run is included
+    if (hasStepResultDetail || includeSoftCopyRun) {
+      // Sub-case: No attachment but has step result detail or soft copy is included
+      if (!hasAttachment) {
+        return '31%';
+      }
+      // Sub-case: Has step result detail or soft copy run is included (with attachment)
+      return '20.8%';
+    }
+
+    // Case 2: No step result detail and soft copy run is not included, but has attachment
+    if (hasAttachment) {
+      return '26.9%';
+    }
+
+    // Case 3: Default case - no step result detail, no soft copy run, no attachment
+    return '45.8%';
+  }
   /**
    * Handle the scenario where the test case requirements are derived
    * from `testCase.relations`.
