@@ -11,3 +11,8 @@ export interface Artifact {
   isRetained: boolean;
   type: string;
 }
+
+export interface GitObject {
+  type: string;
+  ref: string;
+}

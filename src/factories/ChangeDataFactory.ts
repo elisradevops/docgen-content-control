@@ -3,7 +3,7 @@ import logger from '../services/logger';
 import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
-import { Artifact, contentControl } from '../models/contentControl';
+import { Artifact, contentControl, GitObject } from '../models/contentControl';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
@@ -12,15 +12,13 @@ export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   teamProject: string;
   templatePath: string;
-
   repoId: string;
-  from: string | number;
-  to: string | number;
+  from: any;
+  to: any;
   rangeType: string;
   linkTypeFilterArray: string[];
   contentControlTitle: string;
   headingLevel?: number;
-
   rawChangesArray: any = [];
   adoptedChangeData: any[] = [];
   branchName: string;
@@ -217,6 +215,35 @@ export default class ChangeDataFactory {
             changes: artifactChanges,
           });
           break;
+        case 'gitObjectRange':
+          const fromGitObject: GitObject = this.from;
+          const toGitObject: GitObject = this.to;
+          // Check if fromGitObject and toGitObject are valid GitObjects
+          if (fromGitObject.ref) {
+            fromGitObject.ref = fromGitObject.ref.split('/').pop();
+          }
+          if (toGitObject.ref) {
+            toGitObject.ref = toGitObject.ref.split('/').pop();
+          }
+          let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
+          const items = await this.getCommitRangeChanges(
+            gitDataProvider,
+            this.teamProject,
+            fromGitObject.ref,
+            fromGitObject.type,
+            toGitObject.ref,
+            toGitObject.type,
+            gitRepo.name,
+            gitRepo.url,
+            this.includedWorkItemByIdSet
+          );
+          artifactChanges.push(...items);
+
+          this.rawChangesArray.push({
+            artifact: focusedArtifact,
+            changes: artifactChanges,
+          });
+          break;
         case 'date':
           // Adjust 'from' to the start of the day
           const fromDate = new Date(this.from);
@@ -268,6 +295,8 @@ export default class ChangeDataFactory {
                 repoName,
                 toCommit,
                 fromCommit,
+                'commit',
+                'commit',
                 commits,
                 this.includedWorkItemByIdSet
               );
@@ -277,6 +306,7 @@ export default class ChangeDataFactory {
                 for (const item of artifactChanges) {
                   item.targetRepo = {
                     repoName: repoName,
+                    gitSubModuleName: item.gitSubModuleName || '',
                     url: repo.url,
                     projectId: repo.project.id,
                   };
@@ -500,7 +530,9 @@ export default class ChangeDataFactory {
             gitDataProvider,
             teamProject,
             fromCommit,
+            'commit',
             toCommit,
+            'commit',
             gitRepoName,
             gitRepoUrl,
             this.includedWorkItemByIdSet
@@ -619,13 +651,16 @@ export default class ChangeDataFactory {
   private async getCommitRangeChanges(
     gitDataProvider: GitDataProvider,
     teamProject: string,
-    fromCommit: any,
-    toCommit: any,
+    fromVersion: any,
+    fromVersionType: any,
+    toVersion: any,
+    toVersionType: any,
     gitRepoName: any,
     gitRepoUrl: any,
-    includedWorkItemByIdSet: Set<number> = undefined
+    includedWorkItemByIdSet: Set<number> = undefined,
+    gitSubModuleName: string = ''
   ) {
-    const pipelineRangeItems: any[] = [];
+    const allExtendedCommits: any[] = [];
     try {
       let gitApisUrl = gitRepoUrl.includes('_git')
         ? gitRepoUrl.replace('_git', '_apis/git/repositories')
@@ -633,8 +668,8 @@ export default class ChangeDataFactory {
 
       let extendedCommits = await gitDataProvider.GetCommitBatch(
         gitApisUrl,
-        { version: fromCommit, versionType: 'commit' },
-        { version: toCommit, versionType: 'commit' }
+        { version: fromVersion, versionType: fromVersionType },
+        { version: toVersion, versionType: toVersionType }
       );
 
       if (extendedCommits?.length > 0) {
@@ -643,23 +678,27 @@ export default class ChangeDataFactory {
           extendedCommits,
           {
             repoName: gitRepoName,
+            gitSubModuleName: gitSubModuleName,
             url: gitApisUrl,
           },
           includedWorkItemByIdSet
         );
-        pipelineRangeItems.push(...foundItems);
+        logger.debug(`found ${foundItems.length} items for ${gitRepoName}`);
+        allExtendedCommits.push(...foundItems);
         const submoduleItems = await this.parseSubModules(
           gitDataProvider,
           teamProject,
           gitRepoName,
-          toCommit,
-          fromCommit,
+          toVersion,
+          fromVersion,
+          toVersionType,
+          fromVersionType,
           extendedCommits,
           includedWorkItemByIdSet
         );
-        pipelineRangeItems.push(...submoduleItems);
+        allExtendedCommits.push(...submoduleItems);
       }
-      return pipelineRangeItems;
+      return allExtendedCommits;
     } catch (error: any) {
       logger.error(`Cannot get commits for commit range ${gitRepoName} - ${error.message}`);
       throw error;
@@ -672,33 +711,39 @@ export default class ChangeDataFactory {
     gitRepoName: any,
     toCommit: any,
     fromCommit: any,
+    toVersionType: string,
+    fromVersionType: string,
     allCommitsExtended: any[],
-    includedWorkItemByIdSet: Set<number>
+    includedWorkItemByIdSet: Set<number>,
+    subModuleName: string = ''
   ) {
     const itemsToReturn: any[] = [];
     try {
       const submodules = await gitDataProvider.getSubmodulesData(
         teamProject,
         gitRepoName,
-        { version: toCommit, versionType: 'commit' },
-        { version: fromCommit, versionType: 'commit' },
+        { version: toCommit, versionType: toVersionType },
+        { version: fromCommit, versionType: fromVersionType },
         allCommitsExtended
       );
 
       for (const subModule of submodules) {
         let gitSubRepoUrl = subModule.gitSubRepoUrl;
         let gitSubRepoName = subModule.gitSubRepoName;
+        let gitSubModuleName = subModule.gitSubModuleName;
         let sourceSha1 = subModule.sourceSha1;
         let targetSha1 = subModule.targetSha1;
-
         const items = await this.getCommitRangeChanges(
           gitDataProvider,
           teamProject,
           sourceSha1,
+          'commit',
           targetSha1,
+          'commit',
           gitSubRepoName,
           gitSubRepoUrl,
-          includedWorkItemByIdSet
+          includedWorkItemByIdSet,
+          gitSubModuleName
         );
 
         itemsToReturn.push(...items);
@@ -754,7 +799,9 @@ export default class ChangeDataFactory {
       provider,
       teamProject,
       fromArtifact.definitionReference['version'].id,
+      'commit',
       toArtifact.definitionReference['version'].id,
+      'commit',
       toArtifact.definitionReference['definition'].name,
       gitRepo.url,
       this.includedWorkItemByIdSet
