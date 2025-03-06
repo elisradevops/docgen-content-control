@@ -7,6 +7,7 @@ import { Artifact, contentControl, GitObject } from '../models/contentControl';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
+import { log } from 'console';
 
 export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -420,6 +421,8 @@ export default class ChangeDataFactory {
             })
           );
 
+          //handle services.json from variables of the release
+          await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
         default:
           break;
       }
@@ -658,18 +661,21 @@ export default class ChangeDataFactory {
     gitRepoName: any,
     gitRepoUrl: any,
     includedWorkItemByIdSet: Set<number> = undefined,
-    gitSubModuleName: string = ''
+    gitSubModuleName: string = '',
+    specificItemPath: string = ''
   ) {
     const allExtendedCommits: any[] = [];
     try {
-      let gitApisUrl = gitRepoUrl.includes('_git')
-        ? gitRepoUrl.replace('_git', '_apis/git/repositories')
+      let gitApisUrl = gitRepoUrl.includes('/_git/')
+        ? gitRepoUrl.replace('/_git/', '/_apis/git/repositories/')
         : gitRepoUrl;
 
+      logger.debug(`fetching commits for ${gitRepoName} from ${fromVersion} to ${toVersion}`);
       let extendedCommits = await gitDataProvider.GetCommitBatch(
         gitApisUrl,
         { version: fromVersion, versionType: fromVersionType },
-        { version: toVersion, versionType: toVersionType }
+        { version: toVersion, versionType: toVersionType },
+        specificItemPath
       );
 
       if (extendedCommits?.length > 0) {
@@ -866,7 +872,6 @@ export default class ChangeDataFactory {
     try {
       // Extract project info if needed
       const toTeamProject = toUrlParts.pop(); //Ejecting the project name
-      logger.debug(`toTeamProject ${toTeamProject}`);
       const buildChangeFactory = new ChangeDataFactory(
         toTeamProject,
         '',
@@ -896,6 +901,102 @@ export default class ChangeDataFactory {
     } catch (error: any) {
       logger.error(`could not handle ${tocTitle} ${error.message}`);
       throw error;
+    }
+  }
+
+  private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider) {
+    if (
+      !toRelease ||
+      !toRelease.variables ||
+      !toRelease.variables.servicesJson ||
+      !toRelease.variables.servicesJsonVersion ||
+      !toRelease.variables.servicesJsonVersionType
+    ) {
+      logger.warn(`missing variables in release`);
+      logger.warn(`required: servicesJson, servicesJsonVersion, servicesJsonVersionType`);
+      return;
+    }
+
+    let servicesJsonFileGitPath = toRelease.variables.servicesJson.value;
+    let servicesJsonFileName = servicesJsonFileGitPath.split(`?`).pop();
+    servicesJsonFileName = servicesJsonFileName.replace('path=', '');
+    let servicesJsonFileGitRepo = servicesJsonFileGitPath.split(`?`)[0];
+    let servicesJsonFileGitRepoName = servicesJsonFileGitRepo.split('/').pop();
+    let servicesJsonFileGitRepoApiUrl = servicesJsonFileGitRepo.replace('/_git/', '/_apis/git/repositories/');
+
+    let servicesJsonVersion = toRelease.variables.servicesJsonVersion.value;
+    let servicesJsonVersionType = toRelease.variables.servicesJsonVersionType.value;
+    let servicesJsonTagPrefix = toRelease.variables.servicesJsonTagPrefix.value;
+
+    // fetch the serviceJson file
+    let serviceJsonFile: any = await provider.GetFileFromGitRepo(
+      projectId,
+      servicesJsonFileGitRepoName,
+      servicesJsonFileName,
+      { version: servicesJsonVersion, versionType: servicesJsonVersionType },
+      servicesJsonFileGitRepoApiUrl
+    );
+
+    if (!serviceJsonFile) {
+      logger.warn(`file ${servicesJsonFileGitPath} could not be fetched`);
+      return;
+    }
+
+    serviceJsonFile = JSON.parse(serviceJsonFile);
+
+    const services = serviceJsonFile.services;
+    for (const service of services) {
+      let fromTag = `${servicesJsonTagPrefix}${fromRelease.name}`;
+      let toTag = `${servicesJsonTagPrefix}${toRelease.name}`;
+      let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
+      repoName = repoName?.replace(/%20/g, ' ');
+      let serviceGitRepoApiUrl = service.serviceLocation.gitRepoUrl.replace(
+        '/_git/',
+        '/_apis/git/repositories/'
+      );
+
+      let itemPaths = service.serviceLocation.pathInGit.split(',');
+
+      for (const itemPath of itemPaths) {
+        // check if item exists in from tag
+        let itemExistingInTag = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+          version: fromTag,
+          versionType: 'tag',
+        });
+        if (!itemExistingInTag) {
+          logger.info(`item ${itemPath} does not exist in tag ${fromTag}`);
+          continue;
+        }
+
+        itemExistingInTag = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+          version: toTag,
+          versionType: 'tag',
+        });
+        if (!itemExistingInTag) {
+          logger.info(`item ${itemPath} does not exist in tag ${toTag}`);
+          continue;
+        }
+
+        // Test this
+        const items = await this.getCommitRangeChanges(
+          provider,
+          projectId,
+          fromTag,
+          'tag',
+          toTag,
+          'tag',
+          repoName,
+          serviceGitRepoApiUrl,
+          this.includedWorkItemByIdSet,
+          undefined,
+          itemPath
+        );
+
+        this.rawChangesArray.push({
+          artifact: { name: `Service: ${service.serviceName}` },
+          changes: [...items],
+        });
+      }
     }
   }
 
