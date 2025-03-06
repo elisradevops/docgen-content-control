@@ -210,7 +210,7 @@ export default class ChangesTableDataSkinAdapter {
       change.targetRepo
         ? {
             name: 'Repository',
-            value: change.targetRepo.repoName,
+            value: `${change.targetRepo.gitSubModuleName || change.targetRepo.repoName}`,
             url: change.targetRepo.url,
             width: '9.8%',
           }

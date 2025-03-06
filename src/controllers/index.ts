@@ -703,8 +703,10 @@ export default class DgContentControls {
 
   async addChangeDescriptionTable(
     repoId: string,
-    from: string | number,
-    to: string | number,
+    // Can be a string or a number or a GitObject
+    from: any,
+    // Can be a string or a number or a GitObject
+    to: any,
     rangeType: string,
     linkTypeFilterArray: string[],
     contentControlTitle: string,
@@ -718,8 +720,8 @@ export default class DgContentControls {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
       repoId:${repoId}
-      from:${from}
-      to:${to}
+      from:${JSON.stringify(from)}
+      to:${JSON.stringify(to)}
       rangeType: ${rangeType}
       linkTypeFilterArray:${linkTypeFilterArray}
       teamProjectName:${this.teamProjectName}
