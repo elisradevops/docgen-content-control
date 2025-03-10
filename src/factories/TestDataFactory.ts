@@ -175,6 +175,7 @@ export default class TestDataFactory {
           suites: SuitesAndTestCases,
         };
         this.adoptedTestData = await this.jsonSkinDataAdpater(null, isByQuery);
+        testDataProvider.clearCache();
       }
     } catch (err) {
       logger.error(`Error occurred during fetching data: ${err.message}`);
