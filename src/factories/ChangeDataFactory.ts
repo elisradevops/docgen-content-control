@@ -216,7 +216,7 @@ export default class ChangeDataFactory {
             changes: artifactChanges,
           });
           break;
-        case 'gitObjectRange':
+        case 'range':
           const fromGitObject: GitObject = this.from;
           const toGitObject: GitObject = this.to;
           // Check if fromGitObject and toGitObject are valid GitObjects
