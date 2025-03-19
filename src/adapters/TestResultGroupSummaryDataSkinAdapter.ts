@@ -7,7 +7,7 @@ export default class TestResultGroupSummaryDataSkinAdapter {
       let adoptedResultData = resultDataRaw.sort((a, b) => {
         if (a.testGroupName === 'Total') return 1; // Move "Total" to the end
         if (b.testGroupName === 'Total') return -1; // Move "Total" to the end
-        return a.testGroupName.localeCompare(b.testGroupName); // Sort alphabetically
+        return a.testGroupName.toLowerCase().localeCompare(b.testGroupName.toLowerCase()); // Sort alphabetically
       });
 
       return adoptedResultData.map((item, idx) => {
