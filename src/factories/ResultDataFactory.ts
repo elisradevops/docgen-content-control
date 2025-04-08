@@ -7,6 +7,7 @@ import TestResultsAttachmentDataFactory from './TestResultsAttachmentDataFactory
 import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
 import TestLogDataSkinAdapter from '../adapters/TestLogDataSkinAdapter';
 import StepAnalysisSkinAdapter from '../adapters/StepAnalysisSkinAdapter';
+import TestReporterDataSkinAdapter from '../adapters/TestReporterDataSkinAdapter';
 
 export default class ResultDataFactory {
   isSuiteSpecific = false;
@@ -103,6 +104,32 @@ export default class ResultDataFactory {
     }
   }
 
+  public async fetchTestReporterResults(selectedFields: string[], enableRunStepStatusFilter: boolean) {
+    try {
+      const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
+      const testResultsItems = await resultDataProvider.getTestReporterResults(
+        this.testPlanId.toString(),
+        this.teamProject,
+        this.testSuiteArray,
+        selectedFields,
+        enableRunStepStatusFilter
+      );
+
+      if (testResultsItems.length === 0) {
+        throw `No test data found for the specified plan ${this.testPlanId}`;
+      }
+
+      this.adoptedResultDataArray = await Promise.all(
+        testResultsItems.map(async (item) => {
+          const adoptedData = await this.jsonSkinDataAdapter(item.skin, item.data);
+          return { ...item, data: adoptedData };
+        })
+      );
+    } catch (error) {
+      logger.error(`Error occurred while trying the fetch Test Group Result Summary Data ${error.message}`);
+    }
+  }
+
   public async jsonSkinDataAdapter(adapterType: string = null, rawData: any[]): Promise<any> {
     try {
       let adoptedTestResultData;
@@ -131,6 +158,14 @@ export default class ResultDataFactory {
             this.PAT
           );
           adoptedTestResultData = await detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
+          break;
+        case 'test-reporter-table':
+          const testReporterSkinAdapter = new TestReporterDataSkinAdapter(
+            this.templatePath,
+            this.teamProject
+          );
+          const adopted = await testReporterSkinAdapter.jsonSkinDataAdapter(rawData);
+          adoptedTestResultData = adopted;
           break;
         case 'open-pcr-table':
           const openPCRSkinAdapter = new OpenPCRsDataSkinAdapter();

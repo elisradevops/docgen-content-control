@@ -45,6 +45,8 @@ export class Routes {
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateContentControl(body.contentControlOptions);
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
+        const isExcelSpreadsheet = body.contentControlOptions.isExcelSpreadsheet;
+        resJson.isExcelSpreadsheet = isExcelSpreadsheet;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
