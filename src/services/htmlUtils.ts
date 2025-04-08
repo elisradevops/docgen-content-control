@@ -189,7 +189,19 @@ export default class HtmlUtils {
     return processedContent;
   }
 
-  public async cleanHtml(html): Promise<any> {
+  /**
+   * Removes all img elements from the HTML document.
+   * This helps with creating cleaner documents without images.
+   *
+   * @private
+   */
+  private removeImgElements = () => {
+    this.$('img').each((_, element) => {
+      this.$(element).remove();
+    });
+  };
+
+  public async cleanHtml(html, needToRemoveImg: boolean = false): Promise<any> {
     try {
       // Replace newlines within <p> elements
       html = html.replace(/<p>([\s\S]*?)<\/p>/gi, (match, content) => {
@@ -210,6 +222,9 @@ export default class HtmlUtils {
       this.cleanupBlockElements();
       this.removeInvalidInlineWrappersAroundBlocks();
       this.clearBrBeforeEndOfParagraph();
+      if (needToRemoveImg) {
+        this.removeImgElements();
+      }
       return this.$.html();
     } catch (error: any) {
       logger.error(`Error occurred during clean HTML: ${error.message}`);

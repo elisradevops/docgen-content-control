@@ -19,6 +19,7 @@ export default class RichTextDataFactory {
   minioSecretKey: string = '';
   PAT: string = '';
   hasValues: boolean = false;
+  excludeImages: boolean = false;
   $: cheerio.Root;
   private imageCache: Map<string, string>;
   constructor(
@@ -29,12 +30,14 @@ export default class RichTextDataFactory {
     minioEndPoint: string = '',
     minioAccessKey: string = '',
     minioSecretKey: string = '',
-    PAT: string = ''
+    PAT: string = '',
+    excludeImages: boolean = false
   ) {
     this.richTextString = startHtml;
     this.insideTableFlag = false;
     this.templatePath = templatePath;
     this.teamProject = teamProject;
+    this.excludeImages = excludeImages;
     this.attachmentsBucketName = attachmentsBucketName;
     this.minioEndPoint = minioEndPoint;
     this.minioAccessKey = minioAccessKey;
@@ -143,7 +146,9 @@ export default class RichTextDataFactory {
     if (!this.hasValues) {
       return this.richTextString;
     }
-    await this.replaceImgSrcWithLocalPath();
+    if (this.excludeImages) {
+      await this.replaceImgSrcWithLocalPath();
+    }
     this.richTextString = this.$.html();
     this.imageCache.clear();
     return this.richTextString;

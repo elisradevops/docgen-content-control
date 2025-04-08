@@ -149,6 +149,14 @@ export default class DgContentControls {
             contentControlOptions.data.includeHardCopyRun
           );
           break;
+        case 'testReporter':
+          contentControlData = await this.addTestReporterContent(
+            contentControlOptions.data.testPlanId,
+            contentControlOptions.data.testSuiteArray,
+            contentControlOptions.data.selectedFields,
+            contentControlOptions.data.enableRunStepStatusFilter
+          );
+          break;
         case 'change-description-table':
           contentControlData = await this.addChangeDescriptionTable(
             contentControlOptions.data.repoId,
@@ -695,6 +703,110 @@ export default class DgContentControls {
       return contentControls;
     } catch (error) {
       logger.error(`Error adding Combined Test results skins for STR ${error.message}`);
+      throw error;
+    }
+  }
+
+  async addTestReporterContent(
+    testPlanId: number,
+    testSuiteArray: number[],
+    selectedFields: string[],
+    enableRunStepStatusFilter: boolean
+  ) {
+    let resultDataFactory: ResultDataFactory;
+
+    try {
+      if (!testPlanId) {
+        throw new Error('No plan has been selected');
+      }
+
+      if (testSuiteArray?.length === 0) {
+        throw new Error('No test suites have been selected');
+      }
+
+      if (!this.teamProjectName) {
+        throw new Error('Project name is not defined');
+      }
+
+      logger.debug(`fetching data with params:
+      testPlanId:${testPlanId}
+      testSuiteArray:${testSuiteArray}
+      teamProjectName:${this.teamProjectName}
+      selectedFields:${JSON.stringify(selectedFields)}`);
+
+      //Run the result data factory
+      resultDataFactory = new ResultDataFactory(
+        this.attachmentsBucketName,
+        this.teamProjectName,
+        testPlanId,
+        testSuiteArray,
+        undefined,
+        undefined,
+        false,
+        false,
+        false,
+        false,
+        this.dgDataProviderAzureDevOps,
+        this.templatePath,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT
+      );
+
+      await resultDataFactory.fetchTestReporterResults(selectedFields, enableRunStepStatusFilter);
+    } catch (error) {
+      logger.error(`Error initializing result data factory: ${error.message}`);
+      throw error;
+    }
+
+    try {
+      const contentControls: contentControl[] = [];
+      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
+      let adoptedDataArray = resultDataFactory.getAdoptedResultData();
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
+      //this.minioAttachmentData = this.minioAttachmentData.concat(resultDataFactory.getAttachmentsMinioData());
+      let skins = await Promise.all(
+        adoptedDataArray.map(async (element) => {
+          const skin = await this.skins.addNewContentToDocumentSkin(
+            element.customName,
+            this.skins.SKIN_TYPE_TEST_REPORTER,
+            element.data,
+            headerStyles,
+            styles
+          );
+
+          return { contentControlTitle: element.contentControl, skin };
+        })
+      );
+
+      skins.forEach((skinItem) => {
+        const { contentControlTitle: title, skin } = skinItem;
+        const contentControl = { title, wordObjects: skin };
+        contentControls.push(contentControl);
+      });
+
+      return contentControls;
+    } catch (error) {
+      logger.error(`Error adding Test Reporter content ${error}`);
       throw error;
     }
   }
