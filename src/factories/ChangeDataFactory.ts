@@ -1058,10 +1058,11 @@ export default class ChangeDataFactory {
             }
             logger.debug(`Attachment wiki URL: ${this.attachmentWikiUrl}`);
             // Extract file name from URL
-            const fileName = this.attachmentWikiUrl.substring(
+            const encodedFileName = this.attachmentWikiUrl.substring(
               this.attachmentWikiUrl.lastIndexOf('/') + 1,
               this.attachmentWikiUrl.length
             );
+            const fileName = decodeURIComponent(encodedFileName);
             logger.debug(`File name extracted: ${fileName}`);
 
             // Add to attachment tracking
