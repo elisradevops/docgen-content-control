@@ -170,7 +170,8 @@ export default class DgContentControls {
             contentControlOptions.data.includePullRequests,
             contentControlOptions.data.includeChangeDescription,
             contentControlOptions.data.includeCommittedBy,
-            contentControlOptions.data.systemOverviewQuery
+            contentControlOptions.data.systemOverviewQuery,
+            contentControlOptions.data.attachmentWikiUrl
           );
           break;
         case 'pr-change-description-table':
@@ -827,7 +828,8 @@ export default class DgContentControls {
     includePullRequests?: boolean,
     includeChangeDescription: boolean = false,
     includeCommittedBy: boolean = false,
-    systemOverviewQuery: any = null
+    systemOverviewQuery: any = null,
+    attachmentWikiUrl: string = ''
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -838,7 +840,8 @@ export default class DgContentControls {
       linkTypeFilterArray:${linkTypeFilterArray}
       teamProjectName:${this.teamProjectName}
       branchName:${branchName}
-      includePullRequests:${includePullRequests}`);
+      includePullRequests:${includePullRequests}
+      attachmentsWikiUrl:${attachmentWikiUrl}`);
     try {
       let changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
@@ -849,6 +852,7 @@ export default class DgContentControls {
         linkTypeFilterArray,
         branchName,
         includePullRequests,
+        attachmentWikiUrl,
         includeChangeDescription,
         includeCommittedBy,
         this.dgDataProviderAzureDevOps,
@@ -912,6 +916,18 @@ export default class DgContentControls {
             );
             contentControls.push({ title: element.contentControl, wordObjects: overviewSkin });
             break;
+          case 'system-installation-content-control':
+            const installationSkin = await this.skins.addNewContentToDocumentSkin(
+              element.contentControl,
+              this.skins.SKIN_TYPE_INSTALLATION,
+              element.data,
+              headerStyles,
+              styles,
+              headingLevel,
+              true
+            );
+            contentControls.push({ title: element.contentControl, wordObjects: installationSkin });
+            break;
           default:
             const skin = await this.skins.addNewContentToDocumentSkin(
               element.contentControl,
@@ -924,6 +940,7 @@ export default class DgContentControls {
             contentControls.push({ title: element.contentControl, wordObjects: skin });
         }
       }
+
       return contentControls;
     } catch (error) {
       logger.error(`Error adding change description table: ${error.message}`);
