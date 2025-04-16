@@ -1,6 +1,5 @@
 import * as cheerio from 'cheerio';
 import logger from '../services/logger';
-import TicketsDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/TicketsDataProvider';
 import DownloadManager from '../services/DownloadManager';
 
 export default class RichTextDataFactory {
@@ -63,6 +62,17 @@ export default class RichTextDataFactory {
         const localPath = await this.downloadImageAndReturnLocalPath(src);
         image.attr('src', localPath);
       }
+    }
+  }
+
+  private clearImgComponents() {
+    const images = this.$('img');
+    for (let i = 0; i < images.length; i++) {
+      const image = this.$(images[i]);
+      image.removeAttr('src');
+      image.removeAttr('style');
+      image.attr('width', '100%');
+      image.attr('height', 'auto');
     }
   }
 
@@ -146,8 +156,10 @@ export default class RichTextDataFactory {
     if (!this.hasValues) {
       return this.richTextString;
     }
-    if (this.excludeImages) {
+    if (!this.excludeImages) {
       await this.replaceImgSrcWithLocalPath();
+    } else {
+      this.clearImgComponents();
     }
     this.richTextString = this.$.html();
     this.imageCache.clear();
