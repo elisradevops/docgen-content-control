@@ -8,6 +8,7 @@ import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSk
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
 import { log } from 'console';
+import DownloadManager from '../services/DownloadManager';
 
 export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -24,6 +25,7 @@ export default class ChangeDataFactory {
   adoptedChangeData: any[] = [];
   branchName: string;
   includePullRequests: boolean;
+  attachmentWikiUrl: string = '';
   includeChangeDescription: boolean;
   includeCommittedBy: boolean;
   tocTitle?: string;
@@ -44,6 +46,7 @@ export default class ChangeDataFactory {
     linkTypeFilterArray: string[],
     branchName: string,
     includePullRequests: boolean,
+    attachmentWikiUrl: string,
     includeChangeDescription: boolean,
     includeCommittedBy: boolean,
     dgDataProvider: any,
@@ -65,6 +68,7 @@ export default class ChangeDataFactory {
     this.linkTypeFilterArray = linkTypeFilterArray;
     this.branchName = branchName;
     this.includePullRequests = includePullRequests;
+    this.attachmentWikiUrl = attachmentWikiUrl;
     this.includeChangeDescription = includeChangeDescription;
     this.includeCommittedBy = includeCommittedBy;
     this.tocTitle = tocTitle;
@@ -114,11 +118,10 @@ export default class ChangeDataFactory {
         });
       }
       //4.get installation data (via file) installation-instructions-content-control
-      const installationInstruction = [];
-      if (installationInstruction.length > 0) {
+      if (this.attachmentWikiUrl) {
         this.adoptedChangeData.push({
-          contentControl: 'installation-instructions-content-control',
-          data: await this.jsonSkinDataAdapter('installation-instructions', installationInstruction), //TBD need to add a check box to either include new file or not
+          contentControl: 'system-installation-content-control',
+          data: await this.jsonSkinDataAdapter('installation-instructions', []), //TBD need to add a check box to either include new file or not
           skin: 'installation-instructions-skin',
         });
       }
@@ -776,6 +779,7 @@ export default class ChangeDataFactory {
       null,
       '',
       true,
+      '',
       false,
       false,
       this.dgDataProviderAzureDevOps,
@@ -881,6 +885,7 @@ export default class ChangeDataFactory {
         null,
         '',
         true,
+        '',
         false,
         false,
         this.dgDataProviderAzureDevOps,
@@ -1044,7 +1049,48 @@ export default class ChangeDataFactory {
           adoptedData = changesTableDataSkinAdapter.getAdoptedData();
           break;
         case 'installation-instructions':
-          //TBD
+          try {
+            logger.debug(`Processing installation instructions from ${this.attachmentWikiUrl}`);
+
+            if (!this.attachmentWikiUrl) {
+              logger.warn('No attachment wiki URL provided for installation instructions');
+              break;
+            }
+            logger.debug(`Attachment wiki URL: ${this.attachmentWikiUrl}`);
+            // Extract file name from URL
+            const fileName = this.attachmentWikiUrl.substring(
+              this.attachmentWikiUrl.lastIndexOf('/') + 1,
+              this.attachmentWikiUrl.length
+            );
+            logger.debug(`File name extracted: ${fileName}`);
+
+            // Add to attachment tracking
+            this.attachmentMinioData.push({
+              attachmentMinioPath: this.attachmentWikiUrl,
+              minioFileName: fileName,
+            });
+
+            // Format data for the skin adapter
+            const localPath = `TempFiles/${fileName}`;
+
+            adoptedData = [
+              {
+                title: 'Installation Instructions',
+                attachment: {
+                  attachmentFileName: fileName,
+                  attachmentLink: localPath,
+                  relativeAttachmentLink: localPath,
+                  attachmentMinioPath: this.attachmentWikiUrl,
+                  minioFileName: fileName,
+                },
+              },
+            ];
+
+            logger.debug(`Installation instructions processed successfully`);
+          } catch (error) {
+            logger.error(`Error processing installation instructions: ${error.message}`);
+            logger.error(error.stack);
+          }
           break;
         case 'possible-problems-known-errors':
           let bugsDataSkinAdapter = new BugsTableSkinAdapter(rawData);
