@@ -3,12 +3,10 @@ import logger from '../services/logger';
 import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
-import { Artifact, contentControl, GitObject } from '../models/contentControl';
+import { Artifact, GitObject } from '../models/contentControl';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
-import { log } from 'console';
-import DownloadManager from '../services/DownloadManager';
 
 export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -271,14 +269,12 @@ export default class ChangeDataFactory {
             throw new Error(`Could not find repository with id ${this.repoId}`);
           }
           if (this.includePullRequests) {
-            console.log(this.includePullRequests);
             artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
               this.teamProject,
               this.repoId,
               commitsInDateRange
             );
           } else {
-            console.log(this.includePullRequests);
             artifactChanges = await gitDataProvider.GetItemsInCommitRange(
               this.teamProject,
               this.repoId,

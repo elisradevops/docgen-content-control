@@ -3,7 +3,6 @@ import logger from '../services/logger';
 import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import TestResultsSummaryDataSkinAdapter from '../adapters/TestResultsSummaryDataSkinAdapter';
 import DetailedResultsSummaryDataSkinAdapter from '../adapters/DetailedResultsSummaryDataSkinAdapter';
-import TestResultsAttachmentDataFactory from './TestResultsAttachmentDataFactory';
 import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
 import TestLogDataSkinAdapter from '../adapters/TestLogDataSkinAdapter';
 import StepAnalysisSkinAdapter from '../adapters/StepAnalysisSkinAdapter';

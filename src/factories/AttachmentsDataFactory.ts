@@ -36,8 +36,7 @@ export default class AttachmentsDataFactory {
       rawAttachmentData = additionalAttachments;
     }
     logger.debug(
-      `for work item - ${this.wiId} fetched ${rawAttachmentData.length} ${
-        isRunAttachments ? 'run ' : ''
+      `for work item - ${this.wiId} fetched ${rawAttachmentData.length} ${isRunAttachments ? 'run ' : ''
       }attachments`
     );
     try {
