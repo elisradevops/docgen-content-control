@@ -215,7 +215,6 @@ export default class DgContentControls {
       res = await ticketsDataProvider.GetQueryResultById(queryId, this.teamProjectName);
     } catch (error) {
       logger.error(`Error Quering Azure with query id :${queryId}`);
-      console.log(error);
     }
 
     for (const wi of res) {
