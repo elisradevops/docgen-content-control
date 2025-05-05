@@ -1,25 +1,10 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
 import RichTextDataFactory from './RichTextDataFactory';
 import AttachmentsDataFactory from './AttachmentsDataFactory';
-import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
 import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
-import { val } from 'cheerio/dist/commonjs/api/attributes';
-import { log } from 'console';
-import { value } from '@elisra-devops/docgen-data-provider/bin/models/tfs-data';
-
-const styles = {
-  isBold: false,
-  IsItalic: false,
-  IsUnderline: false,
-  Size: 12,
-  Uri: null,
-  Font: 'Arial',
-  InsertLineBreak: false,
-  InsertSpace: false,
-};
 
 export default class TestDataFactory {
   isSuiteSpecific = false;
@@ -464,9 +449,18 @@ export default class TestDataFactory {
                 ],
                 level: suite.temp.level,
               };
-
+              let testCaseAmount = suite.testCases?.length;
               let testCases = await Promise.all(
                 suite.testCases.map(async (testCase) => {
+                  // Check if the test case is just a title with no content
+                  let titleOnly =
+                    (!testCase.description || testCase.description.trim() === '') &&
+                    (!testCase.steps || testCase.steps.length === 0) &&
+                    (!testCase.attachmentsData || testCase.attachmentsData.length === 0) &&
+                    (!testCase.relations || testCase.relations.length === 0);
+
+                  // Check if the test case has any attachments, steps, or requirements
+                  let insertPageBreak = testCaseAmount > 1 && !titleOnly;
                   try {
                     let Description = testCase.description || 'No description';
                     let cleanedDescription = await this.htmlUtils.cleanHtml(Description);
@@ -499,6 +493,7 @@ export default class TestDataFactory {
                       ],
                       level: suite.temp.level + 1,
                     };
+
                     // Helper function to check if all the values in the array are among the target values
                     let testCaseStepsSkinData: any[] = [];
                     let testCaseDocAttachmentsAdoptedData: { testCaseLevel: any[]; stepLevel: any[] } = {
@@ -723,13 +718,14 @@ export default class TestDataFactory {
                         };
                       })
                     );
-
                     let adoptedTestCaseData = {
                       testCaseHeaderSkinData,
                       testCaseStepsSkinData,
                       testCaseAttachments,
                       testCaseRequirements,
                       testCaseDocAttachmentsAdoptedData,
+                      //Insert page break only if it's not the first test case
+                      insertPageBreak: insertPageBreak,
                     };
                     return adoptedTestCaseData;
                   } catch (error) {
