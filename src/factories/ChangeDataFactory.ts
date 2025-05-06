@@ -135,7 +135,8 @@ export default class ChangeDataFactory {
         });
       }
     } catch (error: any) {
-      logger.error(`could not fetch svd data ${error.message}`);
+      logger.error(`could not fetch svd data:
+        ${error.message}`);
       throw error;
     }
   }
@@ -212,6 +213,7 @@ export default class ChangeDataFactory {
             this.repoId,
             commitsInCommitRange
           );
+          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
           this.rawChangesArray.push({
             artifact: focusedArtifact,
             changes: artifactChanges,
@@ -240,7 +242,7 @@ export default class ChangeDataFactory {
             this.includedWorkItemByIdSet
           );
           artifactChanges.push(...items);
-
+          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
           this.rawChangesArray.push({
             artifact: focusedArtifact,
             changes: artifactChanges,
@@ -315,7 +317,7 @@ export default class ChangeDataFactory {
               }
             }
           }
-
+          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
           this.rawChangesArray.push({
             artifact: { name: '' },
             changes: artifactChanges,
@@ -330,6 +332,7 @@ export default class ChangeDataFactory {
             this.to,
             this.from
           );
+          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
           this.rawChangesArray.push({
             artifact: { name: this.tocTitle || '' },
             changes: artifactChanges,
@@ -429,9 +432,27 @@ export default class ChangeDataFactory {
       logger.info(`fetch ${this.rawChangesArray.length} changes for range`);
       //Clear the set after finishing
     } catch (error: any) {
+      if (error.message?.includes('The number of changes is too large')) {
+        throw error;
+      }
       logger.error(error.message);
     }
   } //fetchChangesData
+
+  /**
+   * Checks if the number of artifact changes exceeds the maximum allowed limit.
+   *
+   * @param artifactChanges - An array of artifact changes to validate
+   * @throws {Error} When the number of changes exceeds 500
+   */
+  private isChangesReachedMaxSize(rangeType: string = '', artifactsChangesLength?: number) {
+    if (artifactsChangesLength && artifactsChangesLength > 500) {
+      throw new Error(
+        `Range type ${rangeType} error:
+         The number of changes is too large (${artifactsChangesLength}) but the maximum is 500. Consider narrowing the range.`
+      );
+    }
+  }
 
   /**
    * Retrieves the changes between two pipeline builds.
@@ -812,6 +833,7 @@ export default class ChangeDataFactory {
       gitRepo.url,
       this.includedWorkItemByIdSet
     );
+    this.isChangesReachedMaxSize(this.rangeType, pipelineRangeItems?.length);
     this.rawChangesArray.push({
       artifact: { name: gitTitle || '' },
       changes: [...pipelineRangeItems],
@@ -992,7 +1014,7 @@ export default class ChangeDataFactory {
           undefined,
           itemPath
         );
-
+        this.isChangesReachedMaxSize(this.rangeType, items?.length);
         this.rawChangesArray.push({
           artifact: { name: `Service: ${service.serviceName}` },
           changes: [...items],

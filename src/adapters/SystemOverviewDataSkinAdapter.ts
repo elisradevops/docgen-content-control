@@ -33,10 +33,33 @@ export default class SystemOverviewDataSkinAdapter {
     this.PAT = PAT;
     this.attachmentMinioData = [];
   }
+
+  private countTotalNodes(nodes: any[]): number {
+    let count = 0;
+    for (const node of nodes) {
+      // Count this node
+      count++;
+      // Recursively count children
+      if (node.children?.length > 0) {
+        count += this.countTotalNodes(node.children);
+      }
+    }
+    return count;
+  }
   public async jsonSkinAdapter(rawData: any) {
     try {
       const { systemOverviewQueryData } = rawData;
       if (systemOverviewQueryData.length > 0) {
+        // Count total nodes before processing
+        const totalNodes = this.countTotalNodes(systemOverviewQueryData);
+
+        // Check against the 500 limit
+        if (totalNodes > 500) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
+           Please narrow down the query parameters.`;
+          logger.error(errorMsg);
+          throw new Error(errorMsg);
+        }
         await this.adaptDataRecursively(systemOverviewQueryData);
       }
       return this.adoptedData;
