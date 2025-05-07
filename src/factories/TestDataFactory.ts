@@ -23,6 +23,7 @@ export default class TestDataFactory {
   runAttachmentMode: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
+  includeLinkedMom: boolean;
   traceAnalysisRequest: any;
   reqTestQueryResults: Map<any, any[]>;
   testReqQueryResults: Map<any, any[]>;
@@ -51,6 +52,7 @@ export default class TestDataFactory {
     runAttachmentMode: string = 'both',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
+    includeLinkedMom: boolean = false,
     traceAnalysisRequest: any = undefined,
     includeTestResults: boolean = false,
     dgDataProvider: any,
@@ -71,6 +73,7 @@ export default class TestDataFactory {
     this.runAttachmentMode = runAttachmentMode;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
+    this.includeLinkedMom = includeLinkedMom;
     this.traceAnalysisRequest = traceAnalysisRequest;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
@@ -132,6 +135,7 @@ export default class TestDataFactory {
         true,
         this.includeRequirements,
         this.includeCustomerId,
+        this.includeLinkedMom,
         this.stepResultDetailsMap
       );
 
@@ -678,6 +682,10 @@ export default class TestDataFactory {
                       ? this.AdaptTestCaseRequirements(testCase, isByQuery)
                       : undefined;
 
+                    let testCaseLinkedMom = this.includeLinkedMom
+                      ? this.adaptTestCaseMomRelation(testCase)
+                      : undefined;
+
                     let filteredTestCaseAttachments = testCase.attachmentsData.filter((attachment) => {
                       return (
                         attachment.attachmentStepNo === '' &&
@@ -723,6 +731,7 @@ export default class TestDataFactory {
                       testCaseStepsSkinData,
                       testCaseAttachments,
                       testCaseRequirements,
+                      testCaseLinkedMom,
                       testCaseDocAttachmentsAdoptedData,
                       //Insert page break only if it's not the first test case
                       insertPageBreak: insertPageBreak,
@@ -912,6 +921,24 @@ export default class TestDataFactory {
       });
   }
 
+  private adaptTestCaseMomRelation(testCase: any) {
+    return testCase.relations
+      .filter(
+        (relation: any) => relation.type.toLowerCase() === 'bug' || relation.type.toLowerCase() === 'task'
+      )
+      .map((relation: any, index: number) => {
+        let fields = this.buildMomFields({
+          index,
+          itemId: relation.id,
+          witType: relation.type,
+          itemTitle: relation.title,
+          url: relation.url,
+          status: relation.status,
+        });
+        return { fields };
+      });
+  }
+
   /**
    * Build the array of `fields` for a single requirement row.
    */
@@ -939,6 +966,42 @@ export default class TestDataFactory {
       {
         name: 'Req Title',
         value: requirementTitle || '',
+      },
+    ];
+  }
+
+  private buildMomFields(params: {
+    index: number;
+    itemId: number;
+    witType: string;
+    itemTitle: string;
+    url: string;
+    status: string;
+  }) {
+    const { index, itemId, witType, itemTitle, url, status } = params;
+
+    // Common fields
+    return [
+      {
+        name: '#',
+        value: index + 1,
+        width: '5.5%',
+      },
+      {
+        name: 'WI ID',
+        value: itemId,
+        width: '13.6%',
+        url: url,
+      },
+      { name: 'Type', value: witType, width: '8.6%' },
+      {
+        name: 'Title',
+        value: itemTitle || '',
+      },
+      {
+        name: 'Status',
+        value: status || '',
+        width: '12.4%',
       },
     ];
   }

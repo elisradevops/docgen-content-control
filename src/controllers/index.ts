@@ -121,6 +121,7 @@ export default class DgContentControls {
             contentControlOptions.data.includeAttachmentContent,
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
+            contentControlOptions.data.includeLinkedMom,
             contentControlOptions.data.traceAnalysisRequest
           );
 
@@ -279,6 +280,7 @@ export default class DgContentControls {
     includeAttachmentContent: boolean = false,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
+    includeLinkedMom?: boolean,
     traceAnalysisRequest?: any
   ) {
     logger.debug(`fetching test data with params:
@@ -307,6 +309,7 @@ export default class DgContentControls {
         'planOnly',
         includeRequirements,
         includeCustomerId,
+        includeLinkedMom,
         traceAnalysisRequest,
         false,
         this.dgDataProviderAzureDevOps,
@@ -647,6 +650,7 @@ export default class DgContentControls {
             stepExecution?.generateAttachments.includeAttachmentContent,
             stepExecution?.generateAttachments.runAttachmentMode,
             stepExecution?.generateRequirements.isEnabled,
+            false,
             stepExecution?.generateRequirements.includeCustomerId,
             stepExecution?.generateRequirements,
             false,
