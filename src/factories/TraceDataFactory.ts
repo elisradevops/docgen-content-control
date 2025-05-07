@@ -118,6 +118,7 @@ export default class TraceDataFactory {
         `${this.testPlanId + 1}`,
         true,
         true,
+        true,
         true
       );
 
