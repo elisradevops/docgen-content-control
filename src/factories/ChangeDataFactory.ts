@@ -20,6 +20,7 @@ export default class ChangeDataFactory {
   contentControlTitle: string;
   headingLevel?: number;
   rawChangesArray: any = [];
+  linkedWiItems: any[] = [];
   adoptedChangeData: any[] = [];
   branchName: string;
   includePullRequests: boolean;
@@ -29,6 +30,7 @@ export default class ChangeDataFactory {
   tocTitle?: string;
   queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
+  linkedWiOptions: any;
   private attachmentMinioData: any[]; //attachment data
   private attachmentsBucketName: string;
   private minioEndPoint: string;
@@ -55,7 +57,8 @@ export default class ChangeDataFactory {
     PAT: string,
     tocTitle?: string,
     queriesRequest: any = undefined,
-    includedWorkItemByIdSet: Set<number> = undefined
+    includedWorkItemByIdSet: Set<number> = undefined,
+    linkedWiOptions: any = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -78,6 +81,7 @@ export default class ChangeDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
+    this.linkedWiOptions = linkedWiOptions;
   } //constructor
 
   async fetchSvdData() {
@@ -211,8 +215,10 @@ export default class ChangeDataFactory {
           artifactChanges = await gitDataProvider.GetItemsInCommitRange(
             this.teamProject,
             this.repoId,
-            commitsInCommitRange
+            commitsInCommitRange,
+            this.linkedWiOptions
           );
+
           this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
           this.rawChangesArray.push({
             artifact: focusedArtifact,
@@ -239,7 +245,10 @@ export default class ChangeDataFactory {
             toGitObject.type,
             gitRepo.name,
             gitRepo.url,
-            this.includedWorkItemByIdSet
+            this.includedWorkItemByIdSet,
+            undefined,
+            undefined,
+            this.linkedWiOptions
           );
           artifactChanges.push(...items);
           this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -280,7 +289,8 @@ export default class ChangeDataFactory {
             artifactChanges = await gitDataProvider.GetItemsInCommitRange(
               this.teamProject,
               this.repoId,
-              commitsInDateRange
+              commitsInDateRange,
+              this.linkedWiOptions
             );
 
             let repoName = repo.name;
@@ -558,7 +568,10 @@ export default class ChangeDataFactory {
             'commit',
             gitRepoName,
             gitRepoUrl,
-            this.includedWorkItemByIdSet
+            this.includedWorkItemByIdSet,
+            undefined,
+            undefined,
+            this.linkedWiOptions
           );
 
           artifactChanges.push(...pipelineRangeItems);
@@ -682,7 +695,8 @@ export default class ChangeDataFactory {
     gitRepoUrl: any,
     includedWorkItemByIdSet: Set<number> = undefined,
     gitSubModuleName: string = '',
-    specificItemPath: string = ''
+    specificItemPath: string = '',
+    linkedWiOptions: any = undefined
   ) {
     const allExtendedCommits: any[] = [];
     try {
@@ -707,7 +721,8 @@ export default class ChangeDataFactory {
             gitSubModuleName: gitSubModuleName,
             url: gitApisUrl,
           },
-          includedWorkItemByIdSet
+          includedWorkItemByIdSet,
+          linkedWiOptions
         );
         logger.debug(`found ${foundItems.length} items for ${gitRepoName}`);
         allExtendedCommits.push(...foundItems);
@@ -720,7 +735,8 @@ export default class ChangeDataFactory {
           toVersionType,
           fromVersionType,
           extendedCommits,
-          includedWorkItemByIdSet
+          includedWorkItemByIdSet,
+          linkedWiOptions
         );
         allExtendedCommits.push(...submoduleItems);
       }
@@ -741,7 +757,8 @@ export default class ChangeDataFactory {
     fromVersionType: string,
     allCommitsExtended: any[],
     includedWorkItemByIdSet: Set<number>,
-    subModuleName: string = ''
+    subModuleName: string = '',
+    linkedWiOptions: any = undefined
   ) {
     const itemsToReturn: any[] = [];
     try {
@@ -769,7 +786,9 @@ export default class ChangeDataFactory {
           gitSubRepoName,
           gitSubRepoUrl,
           includedWorkItemByIdSet,
-          gitSubModuleName
+          gitSubModuleName,
+          undefined,
+          linkedWiOptions
         );
 
         itemsToReturn.push(...items);
@@ -807,7 +826,8 @@ export default class ChangeDataFactory {
       this.PAT,
       pipelineTitle,
       undefined,
-      this.includedWorkItemByIdSet
+      this.includedWorkItemByIdSet,
+      this.linkedWiOptions
     );
     await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
@@ -831,7 +851,10 @@ export default class ChangeDataFactory {
       'commit',
       toArtifact.definitionReference['definition'].name,
       gitRepo.url,
-      this.includedWorkItemByIdSet
+      this.includedWorkItemByIdSet,
+      undefined,
+      undefined,
+      this.linkedWiOptions
     );
     this.isChangesReachedMaxSize(this.rangeType, pipelineRangeItems?.length);
     this.rawChangesArray.push({
@@ -914,7 +937,8 @@ export default class ChangeDataFactory {
         this.PAT,
         tocTitle,
         undefined,
-        this.includedWorkItemByIdSet
+        this.includedWorkItemByIdSet,
+        this.linkedWiOptions
       );
 
       await buildChangeFactory.fetchChangesData();
@@ -1012,7 +1036,8 @@ export default class ChangeDataFactory {
           serviceGitRepoApiUrl,
           this.includedWorkItemByIdSet,
           undefined,
-          itemPath
+          itemPath,
+          this.linkedWiOptions
         );
         this.isChangesReachedMaxSize(this.rangeType, items?.length);
         this.rawChangesArray.push({

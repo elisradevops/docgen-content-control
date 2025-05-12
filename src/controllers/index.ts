@@ -172,7 +172,8 @@ export default class DgContentControls {
             contentControlOptions.data.includeChangeDescription,
             contentControlOptions.data.includeCommittedBy,
             contentControlOptions.data.systemOverviewQuery,
-            contentControlOptions.data.attachmentWikiUrl
+            contentControlOptions.data.attachmentWikiUrl,
+            contentControlOptions.data.linkedWiOptions
           );
           break;
         case 'pr-change-description-table':
@@ -332,7 +333,9 @@ export default class DgContentControls {
       }
     } catch (error) {
       logger.error(`Error initializing test data factory ${error.message}`);
-      throw error;
+      if (!error.message.includes('Warning:')) {
+        throw error;
+      }
     }
     try {
       const contentControls: contentControl[] = [];
@@ -832,7 +835,8 @@ export default class DgContentControls {
     includeChangeDescription: boolean = false,
     includeCommittedBy: boolean = false,
     systemOverviewQuery: any = null,
-    attachmentWikiUrl: string = ''
+    attachmentWikiUrl: string = '',
+    linkedWiOptions: any = null
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -844,7 +848,8 @@ export default class DgContentControls {
       teamProjectName:${this.teamProjectName}
       branchName:${branchName}
       includePullRequests:${includePullRequests}
-      attachmentsWikiUrl:${attachmentWikiUrl}`);
+      attachmentsWikiUrl:${attachmentWikiUrl}
+      linkedWiOptions:${JSON.stringify(linkedWiOptions)}`);
     try {
       let changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
@@ -865,7 +870,9 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT,
         undefined,
-        systemOverviewQuery
+        systemOverviewQuery,
+        undefined,
+        linkedWiOptions
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
