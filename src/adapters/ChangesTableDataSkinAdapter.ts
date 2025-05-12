@@ -17,6 +17,7 @@ export default class ChangesTableDataSkinAdapter {
   minioSecretKey: string;
   attachmentMinioData: any[];
   PAT: string;
+  hasAnyLinkedItems: boolean = false; // Track if any change has linked items
 
   constructor(
     rawChangesArray: any[],
@@ -112,6 +113,13 @@ export default class ChangesTableDataSkinAdapter {
     this.adoptedData = [];
     let changeCounter = 0;
 
+    // Check if any change has linked items first
+    this.hasAnyLinkedItems = this.rawChangesArray.some(
+      (rawChange) =>
+        rawChange.changes &&
+        rawChange.changes.some((change) => change.linkedItems && change.linkedItems.length > 0)
+    );
+
     for (const rawChange of this.rawChangesArray) {
       // If no changes exist for this artifact, push an error message and move on.
       if (!rawChange.changes || rawChange.changes.length === 0) {
@@ -128,16 +136,21 @@ export default class ChangesTableDataSkinAdapter {
 
       const artifactChanges = [];
       for (const change of rawChange.changes) {
-        let changeRow;
         if (change.workItem) {
           // Changes that have a work item
-          changeRow = await this.buildWorkItemChangeRow(change, changeCounter);
+          const workItemRows = await this.buildWorkItemChangeRow(change, changeCounter);
+          if (Array.isArray(workItemRows)) {
+            // Multiple rows due to linked items
+            artifactChanges.push(...workItemRows);
+          } else {
+            // Single row
+            artifactChanges.push(workItemRows);
+          }
         } else {
           // Changes that are pull requests
-          changeRow = this.buildPullRequestChangeRow(change, changeCounter);
+          const pullRequestRow = this.buildPullRequestChangeRow(change, changeCounter);
+          artifactChanges.push(pullRequestRow);
         }
-
-        artifactChanges.push(changeRow);
         changeCounter++;
       }
 
@@ -181,6 +194,7 @@ export default class ChangesTableDataSkinAdapter {
   // Helper function to build a work item change row
   private async buildWorkItemChangeRow(change: any, index: number) {
     const description: string = change.workItem.fields['System.Description'];
+    let hasLinkedItems = change.linkedItems && change.linkedItems.length > 0;
     let cleanedDescription = '';
     if (description) {
       cleanedDescription = await this.htmlUtils.cleanHtml(description);
@@ -205,31 +219,32 @@ export default class ChangesTableDataSkinAdapter {
       this.attachmentMinioData.push(attachmentBucketData);
     });
 
-    const fields = [
+    // Create the base fields for the work item
+    const baseFields = [
       { name: '#', value: index + 1, width: '3.8%' },
       change.targetRepo
         ? {
             name: 'Repository',
             value: `${change.targetRepo.gitSubModuleName || change.targetRepo.repoName}`,
             url: change.targetRepo.url,
-            width: '9.8%',
+            width: `${this.hasAnyLinkedItems ? '8.7%' : '9.8%'}`,
           }
         : null,
       {
         name: 'Change #',
         ...this.applyChangeNumber(change),
-        width: '7.6%',
+        width: '7.7%',
       },
       {
         name: 'WI ID',
         value: `${change.workItem.id}`,
         url: change.workItem._links.html.href,
-        width: '8.3%',
+        width: `${this.hasAnyLinkedItems ? '6.8%' : '8.3%'}`,
       },
       {
         name: 'WI Type',
         value: `${change.workItem.fields['System.WorkItemType']}`,
-        width: '11.9%',
+        width: `${this.hasAnyLinkedItems ? '9.7%' : '11.9%'}`,
       },
       {
         name: 'WI Title',
@@ -237,22 +252,85 @@ export default class ChangesTableDataSkinAdapter {
       },
       {
         name: 'Change description',
-        condition: this.includeChangeDescription,
+        condition: this.includeChangeDescription && !this.hasAnyLinkedItems,
         value: descriptionRichText ?? '',
         width: '20.8%',
       },
-      { name: 'Committed Date & Time', ...this.applyClosedDateData(change), width: '10%' },
+      {
+        name: 'Committed Date & Time',
+        ...this.applyClosedDateData(change),
+        width: `${this.hasAnyLinkedItems ? '9.7%' : '10%'}`,
+      },
       {
         name: 'Committed by',
         ...this.applyCommitterData(change),
         width: '11.4%',
-        condition: this.includeCommittedBy,
+        condition: this.includeCommittedBy && !this.hasAnyLinkedItems,
       },
     ].filter((field: any) => field !== null && (field.condition === undefined || field.condition === true));
 
-    return { fields };
-  }
+    // Check if there are linked items
+    const rows = [];
+    if (hasLinkedItems) {
+      // First linked item - add to the original row
+      const firstLinkedItem = change.linkedItems[0];
+      const linkedFields = this.buildLinkedItemFields(firstLinkedItem);
 
+      // Add first linked item to the base row
+      rows.push({ fields: [...baseFields, ...linkedFields] });
+
+      // Create additional rows for each additional linked item
+      for (let i = 1; i < change.linkedItems.length; i++) {
+        const linkedItem = change.linkedItems[i];
+        const linkedFields = this.buildLinkedItemFields(linkedItem);
+
+        // Create empty fields for the base row data
+        const emptyBaseFields = baseFields.map((field) => ({
+          ...field,
+          value: '',
+          url: undefined,
+        }));
+
+        rows.push({ fields: [...emptyBaseFields, ...linkedFields] });
+      }
+    } else {
+      // No linked items for this change, but we might need to add empty linked item fields
+      if (this.hasAnyLinkedItems) {
+        // Add empty linked item fields
+        const emptyLinkedFields = this.buildLinkedItemFields({});
+        rows.push({ fields: [...baseFields, ...emptyLinkedFields] });
+      } else {
+        // No linked items anywhere, just return the base row
+        rows.push({ fields: baseFields });
+      }
+    }
+
+    return rows.length === 1 ? rows[0] : rows;
+  }
+  private buildLinkedItemFields(linkedItem: any) {
+    return [
+      {
+        name: 'Linked WI ID',
+        value: linkedItem.id || '',
+        url: linkedItem.url,
+        width: '6.8%',
+      },
+      {
+        name: 'Linked WI Title',
+        value: linkedItem.title || '',
+      },
+      {
+        name: 'Linked WI Type',
+        value: linkedItem.wiType || '',
+        width: '9.7%',
+      },
+      {
+        name: 'Relation Type',
+        value: linkedItem.relationType || '',
+        width: '8.5%',
+      },
+    ];
+  }
   // Helper function to build a pull request change row
   private buildPullRequestChangeRow(change: any, index: number) {
     const fields = [

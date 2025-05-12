@@ -114,7 +114,7 @@ export default class TestDataFactory {
       // check if reccurse fetching by plan or per suite
 
       if (testSuites.length === 0) {
-        throw new Error(`No test suites for plan id ${this.testPlanId} were found`);
+        throw new Error(`Warning: No test suites for plan id ${this.testPlanId} were found`);
       }
 
       if (this.isSuiteSpecific == true && testSuites.length != 0) {
