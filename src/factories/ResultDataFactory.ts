@@ -103,7 +103,11 @@ export default class ResultDataFactory {
     }
   }
 
-  public async fetchTestReporterResults(selectedFields: string[], enableRunStepStatusFilter: boolean) {
+  public async fetchTestReporterResults(
+    selectedFields: string[],
+    enableRunTestCaseFilter: boolean,
+    enableRunStepStatusFilter: boolean
+  ) {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
       const testResultsItems = await resultDataProvider.getTestReporterResults(
@@ -111,6 +115,7 @@ export default class ResultDataFactory {
         this.teamProject,
         this.testSuiteArray,
         selectedFields,
+        enableRunTestCaseFilter,
         enableRunStepStatusFilter
       );
 

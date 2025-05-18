@@ -86,11 +86,11 @@ export default class TestReporterDataSkinAdapter {
         }
 
         const testStep = {
-          stepNo: item.stepNo || null,
-          stepAction: action,
-          stepExpected: expected,
-          stepRunStatus: item.stepStatus || null,
-          stepErrorMessage: item.stepComments || null,
+          stepNo: item.stepNo || '',
+          stepAction: action || '',
+          stepExpected: expected || '',
+          stepRunStatus: item.stepStatus || '',
+          stepErrorMessage: item.stepComments || '',
         };
 
         testCase.testSteps.push(testStep);
