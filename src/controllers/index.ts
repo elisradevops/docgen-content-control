@@ -155,6 +155,7 @@ export default class DgContentControls {
             contentControlOptions.data.testPlanId,
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.data.selectedFields,
+            contentControlOptions.data.enableRunTestCaseFilter,
             contentControlOptions.data.enableRunStepStatusFilter
           );
           break;
@@ -718,6 +719,7 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     selectedFields: string[],
+    enableRunTestCaseFilter: boolean,
     enableRunStepStatusFilter: boolean
   ) {
     let resultDataFactory: ResultDataFactory;
@@ -761,7 +763,11 @@ export default class DgContentControls {
         this.PAT
       );
 
-      await resultDataFactory.fetchTestReporterResults(selectedFields, enableRunStepStatusFilter);
+      await resultDataFactory.fetchTestReporterResults(
+        selectedFields,
+        enableRunTestCaseFilter,
+        enableRunStepStatusFilter
+      );
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);
       throw error;
