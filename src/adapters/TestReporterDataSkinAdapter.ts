@@ -61,9 +61,11 @@ export default class TestReporterDataSkinAdapter {
             state: item.state || null,
             executionDate: item.executionDate || null,
             assignedTo: item.assignedTo || null,
+            subSystem: item.subSystem || null,
             automationStatus: item.automationStatus || null,
             associatedRequirements: item.relatedRequirements || null,
             associatedBugs: item.relatedBugs || null,
+            associatedCRs: item.relatedCRs || null,
             testSteps: [],
           });
         }
