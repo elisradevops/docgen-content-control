@@ -145,7 +145,7 @@ export default class DgContentControls {
             contentControlOptions.data.stepAnalysis,
             contentControlOptions.data.includeConfigurations,
             contentControlOptions.data.includeHierarchy,
-            contentControlOptions.data.includeOpenPCRs,
+            contentControlOptions.data.openPCRsSelectionRequest,
             contentControlOptions.data.includeTestLog,
             contentControlOptions.data.includeHardCopyRun
           );
@@ -398,6 +398,74 @@ export default class DgContentControls {
     }
   }
 
+  private async structureOpenPcrSkins(
+    resultDataFactory: ResultDataFactory,
+    headerStyles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    styles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    headingLevel: number,
+    contentControls: contentControl[]
+  ) {
+    try {
+      const queryResultsConfig = [
+        {
+          data: resultDataFactory.adoptedQueryResults?.testToOpenPcrAdoptedData || {},
+          title: 'test-cases-to-open-pcr-content-control',
+          noDataMessage: 'No Test Case to Open PCR query result data',
+        },
+        {
+          data: resultDataFactory.adoptedQueryResults?.OpenPcrToTestAdoptedData || undefined,
+          title: 'open-pcr-to-test-cases-content-control',
+          noDataMessage: 'No Open PCR to Test Case query result data',
+        },
+      ];
+
+      for (const { data, title, noDataMessage } of queryResultsConfig) {
+        data['errorMessage'] =
+          !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+
+        const contentControlResults: contentControl = {
+          title,
+          wordObjects: [],
+        };
+        const queryResultSkins = await this.skins.addNewContentToDocumentSkin(
+          title,
+          this.skins.SKIN_TYPE_TRACE,
+          data,
+          headerStyles,
+          styles,
+          headingLevel
+        );
+
+        queryResultSkins.forEach((skin) => {
+          contentControlResults.wordObjects.push(skin);
+        });
+
+        contentControls.push(contentControlResults);
+      }
+    } catch (error) {
+      logger.debug(`Error structuring trace skins: ${error.message}`);
+      throw error;
+    }
+  }
+
   private async structureTraceSkins(
     testDataFactory: TestDataFactory,
     headerStyles: {
@@ -530,7 +598,7 @@ export default class DgContentControls {
     stepAnalysis?: any,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
-    includeOpenPCRs: boolean = false,
+    openPCRsSelectionRequest: any = undefined,
     includeTestLog: boolean = false,
     includeHardCopyRun: boolean = false
   ) {
@@ -552,7 +620,7 @@ export default class DgContentControls {
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}
-      includeOpenPCRs:${includeOpenPCRs}`);
+      openPCRsSelectionRequest:${JSON.stringify(openPCRsSelectionRequest)}`);
 
       //Run the result data factory
       resultDataFactory = new ResultDataFactory(
@@ -564,7 +632,7 @@ export default class DgContentControls {
         stepAnalysis,
         includeConfigurations,
         includeHierarchy,
-        includeOpenPCRs,
+        openPCRsSelectionRequest,
         includeTestLog,
         this.dgDataProviderAzureDevOps,
         this.templatePath,
@@ -575,7 +643,17 @@ export default class DgContentControls {
         includeHardCopyRun
       );
 
+      if (openPCRsSelectionRequest?.openPcrMode === 'query') {
+        await resultDataFactory.fetchQueryResultsForOpenPCR();
+      }
+
       await resultDataFactory.fetchGetCombinedResultsSummary();
+
+      if (openPCRsSelectionRequest?.openPcrMode === 'linked') {
+        await resultDataFactory.fetchLinkedOpenPcrTrace();
+      }
+
+      //TODO: add support for the linked openPCR
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);
       throw error;
@@ -639,6 +717,16 @@ export default class DgContentControls {
         const contentControl = { title, wordObjects: skin };
         contentControls.push(contentControl);
       });
+
+      if (openPCRsSelectionRequest.openPcrMode !== 'none') {
+        await this.structureOpenPcrSkins(
+          resultDataFactory,
+          headerStyles,
+          styles,
+          headingLevel,
+          contentControls
+        );
+      }
 
       if (stepExecution?.isEnabled) {
         try {

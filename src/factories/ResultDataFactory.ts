@@ -7,6 +7,8 @@ import OpenPCRsDataSkinAdapter from '../adapters/OpenPCRsDataSkinAdapter';
 import TestLogDataSkinAdapter from '../adapters/TestLogDataSkinAdapter';
 import StepAnalysisSkinAdapter from '../adapters/StepAnalysisSkinAdapter';
 import TestReporterDataSkinAdapter from '../adapters/TestReporterDataSkinAdapter';
+import OpenPcrQueryResultsSkinAdapter from '../adapters/OpenPcrQueryResultsSkinAdapter';
+import TraceByLinkedPCRAdapter from '../adapters/TraceByLinkedPCRAdapter';
 
 export default class ResultDataFactory {
   isSuiteSpecific = false;
@@ -15,12 +17,13 @@ export default class ResultDataFactory {
   testPlanId: number;
   testSuiteArray: number[];
   adoptedResultDataArray: any[];
+  adoptedQueryResults: any;
   templatePath: string;
   stepExecution: any;
   stepAnalysis: any;
   includeConfigurations: boolean;
   includeHierarchy: boolean;
-  includeOpenPCRs: boolean;
+  openPCRsSelectionRequest: any;
   includeTestLog: boolean;
   minioEndPoint: string;
   minioAccessKey: string;
@@ -29,6 +32,11 @@ export default class ResultDataFactory {
   attachmentsBucketName: string;
   attachmentMinioData: any[];
   includeHardCopyRun: boolean;
+  testToOpenPcrQuery: Map<any, any[]>;
+  OpenPcrToTestQuery: Map<any, any[]>;
+  openPcrToTestCaseTraceMap: Map<any, any[]>;
+  testCaseToOpenPcrTraceMap: Map<any, any[]>;
+  testCaseToOpenPcrLookup: Map<number, Set<any>>;
 
   constructor(
     attachmentBucketName: string = '',
@@ -39,7 +47,7 @@ export default class ResultDataFactory {
     stepAnalysis: any,
     includeConfigurations: boolean = false,
     includeHierarchy: boolean = false,
-    includeOpenPCRs: boolean = false,
+    openPCRsSelectionRequest: any = undefined,
     includeTestLog: boolean = false,
     dgDataProvider: any,
     templatePath = '',
@@ -57,7 +65,7 @@ export default class ResultDataFactory {
     this.stepAnalysis = stepAnalysis;
     this.includeConfigurations = includeConfigurations;
     this.includeHierarchy = includeHierarchy;
-    this.includeOpenPCRs = includeOpenPCRs;
+    this.openPCRsSelectionRequest = openPCRsSelectionRequest;
     this.includeTestLog = includeTestLog;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
@@ -70,18 +78,25 @@ export default class ResultDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.includeHardCopyRun = includeHardCopyRun;
+    this.openPcrToTestCaseTraceMap = new Map<any, any[]>();
+    this.testCaseToOpenPcrTraceMap = new Map<any, any[]>();
+    this.testCaseToOpenPcrLookup = new Map<number, Set<any>>();
   }
 
   public async fetchGetCombinedResultsSummary() {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
-      const combinedResultsItems = await resultDataProvider.getCombinedResultsSummary(
+      const {
+        combinedResults: combinedResultsItems,
+        openPcrToTestCaseTraceMap,
+        testCaseToOpenPcrTraceMap,
+      } = await resultDataProvider.getCombinedResultsSummary(
         this.testPlanId.toString(),
         this.teamProject,
         this.testSuiteArray,
         this.includeConfigurations,
         this.includeHierarchy,
-        this.includeOpenPCRs,
+        this.openPCRsSelectionRequest,
         this.includeTestLog,
         this.stepExecution,
         this.stepAnalysis,
@@ -90,6 +105,14 @@ export default class ResultDataFactory {
 
       if (combinedResultsItems.length === 0) {
         throw `No test data found for the specified plan ${this.testPlanId}`;
+      }
+
+      if (openPcrToTestCaseTraceMap) {
+        this.openPcrToTestCaseTraceMap = openPcrToTestCaseTraceMap;
+      }
+
+      if (testCaseToOpenPcrTraceMap) {
+        this.testCaseToOpenPcrTraceMap = testCaseToOpenPcrTraceMap;
       }
 
       this.adoptedResultDataArray = await Promise.all(
@@ -134,13 +157,141 @@ export default class ResultDataFactory {
     }
   }
 
-  public async jsonSkinDataAdapter(adapterType: string = null, rawData: any[]): Promise<any> {
+  public async fetchQueryResultsForOpenPCR() {
+    const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
+    const testCaseToOpenPcrsMap = new Map<number, Set<any>>();
+    if (this.openPCRsSelectionRequest.testToOpenPcrQuery) {
+      logger.info('starting to fetch query results');
+      logger.info('fetching test - Open PCR results');
+      logger.info(`reading query ${this.openPCRsSelectionRequest.testToOpenPcrQuery.title}`);
+      let testToOpenPcrQuery: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+        this.openPCRsSelectionRequest.testToOpenPcrQuery.wiql.href,
+        true,
+        testCaseToOpenPcrsMap
+      );
+      logger.info(`test to open pcr results are ${testToOpenPcrQuery ? 'ready' : 'not found'}`);
+      this.testToOpenPcrQuery = testToOpenPcrQuery;
+    }
+    if (this.openPCRsSelectionRequest.OpenPcrToTestQuery) {
+      logger.info('fetching Open PCR - test results');
+      logger.info(`reading query ${this.openPCRsSelectionRequest.OpenPcrToTestQuery.title}`);
+      let openPcrToTestQuery: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+        this.openPCRsSelectionRequest.OpenPcrToTestQuery.wiql.href,
+        true,
+        testCaseToOpenPcrsMap
+      );
+      logger.info(`open pcr to test results are ${openPcrToTestQuery ? 'ready' : 'not found'}`);
+      this.OpenPcrToTestQuery = openPcrToTestQuery;
+    }
+
+    const includeCommonColumnsMode = this.openPCRsSelectionRequest.includeCommonColumnsMode;
+    this.adoptedQueryResults = await this.jsonSkinDataAdapter(
+      `query-results`,
+      null,
+      includeCommonColumnsMode
+    );
+    this.testCaseToOpenPcrLookup = testCaseToOpenPcrsMap;
+  }
+
+  async fetchLinkedOpenPcrTrace() {
     try {
-      let adoptedTestResultData;
+      this.adoptedQueryResults = await this.jsonSkinDataAdapter('linked-pcr-trace', []);
+    } catch (err) {
+      logger.error(`Could not fetch linked open pcr trace: ${err.message}`);
+    }
+  }
+
+  public async jsonSkinDataAdapter(
+    adapterType: string = null,
+    rawData: any[],
+    includeCommonColumnsMode: string = 'both'
+  ): Promise<any> {
+    try {
+      let adoptedTestResultData: any = {};
       switch (adapterType) {
         case 'test-result-test-group-summary-table':
           const testResultGroupSummaryDataSkinAdapter = new TestResultGroupSummaryDataSkinAdapter();
           adoptedTestResultData = testResultGroupSummaryDataSkinAdapter.jsonSkinDataAdapter(rawData);
+          break;
+
+        case 'linked-pcr-trace':
+          const linkedRequirementConfigs = [
+            {
+              mapData: this.testCaseToOpenPcrTraceMap,
+              type: 'test-to-open-pcr',
+              adoptedDataKey: 'testToOpenPcrAdoptedData',
+            },
+            {
+              mapData: this.openPcrToTestCaseTraceMap,
+              type: 'open-pcr-to-test',
+              adoptedDataKey: 'OpenPcrToTestAdoptedData',
+            },
+          ];
+
+          for (const { mapData, type, adoptedDataKey } of linkedRequirementConfigs) {
+            const title = {
+              fields: [
+                {
+                  name: 'Title',
+                  value: `${
+                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                  }`,
+                },
+              ],
+              level: 2,
+            };
+            if (mapData) {
+              const linkedPcrSkinAdapter = new TraceByLinkedPCRAdapter(mapData, type);
+
+              linkedPcrSkinAdapter.adoptSkinData();
+              const adoptedData = linkedPcrSkinAdapter.getAdoptedData();
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData };
+            } else {
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData: null };
+            }
+          }
+
+          break;
+
+        case 'query-results':
+          const queryConfigs = [
+            {
+              queryResults: this.testToOpenPcrQuery,
+              type: 'test-to-open-pcr',
+              adoptedDataKey: 'testToOpenPcrAdoptedData',
+            },
+            {
+              queryResults: this.OpenPcrToTestQuery,
+              type: 'open-pcr-to-test',
+              adoptedDataKey: 'OpenPcrToTestAdoptedData',
+            },
+          ];
+          for (const { queryResults, type, adoptedDataKey } of queryConfigs) {
+            const title = {
+              fields: [
+                {
+                  name: 'Title',
+                  value: `${
+                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                  }`,
+                },
+              ],
+              level: 2,
+            };
+            if (queryResults) {
+              const queryResultSkinAdapter = new OpenPcrQueryResultsSkinAdapter(
+                queryResults,
+                type,
+                includeCommonColumnsMode
+              );
+
+              queryResultSkinAdapter.adoptSkinData();
+              const adoptedData = queryResultSkinAdapter.getAdoptedData();
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData };
+            } else {
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData: null };
+            }
+          }
           break;
 
         case 'test-result-table':
@@ -170,10 +321,6 @@ export default class ResultDataFactory {
           );
           const adopted = await testReporterSkinAdapter.jsonSkinDataAdapter(rawData);
           adoptedTestResultData = adopted;
-          break;
-        case 'open-pcr-table':
-          const openPCRSkinAdapter = new OpenPCRsDataSkinAdapter();
-          adoptedTestResultData = openPCRSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
 
         case 'test-log-table':

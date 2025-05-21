@@ -1,26 +1,19 @@
 import logger from '../services/logger';
 
-export default class QueryResultsSkinAdapter {
+export default class OpenPcrQueryResultsSkinAdapter {
   rawQueryMapping: any;
   queryMode: string;
-  includeCustomerId: boolean;
   sortingSourceColumnsMap: Map<string, string>;
   sortingTargetsColumnsMap: Map<string, string>;
   private includeCommonColumnsMode: string;
   private adoptedData: any[] = [];
 
-  constructor(
-    rawResults,
-    queryMode = 'none',
-    includeCustomerId = false,
-    includeCommonColumns: string = 'both'
-  ) {
+  constructor(rawResults, queryMode = 'none', includeCommonColumns: string = 'both') {
     const { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap } = rawResults;
     this.rawQueryMapping = sourceTargetsMap;
     this.sortingSourceColumnsMap = sortingSourceColumnsMap;
     this.sortingTargetsColumnsMap = sortingTargetsColumnsMap;
     this.queryMode = queryMode;
-    this.includeCustomerId = includeCustomerId;
     this.includeCommonColumnsMode = includeCommonColumns;
   }
 
@@ -33,17 +26,17 @@ export default class QueryResultsSkinAdapter {
       let groupIdx = 0;
 
       for (const [source, targets] of this.rawQueryMapping) {
-        const currentReqColor = reqColors[groupIdx % reqColors.length];
+        const currentOpenPcrColor = reqColors[groupIdx % reqColors.length];
         const currentTestColor = testColors[groupIdx % testColors.length];
         groupIdx++;
 
         switch (this.queryMode.toLowerCase()) {
-          case 'req-test':
-            this.processReqTest(source, targets, currentReqColor, currentTestColor, baseShading);
+          case 'open-pcr-to-test':
+            this.processOpenPcrTest(source, targets, currentOpenPcrColor, currentTestColor, baseShading);
             break;
 
-          case 'test-req':
-            this.processTestReq(source, targets, currentReqColor, currentTestColor, baseShading);
+          case 'test-to-open-pcr':
+            this.processTestOpenPcr(source, targets, currentOpenPcrColor, currentTestColor, baseShading);
             break;
 
           default:
@@ -84,7 +77,11 @@ export default class QueryResultsSkinAdapter {
     // Process other fields
     for (const [referenceName, fieldName] of mapToUse.entries()) {
       // Skip 'Title' and 'Work Item Type' as per original logic
-      if (fieldName === 'Title' || fieldName === 'Work Item Type' || fieldName === 'ID') {
+      if (
+        fieldName === 'Title' ||
+        (type === 'Test Case' && fieldName === 'Work Item Type') ||
+        fieldName === 'ID'
+      ) {
         continue;
       }
       // Skip common columns if only one instance is allowed
@@ -114,15 +111,6 @@ export default class QueryResultsSkinAdapter {
             color: color,
           });
           break;
-        case 'Customer ID':
-          adaptedFields.push({
-            name: fieldName,
-            value: item?.fields[referenceName] || '',
-            color: color,
-            width: '9.7%',
-          });
-
-          break;
         case 'Area Path':
           adaptedFields.push({
             name: 'Node Name',
@@ -147,7 +135,7 @@ export default class QueryResultsSkinAdapter {
     return adaptedFields;
   }
 
-  private processReqTest(
+  private processOpenPcrTest(
     source: any,
     targets: any[],
     currentReqColor: string,
@@ -160,7 +148,7 @@ export default class QueryResultsSkinAdapter {
       source,
       currentReqColor,
       false,
-      'Req',
+      'PCR',
       this.includeCommonColumnsMode === 'testOnly'
     );
     if (targets.length === 0) {
@@ -169,12 +157,18 @@ export default class QueryResultsSkinAdapter {
         currentTestColor,
         false,
         'Test Case',
-        this.includeCommonColumnsMode === 'reqOnly'
+        this.includeCommonColumnsMode === 'openPcrOnly'
       );
 
       const fields = this.buildFields({
         items: [
-          { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
+          {
+            name: 'PCR ID',
+            value: source.id,
+            width: '6.8%',
+            color: currentReqColor,
+            url: source._links?.html?.href || undefined,
+          },
           ...adaptedSourceFields,
           { name: 'Test Case ID', value: '', width: '6.8%', color: currentTestColor },
           { name: 'Test Case Title', value: '', color: currentTestColor },
@@ -190,13 +184,25 @@ export default class QueryResultsSkinAdapter {
           currentTestColor,
           false,
           'Test Case',
-          this.includeCommonColumnsMode === 'reqOnly'
+          this.includeCommonColumnsMode === 'openPcrOnly'
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
+            {
+              name: 'PCR ID',
+              value: source.id,
+              width: '6.8%',
+              color: currentReqColor,
+              url: source._links?.html?.href || undefined,
+            },
             ...adaptedSourceFields,
-            { name: 'Test Case ID', value: target.id, width: '6.8%', color: currentTestColor },
+            {
+              name: 'Test Case ID',
+              value: target.id,
+              width: '6.8%',
+              color: currentTestColor,
+              url: target._links?.html?.href || undefined,
+            },
             ...adaptedTargetFields,
           ],
           baseShading,
@@ -206,7 +212,7 @@ export default class QueryResultsSkinAdapter {
     }
   }
 
-  private processTestReq(
+  private processTestOpenPcr(
     source: any,
     targets: any[],
     currentReqColor: string,
@@ -218,22 +224,28 @@ export default class QueryResultsSkinAdapter {
       currentTestColor,
       true,
       'Test Case',
-      this.includeCommonColumnsMode === 'reqOnly'
+      this.includeCommonColumnsMode === 'openPcrOnly'
     );
     if (targets.length === 0) {
       const adaptedTargetFields: any[] = this.adaptFields(
         null,
         currentReqColor,
         false,
-        'Req',
+        'PCR',
         this.includeCommonColumnsMode === 'testOnly'
       );
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
+          {
+            name: 'Test Case ID',
+            value: source.id,
+            width: '6.8%',
+            color: currentTestColor,
+            url: source._links?.html?.href || undefined,
+          },
           ...adaptedSourceFields,
-          { name: 'Req ID', value: '', width: '6.8%', color: currentReqColor },
-          { name: 'Req Title', value: '', color: currentReqColor },
+          { name: 'PCR ID', value: '', width: '6.8%', color: currentReqColor },
+          { name: 'PCR Title', value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -245,14 +257,26 @@ export default class QueryResultsSkinAdapter {
           target,
           currentReqColor,
           false,
-          'Req',
+          'PCR',
           this.includeCommonColumnsMode === 'testOnly'
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
+            {
+              name: 'Test Case ID',
+              value: source.id,
+              width: '6.8%',
+              color: currentTestColor,
+              url: source._links?.html?.href || undefined,
+            },
             ...adaptedSourceFields,
-            { name: 'Req ID', value: target.id, width: '6.8%', color: currentReqColor },
+            {
+              name: 'PCR ID',
+              value: target.id,
+              width: '6.8%',
+              color: currentReqColor,
+              url: target._links?.html?.href || undefined,
+            },
             ...adaptedTargetFields,
           ],
           baseShading,
