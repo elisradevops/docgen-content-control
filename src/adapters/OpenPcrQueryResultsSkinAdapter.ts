@@ -15,6 +15,7 @@ export default class OpenPcrQueryResultsSkinAdapter {
     this.sortingTargetsColumnsMap = sortingTargetsColumnsMap;
     this.queryMode = queryMode;
     this.includeCommonColumnsMode = includeCommonColumns;
+    logger.debug(`includeCommonColumnsMode: ${this.includeCommonColumnsMode}`);
   }
 
   adoptSkinData() {
@@ -58,9 +59,25 @@ export default class OpenPcrQueryResultsSkinAdapter {
     excludeCommonColumnInstance: boolean = false
   ) {
     const adaptedFields: any[] = [];
-    const mapToUse: Map<string, string> = !isSource
-      ? this.sortingTargetsColumnsMap
-      : this.sortingSourceColumnsMap;
+    const sourceMap = this.sortingSourceColumnsMap;
+    const targetMap = this.sortingTargetsColumnsMap;
+    const mapToUse: Map<string, string> = !isSource ? targetMap : sourceMap;
+
+    // Find common fields between source and target maps
+    let commonFields: Set<string> = new Set();
+    if (excludeCommonColumnInstance) {
+      // Get all field names from both maps
+      const sourceFieldNames = new Set(Array.from(sourceMap.values()));
+      const targetFieldNames = new Set(Array.from(targetMap.values()));
+
+      // Find intersection of field names (common fields)
+      for (const fieldName of sourceFieldNames) {
+        if (targetFieldNames.has(fieldName)) {
+          commonFields.add(fieldName);
+        }
+      }
+    }
+
     // Process 'Title' field first if it exists
     const titleReferenceName = Array.from(mapToUse.entries()).find(
       ([_, fieldName]) => fieldName === 'Title'
@@ -84,13 +101,9 @@ export default class OpenPcrQueryResultsSkinAdapter {
       ) {
         continue;
       }
-      // Skip common columns if only one instance is allowed
-      if (
-        excludeCommonColumnInstance &&
-        (fieldName === 'Test Phase' ||
-          fieldName === 'Verification Method' ||
-          fieldName === 'System Discipline')
-      ) {
+
+      // Skip common fields if excludeCommonColumnInstance is true
+      if (excludeCommonColumnInstance && commonFields.has(fieldName)) {
         continue;
       }
 
@@ -134,7 +147,6 @@ export default class OpenPcrQueryResultsSkinAdapter {
 
     return adaptedFields;
   }
-
   private processOpenPcrTest(
     source: any,
     targets: any[],
@@ -147,7 +159,7 @@ export default class OpenPcrQueryResultsSkinAdapter {
     const adaptedSourceFields: any[] = this.adaptFields(
       source,
       currentReqColor,
-      false,
+      true,
       'PCR',
       this.includeCommonColumnsMode === 'testOnly'
     );
