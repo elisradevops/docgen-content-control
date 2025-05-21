@@ -3,7 +3,7 @@ import RichTextDataFactory from './RichTextDataFactory';
 import AttachmentsDataFactory from './AttachmentsDataFactory';
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
-import QueryResultsSkinAdapter from '../adapters/QueryResultsSkinAdapter';
+import TraceQueryResultsSkinAdapter from '../adapters/TraceQueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
 
 export default class TestDataFactory {
@@ -425,7 +425,7 @@ export default class TestDataFactory {
               level: 2,
             };
             if (queryResults) {
-              const queryResultSkinAdapter = new QueryResultsSkinAdapter(
+              const queryResultSkinAdapter = new TraceQueryResultsSkinAdapter(
                 queryResults,
                 type,
                 this.includeCustomerId,
