@@ -128,6 +128,7 @@ export default class ResultDataFactory {
 
   public async fetchTestReporterResults(
     selectedFields: string[],
+    allowCrossTestPlan: boolean,
     enableRunTestCaseFilter: boolean,
     enableRunStepStatusFilter: boolean
   ) {
@@ -138,6 +139,7 @@ export default class ResultDataFactory {
         this.teamProject,
         this.testSuiteArray,
         selectedFields,
+        allowCrossTestPlan,
         enableRunTestCaseFilter,
         enableRunStepStatusFilter
       );
@@ -233,9 +235,8 @@ export default class ResultDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${
-                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
-                  }`,
+                  value: `${type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                    }`,
                 },
               ],
               level: 2,
@@ -271,9 +272,8 @@ export default class ResultDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${
-                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
-                  }`,
+                  value: `${type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                    }`,
                 },
               ],
               level: 2,

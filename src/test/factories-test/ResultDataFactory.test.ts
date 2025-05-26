@@ -295,7 +295,7 @@ describe('ResultDataFactory', () => {
         defaultParams.includeHardCopyRun
       );
 
-      await factory.fetchTestReporterResults(selectedFields, true, true);
+      await factory.fetchTestReporterResults(selectedFields, false, true, true);
 
       expect(mockResultDataProvider.getTestReporterResults).toHaveBeenCalledWith(
         defaultParams.testPlanId.toString(),
@@ -330,7 +330,7 @@ describe('ResultDataFactory', () => {
         defaultParams.includeHardCopyRun
       );
 
-      await factory.fetchTestReporterResults([], false, false);
+      await factory.fetchTestReporterResults([], false, false, false);
 
       expect(logger.error).toHaveBeenCalled();
     });
@@ -358,7 +358,7 @@ describe('ResultDataFactory', () => {
         defaultParams.includeHardCopyRun
       );
 
-      await factory.fetchTestReporterResults([], false, false);
+      await factory.fetchTestReporterResults([], false, false, false);
 
       expect(logger.error).toHaveBeenCalled();
     });
@@ -628,7 +628,7 @@ describe('ResultDataFactory', () => {
       );
 
       // Test with empty fields but filter enabled
-      await factory.fetchTestReporterResults([], true, true);
+      await factory.fetchTestReporterResults([], false, true, true);
       expect(mockResultDataProvider.getTestReporterResults).toHaveBeenCalledWith(
         expect.any(String),
         expect.any(String),
@@ -758,7 +758,7 @@ describe('ResultDataFactory', () => {
       expect(factory.getAdoptedResultData()[0].data).toEqual(['adapted summary data']);
 
       // Call second method - should overwrite previous results
-      await factory.fetchTestReporterResults(['field1'], true, true);
+      await factory.fetchTestReporterResults(['field1'], false, true, true);
       expect(factory.getAdoptedResultData()[0].data).toEqual(['adapted reporter data']);
     });
 
