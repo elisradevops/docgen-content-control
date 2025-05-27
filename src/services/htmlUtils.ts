@@ -4,7 +4,7 @@ import { minify } from 'html-minifier-terser';
 export default class HtmlUtils {
   $: cheerio.Root;
 
-  constructor() {}
+  constructor() { }
 
   private filterStyleProperties = (style: string, allowedProps: string[]): string => {
     if (!style) return '';
@@ -201,6 +201,420 @@ export default class HtmlUtils {
     });
   };
 
+  /**
+ * Optimized method to fix invalid HTML structure by unwrapping inline elements that contain block elements
+ */
+  private validateAndFixHtmlStructure = () => {
+    const inlineElements = ['span', 'b', 'i', 'u', 'strong', 'em', 'a', 'code', 'font', 's', 'strike', 'small', 'big'];
+    const blockElements = ['div', 'p', 'table', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'hr', 'form', 'fieldset', 'address'];
+
+    // Single pass: find all invalid inline elements and fix them
+    const invalidElements: any[] = [];
+
+    // Collect all invalid inline elements first
+    inlineElements.forEach(inlineTag => {
+      this.$(inlineTag).each((_, element) => {
+        const $inline = this.$(element);
+        const hasBlockChildren = $inline.find(blockElements.join(',')).length > 0;
+
+        if (hasBlockChildren) {
+          invalidElements.push({
+            element: $inline,
+            tagName: inlineTag
+          });
+        }
+      });
+    });
+
+    // Process from innermost to outermost (reverse order)
+    invalidElements.reverse().forEach(({ element }) => {
+      if (element.parent().length > 0) { // Make sure element still exists in DOM
+        this.unwrapElement(element);
+      }
+    });
+  };
+
+  /**
+   * Safely unwraps an element by replacing it with its contents
+   */
+  private unwrapElement = ($element: any) => {
+    try {
+      const contents = $element.contents();
+
+      if (contents.length === 0) {
+        // Empty element, just remove it
+        $element.remove();
+      } else {
+        // Replace element with its contents
+        $element.replaceWith(contents);
+      }
+    } catch (error) {
+      // If unwrapping fails, just remove the element
+      try {
+        $element.remove();
+      } catch (removeError) {
+        // Element might already be removed, ignore
+      }
+    }
+  };
+
+
+
+  /**
+   * Convert table column widths to percentages and remove colgroup/col tags
+   */
+  private convertTableWidthsToPercentages = () => {
+    this.$('table').each((_, tableElement) => {
+      try {
+        const $table = this.$(tableElement);
+        const widths: number[] = [];
+        // Clean the table element itself first
+        this.cleanTableStyle($table);
+
+        // Remove colgroup and col tags entirely
+        $table.find('colgroup, col').remove();
+
+        // Get widths from first row cells (td or th)
+        const $firstRowCells = $table.find('tr:first td, tr:first th');
+
+        $firstRowCells.each((_, cell) => {
+          const $cell = this.$(cell);
+          let width = null;
+
+          // Try to get width from width attribute first
+          width = $cell.attr('width');
+
+          // If no width attribute, try to extract from style
+          if (!width) {
+            const style = $cell.attr('style') || '';
+            const widthMatch = style.match(/width:\s*([^;]+)/i);
+            if (widthMatch) {
+              width = widthMatch[1].trim();
+            }
+          }
+
+          if (width) {
+            widths.push(this.parseWidth(width));
+          } else {
+            // If no width found, use equal distribution
+            widths.push(100); // Will be normalized later
+          }
+        });
+
+        // If we have widths, convert to percentages
+        if (widths.length > 0) {
+          const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+
+          if (totalWidth > 0) {
+            // Convert to percentages and round to 2 decimal places
+            const percentages = widths.map(width =>
+              Math.round((width / totalWidth) * 100 * 100) / 100
+            );
+
+            // Apply percentages to ALL rows, not just first row
+            $table.find('tr').each((_, row) => {
+              const $row = this.$(row);
+              const $cells = $row.find('td, th');
+
+              $cells.each((cellIndex, cell) => {
+                if (cellIndex < percentages.length) {
+                  const $cell = this.$(cell);
+
+                  // Set width attribute with percentage
+                  $cell.attr('width', `${percentages[cellIndex]}%`);
+
+                  // Clean style attribute - remove width and other unwanted properties
+                  this.cleanCellStyle($cell);
+                }
+              });
+            });
+          }
+        } else {
+          // No widths found, distribute equally
+          const $allRows = $table.find('tr');
+          const maxCells = Math.max(...$allRows.toArray().map((row) =>
+            this.$(row).find('td, th').length
+          ));
+
+          if (maxCells > 0) {
+            const equalWidth = Math.round((100 / maxCells) * 100) / 100;
+
+            $allRows.each((_, row) => {
+              const $cells = this.$(row).find('td, th');
+              $cells.each((_, cell) => {
+                const $cell = this.$(cell);
+
+                // Set width attribute with percentage
+                $cell.attr('width', `${equalWidth}%`);
+
+                // Clean style attribute
+                this.cleanCellStyle($cell);
+              });
+            });
+          }
+        }
+
+      } catch (error) {
+        logger.debug(`Error processing table widths: ${error}`);
+      }
+    });
+  };
+
+  /**
+   * Clean table style attribute by extracting valid attributes and removing unwanted properties
+   */
+  private cleanTableStyle = ($table: any) => {
+    let style = $table.attr('style') || '';
+
+    if (style) {
+      // Extract and set valid table attributes from style
+
+      // Extract align
+      const alignMatch = style.match(/text-align:\s*([^;]+)/i);
+      if (alignMatch) {
+        const alignValue = alignMatch[1].trim();
+        if (['left', 'center', 'right', 'justify'].includes(alignValue)) {
+          $table.attr('align', alignValue);
+          style = style.replace(/text-align:\s*[^;]+;?/gi, '');
+        }
+      }
+
+      // Extract border
+      const borderMatch = style.match(/border:\s*([^;]+)/i);
+      if (borderMatch) {
+        const borderValue = borderMatch[1].trim();
+        // Extract just the border width if it's a simple border (e.g., "1px solid black" -> "1")
+        const borderWidth = borderValue.match(/^(\d+)(?:px)?/);
+        if (borderWidth) {
+          $table.attr('border', borderWidth[1]);
+        }
+        style = style.replace(/border:\s*[^;]+;?/gi, '');
+      }
+
+      // Extract border-width specifically
+      const borderWidthMatch = style.match(/border-width:\s*([^;]+)/i);
+      if (borderWidthMatch) {
+        const borderWidthValue = borderWidthMatch[1].trim();
+        const borderWidthNum = borderWidthValue.match(/^(\d+)(?:px)?/);
+        if (borderWidthNum) {
+          $table.attr('border', borderWidthNum[1]);
+        }
+        style = style.replace(/border-width:\s*[^;]+;?/gi, '');
+      }
+
+      // Extract padding
+      const paddingMatch = style.match(/padding:\s*([^;]+)/i);
+      if (paddingMatch) {
+        const paddingValue = paddingMatch[1].trim();
+        // Convert padding to cellpadding attribute
+        const paddingNum = paddingValue.match(/^(\d+)(?:px)?/);
+        if (paddingNum) {
+          $table.attr('cellpadding', paddingNum[1]);
+        }
+        style = style.replace(/padding:\s*[^;]+;?/gi, '');
+      }
+
+      // Extract margin
+      const marginMatch = style.match(/margin:\s*([^;]+)/i);
+      if (marginMatch) {
+        const marginValue = marginMatch[1].trim();
+        // Convert margin to cellspacing attribute
+        const marginNum = marginValue.match(/^(\d+)(?:px)?/);
+        if (marginNum) {
+          $table.attr('cellspacing', marginNum[1]);
+        }
+        style = style.replace(/margin:\s*[^;]+;?/gi, '');
+      }
+
+      // Extract width (but only if not already set as attribute)
+      if (!$table.attr('width')) {
+        const widthMatch = style.match(/width:\s*([^;]+)/i);
+        if (widthMatch) {
+          const widthValue = widthMatch[1].trim();
+          // Accept px, pt, % values
+          if (widthValue.match(/^\d+(?:px|pt|%)?$/)) {
+            $table.attr('width', widthValue);
+          }
+          style = style.replace(/width:\s*[^;]+;?/gi, '');
+        }
+      } else {
+        // Remove width from style if width attribute already exists
+        style = style.replace(/width:\s*[^;]+;?/gi, '');
+      }
+
+      // Remove other potentially problematic properties
+      style = style.replace(/height:\s*[^;]+;?/gi, '');
+
+      // Clean up multiple semicolons and whitespace
+      style = style.replace(/;+/g, ';'); // Replace multiple semicolons with single
+      style = style.replace(/;\s*;/g, ';'); // Remove empty style declarations
+      style = style.replace(/^;+|;+$/g, ''); // Remove leading/trailing semicolons
+      style = style.trim();
+
+      // If style is not empty, set it back, otherwise remove the attribute
+      if (style) {
+        $table.attr('style', style);
+      } else {
+        $table.removeAttr('style');
+      }
+    }
+    // Always set table width to 100%
+    $table.attr('width', '100%');
+  };
+
+
+  /**
+   * Clean cell style attribute by removing width and other unwanted properties
+   */
+  private cleanCellStyle = ($cell: any) => {
+    let style = $cell.attr('style') || '';
+
+    if (style) {
+      // Remove width property completely
+      style = style.replace(/width:\s*[^;]+;?/gi, '');
+
+      // Remove other potentially problematic properties
+      style = style.replace(/height:\s*[^;]+;?/gi, '');
+
+      // Clean up multiple semicolons and whitespace
+      style = style.replace(/;+/g, ';'); // Replace multiple semicolons with single
+      style = style.replace(/;\s*;/g, ';'); // Remove empty style declarations
+      style = style.replace(/^;+|;+$/g, ''); // Remove leading/trailing semicolons
+      style = style.trim();
+
+      // If style is not empty, set it back, otherwise remove the attribute
+      if (style) {
+        $cell.attr('style', style);
+      } else {
+        $cell.removeAttr('style');
+      }
+    }
+
+    // Also remove deprecated attributes
+    $cell.removeAttr('align');
+    $cell.removeAttr('valign');
+    $cell.removeAttr('height');
+  };
+
+  /**
+   * Remove redundant nested elements
+   */
+  private removeRedundantElements = () => {
+    // Remove empty elements
+    this.$('span, b, i, u, strong, em, font').each((_, element) => {
+      const $el = this.$(element);
+      if (!$el.text().trim() && $el.children().length === 0) {
+        $el.remove();
+      }
+    });
+
+    // Remove redundant nested spans
+    this.$('span').each((_, element) => {
+      const $span = this.$(element);
+      const children = $span.children();
+
+      // If span only contains one child that is also a span with same/no attributes
+      if (children.length === 1 && children.is('span')) {
+        const $child = children.first();
+        const parentAttrs = Object.keys($span.get(0)?.attribs || {});
+        const childAttrs = Object.keys($child.get(0)?.attribs || {});
+
+        // If parent has no meaningful attributes, replace with child
+        if (parentAttrs.length === 0 ||
+          (parentAttrs.length === 1 && parentAttrs[0] === 'style' && !$span.attr('style')?.trim())) {
+          $span.replaceWith($child);
+        }
+      }
+    });
+  };
+
+  /**
+   * Helper method to extract width value from style string
+   */
+  private extractWidthFromStyle = (style: string): string | null => {
+    const match = style.match(/width:\s*([^;]+)/i);
+    return match ? match[1].trim() : null;
+  };
+
+  /**
+   * Helper method to parse width value and convert to numeric value
+   */
+  private parseWidth = (width: string): number => {
+    const numericValue = parseFloat(width);
+
+    if (isNaN(numericValue)) {
+      return 100; // Default fallback
+    }
+
+    if (width.includes('pt')) {
+      return numericValue * 1.33; // Convert points to pixels
+    } else if (width.includes('%')) {
+      return numericValue; // Keep percentage as-is
+    } else if (width.includes('px')) {
+      return numericValue; // Pixels
+    } else {
+      return numericValue; // Assume pixels
+    }
+  };
+
+
+  /**
+ * Convert line breaks with text into paragraph elements
+ */
+  private convertBrLinesToParagraphs = () => {
+    this.$('*').each((_, element) => {
+      const $element = this.$(element);
+      const html = $element.html();
+
+      if (html && html.includes('<br')) {
+        // Split by <br> tags and process each line
+        const parts = html.split(/<br\s*\/?>/i);
+        let newHtml = '';
+
+        parts.forEach((part, index) => {
+          const trimmedPart = part.trim();
+          if (trimmedPart && !trimmedPart.match(/^<\w+/)) {
+            // This is text content, wrap it in a paragraph
+            newHtml += `<p>${trimmedPart}</p>`;
+          } else if (trimmedPart) {
+            // This is already HTML content
+            newHtml += trimmedPart;
+          }
+        });
+
+        if (newHtml !== html) {
+          $element.html(newHtml);
+        }
+      }
+    });
+  };
+
+  /**
+ * Simple method to preserve spacing in list-like patterns
+ */
+  private preserveListSpacing = () => {
+    this.$('*').each((_, element) => {
+      const $element = this.$(element);
+      let html = $element.html();
+
+      if (!html) return;
+
+      // Pattern to match: o<span>&nbsp;&nbsp;&nbsp; </span>Text<br>
+      const listPattern = /o<span[^>]*>&nbsp;&nbsp;&nbsp;\s*<\/span>([^<]+)(<br\s*\/?>|$)/gi;
+
+      if (listPattern.test(html)) {
+        // Replace the pattern while preserving the spacing
+        html = html.replace(listPattern, (match, textContent, br) => {
+          const cleanText = textContent.trim();
+          return `o&nbsp;&nbsp;&nbsp; ${cleanText}${br}`;
+        });
+
+        $element.html(html);
+      }
+    });
+  };
+
+
   public async cleanHtml(html, needToRemoveImg: boolean = false): Promise<any> {
     try {
       // Replace newlines within <p> elements
@@ -217,6 +631,23 @@ export default class HtmlUtils {
       });
       // this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
       this.$ = cheerio.load(minifiedHtml);
+
+      // Step 1: Fix HTML structure (remove invalid inline wrappers)
+      this.validateAndFixHtmlStructure();
+
+      // Step 2: Preserve list spacing
+      this.preserveListSpacing();
+
+      // Step 3: Convert line breaks to paragraphs
+      this.convertBrLinesToParagraphs();
+
+      // Step 4: Convert table widths to percentages
+      this.convertTableWidthsToPercentages();
+
+      // Step 5: Remove redundant elements
+      this.removeRedundantElements();
+
+      // Step 6: Apply existing cleaning methods
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();
