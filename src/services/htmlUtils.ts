@@ -4,7 +4,7 @@ import { minify } from 'html-minifier-terser';
 export default class HtmlUtils {
   $: cheerio.Root;
 
-  constructor() { }
+  constructor() {}
 
   private filterStyleProperties = (style: string, allowedProps: string[]): string => {
     if (!style) return '';
@@ -101,31 +101,56 @@ export default class HtmlUtils {
   };
 
   private cleanupBlockElements = () => {
-    // Step 1: Define block elements
-    const blockSelector = 'div, p, h1, h2, h3, h4, h5, h6';
+    try {
+      // Step 1: Define block elements
+      const blockSelector = 'div, p, h1, h2, h3, h4, h5, h6';
 
-    // Step 2: Process text nodes and remove &nbsp;
-    this.$(blockSelector).each((_, element: any) => {
-      const $blockElement = this.$(element);
-      let rawContent = this.$.html($blockElement);
-      let processedContent = this.stripTagsAndTrim(element.tagName, rawContent, true);
-      $blockElement.html(processedContent);
+      // Step 2: Process text nodes and remove &nbsp;
+      this.$(blockSelector).each((_, element: any) => {
+        try {
+          // Skip if element is not a tag node or doesn't have expected properties
+          if (!element || element.type !== 'tag' || !element.tagName) return;
 
-      // Step 3: Remove br tags before closing block element
-      const lastChild = $blockElement.contents().last();
-      if (lastChild.is('br')) {
-        lastChild.remove();
-      }
-    });
+          const $blockElement = this.$(element);
+          if (!$blockElement.length) return;
 
-    // Step 4: Remove br tags after block elements
-    this.$(blockSelector).each((_, element) => {
-      const $block = this.$(element);
-      const nextNode = $block.next();
-      if (nextNode.is('br')) {
-        nextNode.remove();
-      }
-    });
+          const rawContent = this.$.html($blockElement);
+          const processedContent = this.stripTagsAndTrim(element.tagName, rawContent, true);
+          $blockElement.html(processedContent);
+
+          // Step 3: Remove br tags before closing block element
+          const $contents = $blockElement.contents();
+          if ($contents.length > 0) {
+            const lastChild = $contents.last();
+            if (lastChild.length > 0 && lastChild.is('br')) {
+              lastChild.remove();
+            }
+          }
+        } catch (innerError) {
+          logger.error(`Error processing block element: ${innerError.message}`);
+        }
+      });
+
+      // Step 4: Remove br tags after block elements
+      this.$(blockSelector).each((_, element: any) => {
+        try {
+          // Skip if element is not a tag node or doesn't have expected properties
+          if (!element || element.type !== 'tag' || !element.tagName) return;
+
+          const $block = this.$(element);
+          if (!$block.length) return;
+
+          const nextNode = $block.next();
+          if (nextNode.length > 0 && nextNode[0]?.type === 'tag' && nextNode.is('br')) {
+            nextNode.remove();
+          }
+        } catch (innerError) {
+          logger.error(`Error processing block element sibling: ${innerError.message}`);
+        }
+      });
+    } catch (error) {
+      logger.error(`Unexpected error in cleanupBlockElements: ${error.message}`);
+    }
   };
 
   /**
@@ -202,17 +227,50 @@ export default class HtmlUtils {
   };
 
   /**
- * Optimized method to fix invalid HTML structure by unwrapping inline elements that contain block elements
- */
+   * Optimized method to fix invalid HTML structure by unwrapping inline elements that contain block elements
+   */
   private validateAndFixHtmlStructure = () => {
-    const inlineElements = ['span', 'b', 'i', 'u', 'strong', 'em', 'a', 'code', 'font', 's', 'strike', 'small', 'big'];
-    const blockElements = ['div', 'p', 'table', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'hr', 'form', 'fieldset', 'address'];
+    const inlineElements = [
+      'span',
+      'b',
+      'i',
+      'u',
+      'strong',
+      'em',
+      'a',
+      'code',
+      'font',
+      's',
+      'strike',
+      'small',
+      'big',
+    ];
+    const blockElements = [
+      'div',
+      'p',
+      'table',
+      'ul',
+      'ol',
+      'li',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+      'blockquote',
+      'pre',
+      'hr',
+      'form',
+      'fieldset',
+      'address',
+    ];
 
     // Single pass: find all invalid inline elements and fix them
     const invalidElements: any[] = [];
 
     // Collect all invalid inline elements first
-    inlineElements.forEach(inlineTag => {
+    inlineElements.forEach((inlineTag) => {
       this.$(inlineTag).each((_, element) => {
         const $inline = this.$(element);
         const hasBlockChildren = $inline.find(blockElements.join(',')).length > 0;
@@ -220,7 +278,7 @@ export default class HtmlUtils {
         if (hasBlockChildren) {
           invalidElements.push({
             element: $inline,
-            tagName: inlineTag
+            tagName: inlineTag,
           });
         }
       });
@@ -228,7 +286,8 @@ export default class HtmlUtils {
 
     // Process from innermost to outermost (reverse order)
     invalidElements.reverse().forEach(({ element }) => {
-      if (element.parent().length > 0) { // Make sure element still exists in DOM
+      if (element.parent().length > 0) {
+        // Make sure element still exists in DOM
         this.unwrapElement(element);
       }
     });
@@ -257,8 +316,6 @@ export default class HtmlUtils {
       }
     }
   };
-
-
 
   /**
    * Convert table column widths to percentages and remove colgroup/col tags
@@ -307,9 +364,7 @@ export default class HtmlUtils {
 
           if (totalWidth > 0) {
             // Convert to percentages and round to 2 decimal places
-            const percentages = widths.map(width =>
-              Math.round((width / totalWidth) * 100 * 100) / 100
-            );
+            const percentages = widths.map((width) => Math.round((width / totalWidth) * 100 * 100) / 100);
 
             // Apply percentages to ALL rows, not just first row
             $table.find('tr').each((_, row) => {
@@ -332,9 +387,7 @@ export default class HtmlUtils {
         } else {
           // No widths found, distribute equally
           const $allRows = $table.find('tr');
-          const maxCells = Math.max(...$allRows.toArray().map((row) =>
-            this.$(row).find('td, th').length
-          ));
+          const maxCells = Math.max(...$allRows.toArray().map((row) => this.$(row).find('td, th').length));
 
           if (maxCells > 0) {
             const equalWidth = Math.round((100 / maxCells) * 100) / 100;
@@ -353,7 +406,6 @@ export default class HtmlUtils {
             });
           }
         }
-
       } catch (error) {
         logger.debug(`Error processing table widths: ${error}`);
       }
@@ -462,7 +514,6 @@ export default class HtmlUtils {
     $table.attr('width', '100%');
   };
 
-
   /**
    * Clean cell style attribute by removing width and other unwanted properties
    */
@@ -496,34 +547,18 @@ export default class HtmlUtils {
     $cell.removeAttr('height');
   };
 
-  /**
-   * Remove redundant nested elements
-   */
   private removeRedundantElements = () => {
-    // Remove empty elements
-    this.$('span, b, i, u, strong, em, font').each((_, element) => {
+    // First, unwrap all span elements
+    this.$('span').each((_, element) => {
+      const $span = this.$(element);
+      $span.replaceWith($span.contents());
+    });
+
+    // Then remove other empty inline elements
+    this.$('b, i, u, strong, em, font').each((_, element) => {
       const $el = this.$(element);
       if (!$el.text().trim() && $el.children().length === 0) {
         $el.remove();
-      }
-    });
-
-    // Remove redundant nested spans
-    this.$('span').each((_, element) => {
-      const $span = this.$(element);
-      const children = $span.children();
-
-      // If span only contains one child that is also a span with same/no attributes
-      if (children.length === 1 && children.is('span')) {
-        const $child = children.first();
-        const parentAttrs = Object.keys($span.get(0)?.attribs || {});
-        const childAttrs = Object.keys($child.get(0)?.attribs || {});
-
-        // If parent has no meaningful attributes, replace with child
-        if (parentAttrs.length === 0 ||
-          (parentAttrs.length === 1 && parentAttrs[0] === 'style' && !$span.attr('style')?.trim())) {
-          $span.replaceWith($child);
-        }
       }
     });
   };
@@ -557,41 +592,6 @@ export default class HtmlUtils {
     }
   };
 
-
-  /**
- * Convert line breaks with text into paragraph elements
- */
-  private convertBrLinesToParagraphs = () => {
-    this.$('*').each((_, element) => {
-      const $element = this.$(element);
-      const html = $element.html();
-
-      if (html && html.includes('<br')) {
-        // Split by <br> tags and process each line
-        const parts = html.split(/<br\s*\/?>/i);
-        let newHtml = '';
-
-        parts.forEach((part, index) => {
-          const trimmedPart = part.trim();
-          if (trimmedPart && !trimmedPart.match(/^<\w+/)) {
-            // This is text content, wrap it in a paragraph
-            newHtml += `<p>${trimmedPart}</p>`;
-          } else if (trimmedPart) {
-            // This is already HTML content
-            newHtml += trimmedPart;
-          }
-        });
-
-        if (newHtml !== html) {
-          $element.html(newHtml);
-        }
-      }
-    });
-  };
-
-  /**
- * Simple method to preserve spacing in list-like patterns
- */
   private preserveListSpacing = () => {
     this.$('*').each((_, element) => {
       const $element = this.$(element);
@@ -599,21 +599,40 @@ export default class HtmlUtils {
 
       if (!html) return;
 
-      // Pattern to match: o<span>&nbsp;&nbsp;&nbsp; </span>Text<br>
-      const listPattern = /o<span[^>]*>&nbsp;&nbsp;&nbsp;\s*<\/span>([^<]+)(<br\s*\/?>|$)/gi;
+      // Replace all nbsp with a single space first
+      html = html.replace(/&nbsp;/g, ' ');
 
-      if (listPattern.test(html)) {
-        // Replace the pattern while preserving the spacing
-        html = html.replace(listPattern, (match, textContent, br) => {
-          const cleanText = textContent.trim();
-          return `o&nbsp;&nbsp;&nbsp; ${cleanText}${br}`;
-        });
+      // Handle various bullet points with consistent spacing
+      // Current bullets: o, ●, ◊, -, *, •, ◦, ▪, ▫, ♦, ♠, ♣, ♥, ✓, ➢, ➤, →, ►, ▶
+      // Also supports numbered bullets like 1., 2., a), b), i., ii., etc.
+      html = html.replace(/([o●◊\-\*•◦▪▫♦♠♣♥✓➢➤→►▶]|\d+[.)]|[a-z]\)|i+v?i*\.?|v?i{1,3}\.)\s+/g, '$1   ');
 
+      if (html !== $element.html()) {
         $element.html(html);
       }
     });
   };
 
+  private trimTextNodes = () => {
+    // Process all text nodes
+    this.$('*')
+      .contents()
+      .filter(function () {
+        return this.nodeType === 3; // Node.TEXT_NODE
+      })
+      .each((_, textNode: cheerio.Element) => {
+        const $textNode = this.$(textNode);
+        const text = $textNode[0].data || '';
+
+        // Trim leading and trailing whitespace
+        const trimmed = text.trim();
+
+        // Only update if there was a change
+        if (trimmed !== text) {
+          $textNode[0].data = trimmed;
+        }
+      });
+  };
 
   public async cleanHtml(html, needToRemoveImg: boolean = false): Promise<any> {
     try {
@@ -631,23 +650,18 @@ export default class HtmlUtils {
       });
       // this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
       this.$ = cheerio.load(minifiedHtml);
-
       // Step 1: Fix HTML structure (remove invalid inline wrappers)
       this.validateAndFixHtmlStructure();
 
       // Step 2: Preserve list spacing
       this.preserveListSpacing();
 
-      // Step 3: Convert line breaks to paragraphs
-      this.convertBrLinesToParagraphs();
-
-      // Step 4: Convert table widths to percentages
+      // Step 3: Convert table widths to percentages
       this.convertTableWidthsToPercentages();
-
-      // Step 5: Remove redundant elements
+      // Step 4: Remove redundant elements
       this.removeRedundantElements();
 
-      // Step 6: Apply existing cleaning methods
+      // Step 5: Apply existing cleaning methods
       this.cleanAndPreserveTableAttributes();
       this.replaceNewlinesInInlineElements();
       this.cleanupBlockElements();
@@ -656,9 +670,12 @@ export default class HtmlUtils {
       if (needToRemoveImg) {
         this.removeImgElements();
       }
+      // Trim text nodes before returning
+      this.trimTextNodes();
       return this.$.html();
     } catch (error: any) {
       logger.error(`Error occurred during clean HTML: ${error.message}`);
+      logger.error(`error stack ${error.stack}`);
       throw error;
     }
   }

@@ -197,7 +197,7 @@ export default class ChangesTableDataSkinAdapter {
     let hasLinkedItems = change.linkedItems && change.linkedItems.length > 0;
     let cleanedDescription = '';
     if (description) {
-      cleanedDescription = await this.htmlUtils.cleanHtml(description);
+      cleanedDescription = await this.htmlUtils.cleanHtml(description, false);
     }
     let richTextFactory = new RichTextDataFactory(
       cleanedDescription,
