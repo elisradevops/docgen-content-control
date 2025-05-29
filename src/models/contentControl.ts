@@ -2,6 +2,7 @@ export class contentControl {
   title: string;
   wordObjects: any[];
   minioAttachmentData?: any[];
+  allowGrouping?: boolean;
 }
 
 export interface Artifact {
