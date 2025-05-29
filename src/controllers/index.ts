@@ -157,7 +157,8 @@ export default class DgContentControls {
             contentControlOptions.data.selectedFields,
             contentControlOptions.data.allowCrossTestPlan,
             contentControlOptions.data.enableRunTestCaseFilter,
-            contentControlOptions.data.enableRunStepStatusFilter
+            contentControlOptions.data.enableRunStepStatusFilter,
+            contentControlOptions.data.allowGrouping
           );
           break;
         case 'change-description-table':
@@ -194,7 +195,8 @@ export default class DgContentControls {
       return jsonData;
     } catch (error) {
       logger.error(
-        `Error initializing Skins: ${error.message} ${contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
+        `Error initializing Skins: ${error.message} ${
+          contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
         } `
       );
       logger.error(`Error stack: ${error.stack}`);
@@ -809,7 +811,8 @@ export default class DgContentControls {
     selectedFields: string[],
     allowCrossTestPlan: boolean,
     enableRunTestCaseFilter: boolean,
-    enableRunStepStatusFilter: boolean
+    enableRunStepStatusFilter: boolean,
+    allowGrouping?: boolean
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -903,7 +906,7 @@ export default class DgContentControls {
 
       skins.forEach((skinItem) => {
         const { contentControlTitle: title, skin } = skinItem;
-        const contentControl = { title, wordObjects: skin };
+        const contentControl = { title, wordObjects: skin, allowGrouping: allowGrouping };
         contentControls.push(contentControl);
       });
 
@@ -1100,15 +1103,15 @@ export default class DgContentControls {
         let tableSkins =
           artifactChangesData.artifactChanges?.length > 0
             ? await this.skins.addNewContentToDocumentSkin(
-              contentControlTitle,
-              this.skins.SKIN_TYPE_TABLE,
-              artifactChangesData.artifactChanges,
-              headerStyles,
-              styles,
-              headingLevel
-            )
+                contentControlTitle,
+                this.skins.SKIN_TYPE_TABLE,
+                artifactChangesData.artifactChanges,
+                headerStyles,
+                styles,
+                headingLevel
+              )
             : artifactChangesData.errorMessage
-              ? await this.skins.addNewContentToDocumentSkin(
+            ? await this.skins.addNewContentToDocumentSkin(
                 contentControlTitle,
                 this.skins.SKIN_TYPE_PARAGRAPH,
                 artifactChangesData.errorMessage,
@@ -1116,7 +1119,7 @@ export default class DgContentControls {
                 styles,
                 0
               )
-              : null;
+            : null;
 
         tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
