@@ -613,25 +613,83 @@ export default class HtmlUtils {
     });
   };
 
+  /**
+   * Trims whitespace from text nodes within block elements
+   */
   private trimTextNodes = () => {
-    // Process all text nodes
-    this.$('*')
-      .contents()
-      .filter(function () {
-        return this.nodeType === 3; // Node.TEXT_NODE
-      })
-      .each((_, textNode: cheerio.Element) => {
-        const $textNode = this.$(textNode);
-        const text = $textNode[0].data || '';
+    const blockSelector =
+      'p, div, h1, h2, h3, h4, h5, h6, li, td, th, header, footer, section, article, aside, nav';
 
-        // Trim leading and trailing whitespace
-        const trimmed = text.trim();
+    this.$(blockSelector).each((_, blockElement) => {
+      const $blockEl = this.$(blockElement);
 
-        // Only update if there was a change
-        if (trimmed !== text) {
-          $textNode[0].data = trimmed;
+      // Trim leading whitespace from the first text node child, if it exists
+      const firstChild = $blockEl.contents().first();
+      if (firstChild.length > 0 && firstChild[0].type === 'text') {
+        // Assert as a text node type with a 'data' property
+        const textNode = firstChild[0] as { type: 'text'; data: string };
+        const originalText = textNode.data || '';
+        const newText = originalText.replace(/^\s+/, '');
+        if (newText !== originalText) {
+          textNode.data = newText;
         }
-      });
+      }
+
+      // Trim trailing whitespace from the last text node child, if it exists
+      const lastChild = $blockEl.contents().last();
+      if (lastChild.length > 0 && lastChild[0].type === 'text') {
+        // Assert as a text node type with a 'data' property
+        // If firstChild and lastChild are the same node, originalText for this operation
+        // should be its current state (possibly modified by leading trim)
+        const textNode = lastChild[0] as { type: 'text'; data: string };
+        const originalText = textNode.data || '';
+        const newText = originalText.replace(/\s+$/, '');
+        if (newText !== originalText) {
+          textNode.data = newText;
+        }
+      }
+    });
+  };
+
+  /**
+   * Trims whitespace around <br> tags
+   */
+  private trimWhitespaceAroundBr = () => {
+    this.$('br').each((_, brElement) => {
+      const brNode = brElement; // brElement is the raw DOM node
+
+      // Handle text node before <br>
+      const prevNode = brNode.prev;
+      if (prevNode && prevNode.type === 'text') {
+        const textNode = prevNode as { type: 'text'; data: string };
+        const originalText = textNode.data;
+        if (typeof originalText === 'string') {
+          const newText = originalText.replace(/\s+$/, ''); // Trim trailing whitespace
+          if (newText !== originalText) {
+            textNode.data = newText;
+          }
+          if (textNode.data === '') {
+            this.$(textNode).remove();
+          }
+        }
+      }
+
+      // Handle text node after <br>
+      const nextNode = brNode.next;
+      if (nextNode && nextNode.type === 'text') {
+        const textNode = nextNode as { type: 'text'; data: string };
+        const originalText = textNode.data;
+        if (typeof originalText === 'string') {
+          const newText = originalText.replace(/^\s+/, ''); // Trim leading whitespace
+          if (newText !== originalText) {
+            textNode.data = newText;
+          }
+          if (textNode.data === '') {
+            this.$(textNode).remove();
+          }
+        }
+      }
+    });
   };
 
   public async cleanHtml(html, needToRemoveImg: boolean = false): Promise<any> {
@@ -652,26 +710,30 @@ export default class HtmlUtils {
       this.$ = cheerio.load(minifiedHtml);
       // Step 1: Fix HTML structure (remove invalid inline wrappers)
       this.validateAndFixHtmlStructure();
-
       // Step 2: Preserve list spacing
       this.preserveListSpacing();
-
       // Step 3: Convert table widths to percentages
       this.convertTableWidthsToPercentages();
       // Step 4: Remove redundant elements
       this.removeRedundantElements();
-
       // Step 5: Apply existing cleaning methods
       this.cleanAndPreserveTableAttributes();
+      //  Step 6: Replace newlines in inline elements
       this.replaceNewlinesInInlineElements();
+      // Step 7: Cleanup block elements
       this.cleanupBlockElements();
+      // Step 8: Remove invalid inline wrappers around blocks
       this.removeInvalidInlineWrappersAroundBlocks();
+      // Step 9: Clear <br> before end of paragraph
       this.clearBrBeforeEndOfParagraph();
+      // Step 10: Remove <img> elements if needed
       if (needToRemoveImg) {
         this.removeImgElements();
       }
-      // Trim text nodes before returning
+      // Step 11: Trim text nodes before returning
       this.trimTextNodes();
+      // Step 12: Trim whitespace around <br> tags
+      this.trimWhitespaceAroundBr();
       return this.$.html();
     } catch (error: any) {
       logger.error(`Error occurred during clean HTML: ${error.message}`);
