@@ -176,7 +176,8 @@ export default class DgContentControls {
             contentControlOptions.data.includeCommittedBy,
             contentControlOptions.data.systemOverviewQuery,
             contentControlOptions.data.attachmentWikiUrl,
-            contentControlOptions.data.linkedWiOptions
+            contentControlOptions.data.linkedWiOptions,
+            contentControlOptions.data.requestedByBuild
           );
           break;
         case 'pr-change-description-table':
@@ -935,7 +936,8 @@ export default class DgContentControls {
     includeCommittedBy: boolean = false,
     systemOverviewQuery: any = null,
     attachmentWikiUrl: string = '',
-    linkedWiOptions: any = null
+    linkedWiOptions: any = null,
+    requestedByBuild: boolean = false
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -971,7 +973,8 @@ export default class DgContentControls {
         undefined,
         systemOverviewQuery,
         undefined,
-        linkedWiOptions
+        linkedWiOptions,
+        requestedByBuild
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
