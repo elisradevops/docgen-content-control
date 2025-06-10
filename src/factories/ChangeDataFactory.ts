@@ -31,6 +31,7 @@ export default class ChangeDataFactory {
   queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
   linkedWiOptions: any;
+  requestedByBuild: boolean;
   private attachmentMinioData: any[]; //attachment data
   private attachmentsBucketName: string;
   private minioEndPoint: string;
@@ -58,7 +59,8 @@ export default class ChangeDataFactory {
     tocTitle?: string,
     queriesRequest: any = undefined,
     includedWorkItemByIdSet: Set<number> = undefined,
-    linkedWiOptions: any = undefined
+    linkedWiOptions: any = undefined,
+    requestedByBuild: boolean = false
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -82,6 +84,7 @@ export default class ChangeDataFactory {
     this.PAT = PAT;
     this.attachmentMinioData = [];
     this.linkedWiOptions = linkedWiOptions;
+    this.requestedByBuild = requestedByBuild;
   } //constructor
 
   async fetchSvdData() {
@@ -486,8 +489,19 @@ export default class ChangeDataFactory {
     try {
       let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(to));
 
-      if (targetBuild.result !== 'succeeded') {
+      //if requested by user and target build is not succeeded throw error
+      if (!this.requestedByBuild && targetBuild.result !== 'succeeded') {
         throw new Error(`The selected ${to} build has not been succeeded`);
+      }
+      //if requested by build and target build is not succeeded throw error
+      else {
+        if (
+          targetBuild.result === 'canceled' ||
+          targetBuild.result === 'failed' ||
+          targetBuild.result === 'none'
+        ) {
+          throw new Error(`The selected ${to} build has ${targetBuild.result}`);
+        }
       }
 
       let targetPipelineId = targetBuild.definition.id;
