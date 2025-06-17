@@ -108,10 +108,12 @@ export default class ResultDataFactory {
       }
 
       if (openPcrToTestCaseTraceMap) {
+        logger.info(`openPcrToTestCaseTraceMap: ${JSON.stringify(openPcrToTestCaseTraceMap)}`);
         this.openPcrToTestCaseTraceMap = openPcrToTestCaseTraceMap;
       }
 
       if (testCaseToOpenPcrTraceMap) {
+        logger.info(`testCaseToOpenPcrTraceMap: ${JSON.stringify(testCaseToOpenPcrTraceMap)}`);
         this.testCaseToOpenPcrTraceMap = testCaseToOpenPcrTraceMap;
       }
 
@@ -130,7 +132,8 @@ export default class ResultDataFactory {
     selectedFields: string[],
     allowCrossTestPlan: boolean,
     enableRunTestCaseFilter: boolean,
-    enableRunStepStatusFilter: boolean
+    enableRunStepStatusFilter: boolean,
+    linkedQueryRequest: any
   ) {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
@@ -141,7 +144,8 @@ export default class ResultDataFactory {
         selectedFields,
         allowCrossTestPlan,
         enableRunTestCaseFilter,
-        enableRunStepStatusFilter
+        enableRunStepStatusFilter,
+        linkedQueryRequest
       );
 
       if (testResultsItems.length === 0) {
@@ -235,8 +239,9 @@ export default class ResultDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
-                    }`,
+                  value: `${
+                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                  }`,
                 },
               ],
               level: 2,
@@ -272,8 +277,9 @@ export default class ResultDataFactory {
               fields: [
                 {
                   name: 'Title',
-                  value: `${type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
-                    }`,
+                  value: `${
+                    type === 'test-to-open-pcr' ? 'Test Case to Open PCR Table' : 'Open PCR To Test Case'
+                  }`,
                 },
               ],
               level: 2,
