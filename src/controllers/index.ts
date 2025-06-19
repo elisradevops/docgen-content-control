@@ -158,7 +158,9 @@ export default class DgContentControls {
             contentControlOptions.data.allowCrossTestPlan,
             contentControlOptions.data.enableRunTestCaseFilter,
             contentControlOptions.data.enableRunStepStatusFilter,
-            contentControlOptions.data.allowGrouping
+            contentControlOptions.data.allowGrouping,
+            contentControlOptions.data.linkedQueryRequest,
+            contentControlOptions.data.errorFilterMode
           );
           break;
         case 'change-description-table':
@@ -813,7 +815,9 @@ export default class DgContentControls {
     allowCrossTestPlan: boolean,
     enableRunTestCaseFilter: boolean,
     enableRunStepStatusFilter: boolean,
-    allowGrouping?: boolean
+    allowGrouping?: boolean,
+    linkedQueryRequest?: any,
+    errorFilterMode?: string
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -834,7 +838,8 @@ export default class DgContentControls {
       testPlanId:${testPlanId}
       testSuiteArray:${testSuiteArray}
       teamProjectName:${this.teamProjectName}
-      selectedFields:${JSON.stringify(selectedFields)}`);
+      selectedFields:${JSON.stringify(selectedFields)}
+      linkedQueryRequest:${JSON.stringify(linkedQueryRequest)}`);
 
       //Run the result data factory
       resultDataFactory = new ResultDataFactory(
@@ -860,7 +865,9 @@ export default class DgContentControls {
         selectedFields,
         allowCrossTestPlan,
         enableRunTestCaseFilter,
-        enableRunStepStatusFilter
+        enableRunStepStatusFilter,
+        linkedQueryRequest,
+        errorFilterMode
       );
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);

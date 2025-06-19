@@ -48,26 +48,57 @@ export default class TestReporterDataSkinAdapter {
         const testCaseId = item.testCase.id;
         // Create or get test case
         if (!suite.testCases.has(testCaseId)) {
-          suite.testCases.set(testCaseId, {
-            testCaseId: testCaseId,
-            testCaseName: item.testCase.title,
-            testCaseUrl: item.testCase.url,
-            priority: item.priority || null,
-            failureType: item.failureType || null,
-            testCaseResult: item.testCase.result || null,
-            comment: item.testCase.comment || null,
-            runBy: item.runBy || null,
-            configuration: item.configurationName || null,
-            state: item.state || null,
-            executionDate: item.executionDate || null,
-            assignedTo: item.assignedTo || null,
-            subSystem: item.subSystem || null,
-            automationStatus: item.automationStatus || null,
-            associatedRequirements: item.relatedRequirements || null,
-            associatedBugs: item.relatedBugs || null,
-            associatedCRs: item.relatedCRs || null,
-            testSteps: [],
-          });
+          const testCaseObject: any = {};
+
+          // 1. Explicitly map core fields from item.testCase
+          testCaseObject.testCaseId = item.testCase.id;
+          testCaseObject.testCaseName = item.testCase.title;
+          testCaseObject.testCaseUrl = item.testCase.url;
+          testCaseObject.testCaseResult = item.testCase.result || null;
+
+          // 2. Explicitly map associated items from the top-level item
+          testCaseObject.associatedRequirements = item.relatedRequirements || null;
+          testCaseObject.associatedBugs = item.relatedBugs || null;
+          testCaseObject.associatedCRs = item.relatedCRs || null;
+
+          // 3. Initialize testSteps array (it's populated later in the loop)
+          testCaseObject.testSteps = [];
+          // 4. Iterate over all properties of the top-level 'item' object.
+          //    These include predefined fields like 'priority', 'failureType', etc.,
+          //    and any other dynamically selected fields.
+          for (const key in item) {
+            if (item.hasOwnProperty(key)) {
+              // Define keys to skip: those handled above, belong to the suite,
+              // are the nested testCase object, or are step-specific details processed later.
+              const keysToSkip = [
+                'suiteName',
+                'testCase', // The entire nested object
+                'relatedRequirements', // Handled in step 2
+                'relatedBugs', // Handled in step 2
+                'relatedCRs', // Handled in step 2
+                // Step-specific details are processed later for each step, not for the test case itself
+                'stepNo',
+                'stepAction',
+                'stepExpected',
+                'stepStatus',
+                'stepComments',
+              ];
+
+              if (keysToSkip.includes(key)) {
+                continue;
+              }
+
+              // Special mapping for configurationName
+              if (key === 'configurationName') {
+                testCaseObject.configuration = item[key] || null;
+              } else {
+                // All other properties on 'item' are copied directly.
+                // These will be caught by [JsonExtensionData] in the C# model.
+                testCaseObject[key] = item[key] || null;
+              }
+            }
+          }
+          suite.testCases.set(testCaseId, testCaseObject);
         }
 
         // Process test step if present
@@ -94,7 +125,6 @@ export default class TestReporterDataSkinAdapter {
           stepRunStatus: item.stepStatus || '',
           stepErrorMessage: item.stepComments || '',
         };
-
         testCase.testSteps.push(testStep);
       }
 
