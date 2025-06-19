@@ -55,6 +55,7 @@ export default class TestReporterDataSkinAdapter {
           testCaseObject.testCaseName = item.testCase.title;
           testCaseObject.testCaseUrl = item.testCase.url;
           testCaseObject.testCaseResult = item.testCase.result || null;
+          testCaseObject.comment = item.testCase.comment || null;
 
           // 2. Explicitly map associated items from the top-level item
           testCaseObject.associatedRequirements = item.relatedRequirements || null;
