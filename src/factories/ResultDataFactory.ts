@@ -133,7 +133,8 @@ export default class ResultDataFactory {
     allowCrossTestPlan: boolean,
     enableRunTestCaseFilter: boolean,
     enableRunStepStatusFilter: boolean,
-    linkedQueryRequest: any
+    linkedQueryRequest: any,
+    errorFilterMode: string
   ) {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
@@ -145,7 +146,8 @@ export default class ResultDataFactory {
         allowCrossTestPlan,
         enableRunTestCaseFilter,
         enableRunStepStatusFilter,
-        linkedQueryRequest
+        linkedQueryRequest,
+        errorFilterMode
       );
 
       if (testResultsItems.length === 0) {
