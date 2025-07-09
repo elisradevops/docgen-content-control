@@ -179,7 +179,8 @@ export default class DgContentControls {
             contentControlOptions.data.systemOverviewQuery,
             contentControlOptions.data.attachmentWikiUrl,
             contentControlOptions.data.linkedWiOptions,
-            contentControlOptions.data.requestedByBuild
+            contentControlOptions.data.requestedByBuild,
+            contentControlOptions.data.includeUnlinkedCommits
           );
           break;
         case 'pr-change-description-table':
@@ -944,7 +945,8 @@ export default class DgContentControls {
     systemOverviewQuery: any = null,
     attachmentWikiUrl: string = '',
     linkedWiOptions: any = null,
-    requestedByBuild: boolean = false
+    requestedByBuild: boolean = false,
+    includeUnlinkedCommits: boolean = false
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -981,7 +983,8 @@ export default class DgContentControls {
         systemOverviewQuery,
         undefined,
         linkedWiOptions,
-        requestedByBuild
+        requestedByBuild,
+        includeUnlinkedCommits
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
@@ -1022,6 +1025,17 @@ export default class DgContentControls {
               headingLevel
             );
             contentControls.push(contentControl);
+            break;
+          case 'non-associated-commits-content-control':
+            const nonAssociatedCommitsSkin = await this.skins.addNewContentToDocumentSkin(
+              element.contentControl,
+              this.skins.SKIN_TYPE_TABLE,
+              element.data,
+              headerStyles,
+              styles,
+              headingLevel
+            );
+            contentControls.push({ title: element.contentControl, wordObjects: nonAssociatedCommitsSkin });
             break;
           case 'system-overview-content-control':
             const overviewSkin = await this.skins.addNewContentToDocumentSkin(

@@ -2,8 +2,17 @@ import logger from '../services/logger';
 
 export default class TestLogDataSkinAdapter {
   private convertDateToLocalTime(utcDateString: string): string {
-    const localDate = new Date(utcDateString);
-    return localDate.toLocaleString();
+    const date = new Date(utcDateString);
+    return date.toLocaleString('en-IL', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
   }
 
   public jsonSkinDataAdapter(resultDataRaw: any[]) {

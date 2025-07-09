@@ -7,6 +7,7 @@ import { Artifact, GitObject } from '../models/contentControl';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
+import NonAssociatedCommitsDataSkinAdapter from '../adapters/NonAssociatedCommitsDataSkinAdapter';
 
 export default class ChangeDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -38,6 +39,7 @@ export default class ChangeDataFactory {
   private minioAccessKey: string;
   private minioSecretKey: string;
   private PAT: string;
+  private includeUnlinkedCommits: boolean;
   constructor(
     teamProjectName,
     repoId: string,
@@ -60,7 +62,8 @@ export default class ChangeDataFactory {
     queriesRequest: any = undefined,
     includedWorkItemByIdSet: Set<number> = undefined,
     linkedWiOptions: any = undefined,
-    requestedByBuild: boolean = false
+    requestedByBuild: boolean = false,
+    includeUnlinkedCommits: boolean = false
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -85,6 +88,7 @@ export default class ChangeDataFactory {
     this.attachmentMinioData = [];
     this.linkedWiOptions = linkedWiOptions;
     this.requestedByBuild = requestedByBuild;
+    this.includeUnlinkedCommits = includeUnlinkedCommits;
   } //constructor
 
   async fetchSvdData() {
@@ -141,6 +145,18 @@ export default class ChangeDataFactory {
           skin: 'possible-problems-known-errors-skin',
         });
       }
+
+      //6. get non associated commits data non-associated-commits-content-control (as appendix)
+      if (this.rawChangesArray.length > 0) {
+        const adoptedData = await this.jsonSkinDataAdapter('non-associated-commits', this.rawChangesArray);
+        if (adoptedData.length > 0) {
+          this.adoptedChangeData.push({
+            contentControl: 'non-associated-commits-content-control',
+            data: adoptedData,
+            skin: 'non-associated-commits-skin',
+          });
+        }
+      }
     } catch (error: any) {
       logger.error(`could not fetch svd data:
         ${error.message}`);
@@ -193,6 +209,7 @@ export default class ChangeDataFactory {
     try {
       let focusedArtifact;
       let artifactChanges: any[] = [];
+      let artifactChangesNoLink: any[] = [];
       let origin;
       let gitDataProvider = await this.dgDataProviderAzureDevOps.getGitDataProvider();
       let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDataProvider();
@@ -209,235 +226,262 @@ export default class ChangeDataFactory {
       }
       switch (this.rangeType) {
         case 'commitSha':
-          let commitsInCommitRange = await gitDataProvider.GetCommitsInCommitRange(
-            this.teamProject,
-            this.repoId,
-            String(this.to),
-            String(this.from)
-          );
-          artifactChanges = await gitDataProvider.GetItemsInCommitRange(
-            this.teamProject,
-            this.repoId,
-            commitsInCommitRange,
-            this.linkedWiOptions
-          );
-
-          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
-          this.rawChangesArray.push({
-            artifact: focusedArtifact,
-            changes: artifactChanges,
-          });
-          break;
-        case 'range':
-          const fromGitObject: GitObject = this.from;
-          const toGitObject: GitObject = this.to;
-          // Check if fromGitObject and toGitObject are valid GitObjects
-          if (fromGitObject.ref) {
-            fromGitObject.ref = fromGitObject.ref.split('/').pop();
-          }
-          if (toGitObject.ref) {
-            toGitObject.ref = toGitObject.ref.split('/').pop();
-          }
-          let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
-          const items = await this.getCommitRangeChanges(
-            gitDataProvider,
-            this.teamProject,
-            fromGitObject.ref,
-            fromGitObject.type,
-            toGitObject.ref,
-            toGitObject.type,
-            gitRepo.name,
-            gitRepo.url,
-            this.includedWorkItemByIdSet,
-            undefined,
-            undefined,
-            this.linkedWiOptions
-          );
-          artifactChanges.push(...items);
-          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
-          this.rawChangesArray.push({
-            artifact: focusedArtifact,
-            changes: artifactChanges,
-          });
-          break;
-        case 'date':
-          // Adjust 'from' to the start of the day
-          const fromDate = new Date(this.from);
-          fromDate.setSeconds(0); // set to the start of the minute
-          this.from = fromDate.toISOString();
-
-          // Adjust 'to' to the end of the day
-          const toDate = new Date(this.to);
-          toDate.setSeconds(59);
-          this.to = toDate.toISOString();
-
-          let commitsInDateRange = await gitDataProvider.GetCommitsInDateRange(
-            this.teamProject,
-            this.repoId,
-            String(this.from),
-            String(this.to),
-            this.branchName
-          );
-          let repo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
-          if (!repo) {
-            throw new Error(`Could not find repository with id ${this.repoId}`);
-          }
-          if (this.includePullRequests) {
-            artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
+          {
+            let commitsInCommitRange = await gitDataProvider.GetCommitsInCommitRange(
               this.teamProject,
               this.repoId,
-              commitsInDateRange
+              String(this.to),
+              String(this.from)
             );
-          } else {
             artifactChanges = await gitDataProvider.GetItemsInCommitRange(
               this.teamProject,
               this.repoId,
-              commitsInDateRange,
+              commitsInCommitRange,
               this.linkedWiOptions
             );
 
-            let repoName = repo.name;
+            this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
+            this.rawChangesArray.push({
+              artifact: focusedArtifact,
+              changes: artifactChanges,
+              nonLinkedCommits: [],
+            });
+          }
+          break;
+        case 'range':
+          {
+            const fromGitObject: GitObject = this.from;
+            const toGitObject: GitObject = this.to;
+            // Check if fromGitObject and toGitObject are valid GitObjects
+            if (fromGitObject.ref) {
+              fromGitObject.ref = fromGitObject.ref.split('/').pop();
+            }
+            if (toGitObject.ref) {
+              toGitObject.ref = toGitObject.ref.split('/').pop();
+            }
+            let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
+            const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
+              gitDataProvider,
+              this.teamProject,
+              fromGitObject.ref,
+              fromGitObject.type,
+              toGitObject.ref,
+              toGitObject.type,
+              gitRepo.name,
+              gitRepo.url,
+              this.includedWorkItemByIdSet,
+              undefined,
+              undefined,
+              this.linkedWiOptions
+            );
+            artifactChanges.push(...allExtendedCommits);
+            artifactChangesNoLink.push(...commitsWithNoRelations);
+            this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
+            this.rawChangesArray.push({
+              artifact: focusedArtifact,
+              changes: artifactChanges,
+              nonLinkedCommits: artifactChangesNoLink,
+            });
+          }
+          break;
+        case 'date':
+          {
+            // Adjust 'from' to the start of the day
+            const fromDate = new Date(this.from);
+            fromDate.setSeconds(0); // set to the start of the minute
+            this.from = fromDate.toISOString();
 
-            if (commitsInDateRange.count > 0) {
-              const { value: commits } = commitsInDateRange;
-              let firstCommitObject = commits[commits.length - 1]; // last commit is the oldest
-              let lastCommitObject = commits[0]; // first commit is the latest
-              let fromCommit = firstCommitObject.commitId;
-              let toCommit = lastCommitObject.commitId;
-              const submoduleItems = await this.parseSubModules(
-                gitDataProvider,
+            // Adjust 'to' to the end of the day
+            const toDate = new Date(this.to);
+            toDate.setSeconds(59);
+            this.to = toDate.toISOString();
+
+            let commitsInDateRange = await gitDataProvider.GetCommitsInDateRange(
+              this.teamProject,
+              this.repoId,
+              String(this.from),
+              String(this.to),
+              this.branchName
+            );
+            let repo = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
+            if (!repo) {
+              throw new Error(`Could not find repository with id ${this.repoId}`);
+            }
+            if (this.includePullRequests) {
+              artifactChanges = await gitDataProvider.GetPullRequestsInCommitRangeWithoutLinkedItems(
                 this.teamProject,
-                repoName,
-                toCommit,
-                fromCommit,
-                'commit',
-                'commit',
-                commits,
-                this.includedWorkItemByIdSet
+                this.repoId,
+                commitsInDateRange
               );
+            } else {
+              const { allExtendedCommits, commitsWithNoRelations } =
+                await gitDataProvider.GetItemsInCommitRange(
+                  this.teamProject,
+                  this.repoId,
+                  commitsInDateRange,
+                  this.linkedWiOptions
+                );
+              artifactChanges = [...allExtendedCommits];
+              artifactChangesNoLink = [...commitsWithNoRelations];
 
-              //add targetRepo property for each item
-              if (artifactChanges.length > 0 && submoduleItems.length > 0) {
-                for (const item of artifactChanges) {
-                  item.targetRepo = {
-                    repoName: repoName,
-                    gitSubModuleName: item.gitSubModuleName || '',
-                    url: repo.url,
-                    projectId: repo.project.id,
-                  };
+              let repoName = repo.name;
+
+              if (commitsInDateRange.count > 0) {
+                const { value: commits } = commitsInDateRange;
+                let firstCommitObject = commits[commits.length - 1]; // last commit is the oldest
+                let lastCommitObject = commits[0]; // first commit is the latest
+                let fromCommit = firstCommitObject.commitId;
+                let toCommit = lastCommitObject.commitId;
+                const { commitsWithRelatedWi, commitsWithNoRelations: commitsWithNoRelationsSubmodule } =
+                  await this.parseSubModules(
+                    gitDataProvider,
+                    this.teamProject,
+                    repoName,
+                    toCommit,
+                    fromCommit,
+                    'commit',
+                    'commit',
+                    commits,
+                    this.includedWorkItemByIdSet
+                  );
+
+                //add targetRepo property for each item
+                if (artifactChanges.length > 0 && commitsWithRelatedWi.length > 0) {
+                  for (const item of artifactChanges) {
+                    item.targetRepo = {
+                      repoName: repoName,
+                      gitSubModuleName: item.gitSubModuleName || '',
+                      url: repo.url,
+                      projectId: repo.project.id,
+                    };
+                  }
+                  artifactChanges.push(...commitsWithRelatedWi);
+                  artifactChangesNoLink.push(...commitsWithNoRelationsSubmodule);
                 }
-                artifactChanges.push(...submoduleItems);
               }
             }
+            this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
+            this.rawChangesArray.push({
+              artifact: { name: '' },
+              changes: artifactChanges,
+              nonLinkedCommits: artifactChangesNoLink,
+            });
           }
-          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
-          this.rawChangesArray.push({
-            artifact: { name: '' },
-            changes: artifactChanges,
-          });
           break;
 
         case 'pipeline':
-          artifactChanges = await this.GetPipelineChanges(
-            pipelinesDataProvider,
-            gitDataProvider,
-            this.teamProject,
-            this.to,
-            this.from
-          );
-          this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
-          this.rawChangesArray.push({
-            artifact: { name: this.tocTitle || '' },
-            changes: artifactChanges,
-          });
+          {
+            const { artifactChanges, artifactChangesNoLink } = await this.GetPipelineChanges(
+              pipelinesDataProvider,
+              gitDataProvider,
+              this.teamProject,
+              this.to,
+              this.from
+            );
+            this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
+
+            this.rawChangesArray.push({
+              artifact: { name: this.tocTitle || '' },
+              changes: [...artifactChanges],
+              nonLinkedCommits: [...artifactChangesNoLink],
+            });
+          }
           break;
         case 'release':
-          const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-            this.teamProject,
-            Number(this.from)
-          );
-          const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-            this.teamProject,
-            Number(this.to)
-          );
+          {
+            const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+              this.teamProject,
+              Number(this.from)
+            );
+            const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+              this.teamProject,
+              Number(this.to)
+            );
 
-          logger.info(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
-          // Precompute a map for quick lookups
-          const fromArtifactMap = new Map<string, Artifact>();
-          for (const fa of fromRelease.artifacts) {
-            const key = `${fa.type}-${fa.alias}`;
-            fromArtifactMap.set(key, fa);
-          }
+            logger.info(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
+            // Precompute a map for quick lookups
+            const fromArtifactMap = new Map<string, Artifact>();
+            for (const fa of fromRelease.artifacts) {
+              const key = `${fa.type}-${fa.alias}`;
+              fromArtifactMap.set(key, fa);
+            }
 
-          await Promise.all(
-            toRelease.artifacts.map(async (toReleaseArtifact: Artifact) => {
-              const artifactType = toReleaseArtifact.type;
-              const artifactAlias = toReleaseArtifact.alias;
-              logger.info(`Processing artifact: ${artifactAlias} (${artifactType})`);
+            await Promise.all(
+              toRelease.artifacts.map(async (toReleaseArtifact: Artifact) => {
+                const artifactType = toReleaseArtifact.type;
+                const artifactAlias = toReleaseArtifact.alias;
+                logger.info(`Processing artifact: ${artifactAlias} (${artifactType})`);
 
-              // Skip unsupported artifact types
-              if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
-                logger.info(`Artifact ${artifactAlias} type ${artifactType} is not supported, skipping`);
-                return;
-              }
-
-              // Additional check for Build artifact repository provider
-              if (
-                artifactType === 'Build' &&
-                !['TfsGit', 'TfsVersionControl'].includes(
-                  toReleaseArtifact.definitionReference['repository.provider']?.id
-                )
-              ) {
-                logger.info(`Artifact ${artifactAlias} repository provider is unknown, skipping`);
-                return;
-              }
-
-              const key = `${artifactType}-${artifactAlias}`;
-              const fromReleaseArtifact = fromArtifactMap.get(key);
-              if (!fromReleaseArtifact) {
-                // Artifact didn't exist in previous release
-                logger.info(`Artifact ${artifactAlias} not found in previous release`);
-                return;
-              }
-
-              // If same version, nothing to compare
-              if (
-                fromReleaseArtifact.definitionReference['version'].name ===
-                toReleaseArtifact.definitionReference['version'].name
-              ) {
-                logger.info(
-                  `Same artifact ${fromReleaseArtifact.definitionReference['version'].name} nothing to compare`
-                );
-                return;
-              }
-
-              // Dispatch to the appropriate handler
-              const handler = handlers[artifactType];
-              if (handler) {
-                switch (artifactType) {
-                  case 'Git':
-                    await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject, gitDataProvider);
-                    break;
-                  case 'Artifactory':
-                  case 'JFrogArtifactory':
-                    await handler(
-                      fromReleaseArtifact,
-                      toReleaseArtifact,
-                      this.teamProject,
-                      jfrogDataProvider
-                    );
-                    break;
-                  default:
-                    await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
+                // Skip unsupported artifact types
+                if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
+                  logger.info(`Artifact ${artifactAlias} type ${artifactType} is not supported, skipping`);
+                  return;
                 }
-              } else {
-                logger.info(`No handler defined for artifact type ${artifactType}, skipping`);
-              }
-            })
-          );
 
-          //handle services.json from variables of the release
-          await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
+                // Additional check for Build artifact repository provider
+                if (
+                  artifactType === 'Build' &&
+                  !['TfsGit', 'TfsVersionControl'].includes(
+                    toReleaseArtifact.definitionReference['repository.provider']?.id
+                  )
+                ) {
+                  logger.info(`Artifact ${artifactAlias} repository provider is unknown, skipping`);
+                  return;
+                }
+
+                const key = `${artifactType}-${artifactAlias}`;
+                const fromReleaseArtifact = fromArtifactMap.get(key);
+                if (!fromReleaseArtifact) {
+                  // Artifact didn't exist in previous release
+                  logger.info(`Artifact ${artifactAlias} not found in previous release`);
+                  return;
+                }
+
+                // If same version, nothing to compare
+                if (
+                  fromReleaseArtifact.definitionReference['version'].name ===
+                  toReleaseArtifact.definitionReference['version'].name
+                ) {
+                  logger.info(
+                    `Same artifact ${fromReleaseArtifact.definitionReference['version'].name} nothing to compare`
+                  );
+                  return;
+                }
+
+                // Dispatch to the appropriate handler
+                const handler = handlers[artifactType];
+                if (handler) {
+                  switch (artifactType) {
+                    case 'Git':
+                      await handler(
+                        fromReleaseArtifact,
+                        toReleaseArtifact,
+                        this.teamProject,
+                        gitDataProvider
+                      );
+                      break;
+                    case 'Artifactory':
+                    case 'JFrogArtifactory':
+                      await handler(
+                        fromReleaseArtifact,
+                        toReleaseArtifact,
+                        this.teamProject,
+                        jfrogDataProvider
+                      );
+                      break;
+                    default:
+                      await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
+                  }
+                } else {
+                  logger.info(`No handler defined for artifact type ${artifactType}, skipping`);
+                }
+              })
+            );
+
+            //handle services.json from variables of the release
+            await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
+          }
+          break;
         default:
           break;
       }
@@ -484,8 +528,9 @@ export default class ChangeDataFactory {
     teamProject: string,
     to: string | number,
     from: string | number
-  ): Promise<any[]> {
+  ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
+    const artifactChangesNoLink = [];
     try {
       let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(to));
 
@@ -517,7 +562,7 @@ export default class ChangeDataFactory {
         );
         if (!sourceBuild) {
           logger.warn(`Could not find a valid pipeline before build #${to}`);
-          return artifactChanges;
+          return { artifactChanges: [], artifactChangesNoLink: [] };
         }
       }
 
@@ -573,7 +618,7 @@ export default class ChangeDataFactory {
 
           let fromCommit = fromGitRepoVersion;
           logger.info(`fromCommit ${fromCommit} toCommit ${toCommit}`);
-          const pipelineRangeItems = await this.getCommitRangeChanges(
+          const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
             gitDataProvider,
             teamProject,
             fromCommit,
@@ -588,7 +633,8 @@ export default class ChangeDataFactory {
             this.linkedWiOptions
           );
 
-          artifactChanges.push(...pipelineRangeItems);
+          artifactChanges.push(...allExtendedCommits);
+          artifactChangesNoLink.push(...commitsWithNoRelations);
         }
       }
 
@@ -669,23 +715,27 @@ export default class ChangeDataFactory {
             break;
           }
           //Recursive call
-          const reportPartsForRepo = await this.GetPipelineChanges(
-            pipelinesDataProvider,
-            gitDataProvider,
-            targetResourcePipelineTeamProject,
-            targetResourcePipelineRunId,
-            sourceResourcePipelineRunId
-          );
+          const { artifactChanges: reportPartsForRepo, artifactChangesNoLink: reportPartsForRepoNoLink } =
+            await this.GetPipelineChanges(
+              pipelinesDataProvider,
+              gitDataProvider,
+              targetResourcePipelineTeamProject,
+              targetResourcePipelineRunId,
+              sourceResourcePipelineRunId
+            );
 
           if (reportPartsForRepo) {
+            logger.debug(`reportPartsForRepo: ${JSON.stringify(reportPartsForRepo)}`);
+            logger.debug(`reportPartsForRepoNoLink: ${JSON.stringify(reportPartsForRepoNoLink)}`);
             artifactChanges.push(...reportPartsForRepo);
+            artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
         }
       }
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
     }
-    return artifactChanges;
+    return { artifactChanges, artifactChangesNoLink };
   }
 
   private removeUserFromGitRepoUrl(gitRepoUrl: string) {
@@ -713,6 +763,7 @@ export default class ChangeDataFactory {
     linkedWiOptions: any = undefined
   ) {
     const allExtendedCommits: any[] = [];
+    const commitsWithNoRelations: any[] = [];
     try {
       let gitApisUrl = gitRepoUrl.includes('/_git/')
         ? gitRepoUrl.replace('/_git/', '/_apis/git/repositories/')
@@ -727,34 +778,40 @@ export default class ChangeDataFactory {
       );
 
       if (extendedCommits?.length > 0) {
-        const foundItems = await gitDataProvider.getItemsForPipelineRange(
-          teamProject,
-          extendedCommits,
-          {
-            repoName: gitRepoName,
-            gitSubModuleName: gitSubModuleName,
-            url: gitApisUrl,
-          },
-          includedWorkItemByIdSet,
-          linkedWiOptions
-        );
-        logger.debug(`found ${foundItems.length} items for ${gitRepoName}`);
-        allExtendedCommits.push(...foundItems);
-        const submoduleItems = await this.parseSubModules(
-          gitDataProvider,
-          teamProject,
-          gitRepoName,
-          toVersion,
-          fromVersion,
-          toVersionType,
-          fromVersionType,
-          extendedCommits,
-          includedWorkItemByIdSet,
-          linkedWiOptions
-        );
-        allExtendedCommits.push(...submoduleItems);
+        const { commitChangesArray, commitsWithNoRelations: unrelatedCommits } =
+          await gitDataProvider.getItemsForPipelineRange(
+            teamProject,
+            extendedCommits,
+            {
+              repoName: gitRepoName,
+              gitSubModuleName: gitSubModuleName,
+              url: gitApisUrl,
+            },
+            includedWorkItemByIdSet,
+            linkedWiOptions,
+            this.includeUnlinkedCommits
+          );
+        allExtendedCommits.push(...commitChangesArray);
+        commitsWithNoRelations.push(...unrelatedCommits);
+
+        const { commitsWithRelatedWi, commitsWithNoRelations: commitsWithNoRelationsSubmodule } =
+          await this.parseSubModules(
+            gitDataProvider,
+            teamProject,
+            gitRepoName,
+            toVersion,
+            fromVersion,
+            toVersionType,
+            fromVersionType,
+            extendedCommits,
+            includedWorkItemByIdSet,
+            linkedWiOptions
+          );
+        allExtendedCommits.push(...commitsWithRelatedWi);
+        commitsWithNoRelations.push(...commitsWithNoRelationsSubmodule);
       }
-      return allExtendedCommits;
+
+      return { allExtendedCommits, commitsWithNoRelations };
     } catch (error: any) {
       logger.error(`Cannot get commits for commit range ${gitRepoName} - ${error.message}`);
       throw error;
@@ -774,7 +831,8 @@ export default class ChangeDataFactory {
     subModuleName: string = '',
     linkedWiOptions: any = undefined
   ) {
-    const itemsToReturn: any[] = [];
+    const commitsWithRelatedWi: any[] = [];
+    const commitsWithNoRelations: any[] = [];
     try {
       const submodules = await gitDataProvider.getSubmodulesData(
         teamProject,
@@ -790,27 +848,29 @@ export default class ChangeDataFactory {
         let gitSubModuleName = subModule.gitSubModuleName;
         let sourceSha1 = subModule.sourceSha1;
         let targetSha1 = subModule.targetSha1;
-        const items = await this.getCommitRangeChanges(
-          gitDataProvider,
-          teamProject,
-          sourceSha1,
-          'commit',
-          targetSha1,
-          'commit',
-          gitSubRepoName,
-          gitSubRepoUrl,
-          includedWorkItemByIdSet,
-          gitSubModuleName,
-          undefined,
-          linkedWiOptions
-        );
+        const { allExtendedCommits, commitsWithNoRelations: commitsWithNoRelationsSubmodule } =
+          await this.getCommitRangeChanges(
+            gitDataProvider,
+            teamProject,
+            sourceSha1,
+            'commit',
+            targetSha1,
+            'commit',
+            gitSubRepoName,
+            gitSubRepoUrl,
+            includedWorkItemByIdSet,
+            gitSubModuleName,
+            undefined,
+            linkedWiOptions
+          );
 
-        itemsToReturn.push(...items);
+        commitsWithRelatedWi.push(...allExtendedCommits);
+        commitsWithNoRelations.push(...commitsWithNoRelationsSubmodule);
       }
     } catch (error: any) {
       logger.error(`could not handle submodules ${error.message}`);
     }
-    return itemsToReturn;
+    return { commitsWithRelatedWi, commitsWithNoRelations };
   }
 
   private async handleBuildArtifact(
@@ -856,7 +916,7 @@ export default class ChangeDataFactory {
     let gitTitle = `Repository ${toArtifact.definitionReference['definition'].name}`;
     let gitRepo = await provider.GetGitRepoFromRepoId(toArtifact.definitionReference['definition'].id);
 
-    const pipelineRangeItems = await this.getCommitRangeChanges(
+    const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
       provider,
       teamProject,
       fromArtifact.definitionReference['version'].id,
@@ -870,10 +930,11 @@ export default class ChangeDataFactory {
       undefined,
       this.linkedWiOptions
     );
-    this.isChangesReachedMaxSize(this.rangeType, pipelineRangeItems?.length);
+    this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
     this.rawChangesArray.push({
       artifact: { name: gitTitle || '' },
-      changes: [...pipelineRangeItems],
+      changes: [...allExtendedCommits],
+      noRelationChanges: [...commitsWithNoRelations],
     });
   }
 
@@ -1039,7 +1100,7 @@ export default class ChangeDataFactory {
         }
 
         // Test this
-        const items = await this.getCommitRangeChanges(
+        const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
           provider,
           projectId,
           fromTag,
@@ -1053,10 +1114,12 @@ export default class ChangeDataFactory {
           itemPath,
           this.linkedWiOptions
         );
-        this.isChangesReachedMaxSize(this.rangeType, items?.length);
+
+        this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
         this.rawChangesArray.push({
           artifact: { name: `Service: ${service.serviceName}` },
-          changes: [...items],
+          changes: [...allExtendedCommits],
+          nonLinkedCommits: [...commitsWithNoRelations],
         });
       }
     }
@@ -1064,6 +1127,7 @@ export default class ChangeDataFactory {
 
   /*arranging the test data for json skins package*/
   async jsonSkinDataAdapter(adapterType: string, rawData: any) {
+    logger.info(`adapting ${adapterType} data`);
     let adoptedData = undefined;
     try {
       switch (adapterType) {
@@ -1104,6 +1168,17 @@ export default class ChangeDataFactory {
           await changesTableDataSkinAdapter.adoptSkinData();
           this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);
           adoptedData = changesTableDataSkinAdapter.getAdoptedData();
+          break;
+        case 'non-associated-commits':
+          let notAssociatedCommits = this.rawChangesArray.filter(
+            (change) => change.nonLinkedCommits?.length > 0
+          );
+          let nonAssociatedCommitsSkinAdapter = new NonAssociatedCommitsDataSkinAdapter(
+            notAssociatedCommits,
+            this.includeCommittedBy
+          );
+          await nonAssociatedCommitsSkinAdapter.adoptSkinData();
+          adoptedData = nonAssociatedCommitsSkinAdapter.getAdoptedData();
           break;
         case 'installation-instructions':
           try {
