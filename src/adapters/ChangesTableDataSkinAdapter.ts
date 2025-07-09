@@ -50,6 +50,20 @@ export default class ChangesTableDataSkinAdapter {
     return this.adoptedData;
   }
 
+  private convertDateToLocalTime(utcDateString: string): string {
+    const date = new Date(utcDateString);
+    return date.toLocaleString('en-IL', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+  }
+
   private applyChangeNumber = (change: any) => {
     if (change.build) {
       return { value: change.build, url: change.workItem.url };
@@ -68,19 +82,20 @@ export default class ChangesTableDataSkinAdapter {
     if (change.build) {
       return {
         value:
-          change.workItem.fields['Microsoft.VSTS.Common.ClosedDate'] || "This item hasn't been Closed yet",
+          this.convertDateToLocalTime(change.workItem.fields['Microsoft.VSTS.Common.ClosedDate']) ||
+          "This item hasn't been Closed yet",
       };
     }
 
     if (change.pullrequest) {
       return {
-        value: change.pullrequest.closedDate,
+        value: this.convertDateToLocalTime(change.pullrequest.closedDate),
       };
     }
 
     if (change.commit) {
       return {
-        value: change.commit.author.date,
+        value: this.convertDateToLocalTime(change.commit.author.date),
       };
     }
   };
@@ -153,7 +168,6 @@ export default class ChangesTableDataSkinAdapter {
         }
         changeCounter++;
       }
-
       artifactObject.artifactChanges = artifactChanges;
       this.adoptedData.push(artifactObject);
     }
@@ -259,7 +273,7 @@ export default class ChangesTableDataSkinAdapter {
       {
         name: 'Committed Date & Time',
         ...this.applyClosedDateData(change),
-        width: `${this.hasAnyLinkedItems ? '9.7%' : '10%'}`,
+        width: `${this.hasAnyLinkedItems ? '9.7%' : '17.2%'}`,
       },
       {
         name: 'Committed by',
@@ -343,7 +357,7 @@ export default class ChangesTableDataSkinAdapter {
       },
       {
         name: 'Creation date',
-        value: change.creationDate,
+        value: this.convertDateToLocalTime(change.creationDate),
         width: '10%',
       },
       {
