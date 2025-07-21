@@ -23,7 +23,7 @@ export default class TestDataFactory {
   runAttachmentMode: string;
   includeRequirements: boolean;
   includeCustomerId: boolean;
-  includeLinkedMom: boolean;
+  linkedMomRequest: any;
   traceAnalysisRequest: any;
   reqTestQueryResults: Map<any, any[]>;
   testReqQueryResults: Map<any, any[]>;
@@ -38,6 +38,7 @@ export default class TestDataFactory {
   requirementToTestCaseTraceMap: Map<string, string[]>;
   testCaseToRequirementsTraceMap: Map<string, string[]>;
   testCaseToRequirementsLookup: Map<number, Set<any>>;
+  testCaseToLinkedMomLookup: Map<number, Set<any>>;
   stepResultDetailsMap: Map<string, any>;
 
   constructor(
@@ -52,7 +53,7 @@ export default class TestDataFactory {
     runAttachmentMode: string = 'both',
     includeRequirements: boolean = false,
     includeCustomerId: boolean = false,
-    includeLinkedMom: boolean = false,
+    linkedMomRequest: any = undefined,
     traceAnalysisRequest: any = undefined,
     includeTestResults: boolean = false,
     dgDataProvider: any,
@@ -73,7 +74,7 @@ export default class TestDataFactory {
     this.runAttachmentMode = runAttachmentMode;
     this.includeRequirements = includeRequirements;
     this.includeCustomerId = includeCustomerId;
-    this.includeLinkedMom = includeLinkedMom;
+    this.linkedMomRequest = linkedMomRequest;
     this.traceAnalysisRequest = traceAnalysisRequest;
     this.dgDataProvider = dgDataProvider;
     this.templatePath = templatePath;
@@ -92,6 +93,7 @@ export default class TestDataFactory {
     this.testCaseToRequirementsTraceMap = new Map<string, string[]>();
     this.requirementToTestCaseTraceMap = new Map<string, string[]>();
     this.testCaseToRequirementsLookup = new Map<number, Set<any>>();
+    this.testCaseToLinkedMomLookup = new Map<number, Set<any>>();
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -135,8 +137,9 @@ export default class TestDataFactory {
         true,
         this.includeRequirements,
         this.includeCustomerId,
-        this.includeLinkedMom,
-        this.stepResultDetailsMap
+        this.linkedMomRequest.linkedMomMode === 'relation',
+        this.stepResultDetailsMap,
+        this.testCaseToLinkedMomLookup
       );
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
@@ -331,6 +334,28 @@ export default class TestDataFactory {
       this.testCaseToRequirementsLookup = testCaseToRequirementMap;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
+    }
+  }
+
+  async fetchLinkedMomResults() {
+    try {
+      const ticketsDataProvider = await this.dgDataProvider.getTicketsDataProvider();
+      const testCaseToLinkedMomMap = new Map<number, Set<any>>();
+      if (this.linkedMomRequest.linkedMomQuery) {
+        logger.info('starting to fetch linked mom results');
+
+        logger.info('fetching test case linked mom');
+        await ticketsDataProvider.GetQueryResultsFromWiql(
+          this.linkedMomRequest.linkedMomQuery.wiql.href,
+          true,
+          testCaseToLinkedMomMap
+        );
+      }
+      logger.debug(`size of linked mom results ${testCaseToLinkedMomMap?.size}`);
+
+      this.testCaseToLinkedMomLookup = testCaseToLinkedMomMap;
+    } catch (err) {
+      logger.error(`Could not fetch linked mom results: ${err.message}`);
     }
   }
 
@@ -682,9 +707,10 @@ export default class TestDataFactory {
                       ? this.AdaptTestCaseRequirements(testCase, isByQuery)
                       : undefined;
 
-                    let testCaseLinkedMom = this.includeLinkedMom
-                      ? this.adaptTestCaseMomRelation(testCase)
-                      : undefined;
+                    let testCaseLinkedMom =
+                      this.linkedMomRequest.linkedMomMode !== 'none'
+                        ? this.adaptTestCaseMomRelation(testCase)
+                        : undefined;
 
                     let filteredTestCaseAttachments = testCase.attachmentsData.filter((attachment) => {
                       return (
@@ -924,7 +950,22 @@ export default class TestDataFactory {
   private adaptTestCaseMomRelation(testCase: any) {
     return testCase.relations
       .filter(
-        (relation: any) => relation.type.toLowerCase() === 'bug' || relation.type.toLowerCase() === 'task'
+        (relation: any) =>
+          relation.type.toLowerCase() === 'task' ||
+          relation.type.toLowerCase() === 'bug' ||
+          relation.type.toLowerCase() === 'code review request' ||
+          relation.type.toLowerCase() === 'change request' ||
+          relation.type.toLowerCase() === 'code review response' ||
+          relation.type.toLowerCase() === 'epic' ||
+          relation.type.toLowerCase() === 'feature' ||
+          relation.type.toLowerCase() === 'user story' ||
+          relation.type.toLowerCase() === 'feedback request' ||
+          relation.type.toLowerCase() === 'feedback response' ||
+          relation.type.toLowerCase() === 'issue' ||
+          relation.type.toLowerCase() === 'risk' ||
+          relation.type.toLowerCase() === 'review' ||
+          relation.type.toLowerCase() === 'test plan' ||
+          relation.type.toLowerCase() === 'test suite'
       )
       .map((relation: any, index: number) => {
         let fields = this.buildMomFields({
@@ -993,7 +1034,7 @@ export default class TestDataFactory {
         width: '13.6%',
         url: url,
       },
-      { name: 'Type', value: witType, width: '8.6%' },
+      { name: 'Type', value: witType, width: '11.4%' },
       {
         name: 'Title',
         value: itemTitle || '',
