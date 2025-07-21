@@ -209,7 +209,7 @@ describe('TestDataFactory', () => {
         'both', // runAttachmentMode
         false, // includeRequirements
         false, // includeCustomerId
-        false, // includeLinkedMom
+        undefined, // includeLinkedMom
         undefined, // traceAnalysisRequest
         false, // includeTestResults
         mockProviders.dgDataProvider, // dgDataProvider

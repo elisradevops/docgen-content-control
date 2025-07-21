@@ -121,7 +121,7 @@ export default class DgContentControls {
             contentControlOptions.data.includeAttachmentContent,
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
-            contentControlOptions.data.includeLinkedMom,
+            contentControlOptions.data.linkedMomRequest,
             contentControlOptions.data.traceAnalysisRequest
           );
 
@@ -288,7 +288,7 @@ export default class DgContentControls {
     includeAttachmentContent: boolean = false,
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
-    includeLinkedMom?: boolean,
+    linkedMomRequest?: any,
     traceAnalysisRequest?: any
   ) {
     logger.debug(`fetching test data with params:
@@ -317,7 +317,7 @@ export default class DgContentControls {
         'planOnly',
         includeRequirements,
         includeCustomerId,
-        includeLinkedMom,
+        linkedMomRequest,
         traceAnalysisRequest,
         false,
         this.dgDataProviderAzureDevOps,
@@ -330,6 +330,12 @@ export default class DgContentControls {
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
         await testDataFactory.fetchQueryResults();
+      }
+
+      if (linkedMomRequest?.linkedMomMode === 'query') {
+        logger.debug(`fetching linked mom results with params:
+          linkedMomRequest:${JSON.stringify(linkedMomRequest)}`);
+        await testDataFactory.fetchLinkedMomResults();
       }
 
       //init the adopted data
