@@ -108,12 +108,10 @@ export default class ResultDataFactory {
       }
 
       if (openPcrToTestCaseTraceMap) {
-        logger.info(`openPcrToTestCaseTraceMap: ${JSON.stringify(openPcrToTestCaseTraceMap)}`);
         this.openPcrToTestCaseTraceMap = openPcrToTestCaseTraceMap;
       }
 
       if (testCaseToOpenPcrTraceMap) {
-        logger.info(`testCaseToOpenPcrTraceMap: ${JSON.stringify(testCaseToOpenPcrTraceMap)}`);
         this.testCaseToOpenPcrTraceMap = testCaseToOpenPcrTraceMap;
       }
 
