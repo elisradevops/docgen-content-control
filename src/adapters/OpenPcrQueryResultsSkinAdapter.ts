@@ -15,7 +15,6 @@ export default class OpenPcrQueryResultsSkinAdapter {
     this.sortingTargetsColumnsMap = sortingTargetsColumnsMap;
     this.queryMode = queryMode;
     this.includeCommonColumnsMode = includeCommonColumns;
-    logger.debug(`includeCommonColumnsMode: ${this.includeCommonColumnsMode}`);
   }
 
   adoptSkinData() {
