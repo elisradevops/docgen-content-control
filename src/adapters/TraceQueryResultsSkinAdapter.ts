@@ -84,7 +84,12 @@ export default class TraceQueryResultsSkinAdapter {
     // Process other fields
     for (const [referenceName, fieldName] of mapToUse.entries()) {
       // Skip 'Title' and 'Work Item Type' as per original logic
-      if (fieldName === 'Title' || fieldName === 'Work Item Type' || fieldName === 'ID') {
+      if (
+        fieldName === 'Title' ||
+        fieldName === 'Work Item Type' ||
+        fieldName === 'System.WorkItemType' ||
+        fieldName === 'ID'
+      ) {
         continue;
       }
       // Skip common columns if only one instance is allowed
