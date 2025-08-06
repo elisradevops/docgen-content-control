@@ -38,6 +38,7 @@ export default class DgContentControls {
   minioAttachmentData: any[];
   attachmentsBucketName: string;
   jsonFileBucketName: string;
+  formattingSettings: any;
 
   constructor(
     uri,
@@ -49,7 +50,8 @@ export default class DgContentControls {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    jfrogToken = undefined
+    jfrogToken = undefined,
+    formattingSettings = undefined
   ) {
     this.uri = uri;
     this.PAT = PAT;
@@ -63,6 +65,7 @@ export default class DgContentControls {
     this.minioAttachmentData = [];
     this.jsonFileBucketName = 'content-controls';
     this.jfrogToken = jfrogToken;
+    this.formattingSettings = formattingSettings;
   }
 
   async init() {
@@ -325,7 +328,9 @@ export default class DgContentControls {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        undefined,
+        this.formattingSettings
       );
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
@@ -652,7 +657,8 @@ export default class DgContentControls {
         this.minioAccessKey,
         this.minioSecretKey,
         this.PAT,
-        includeHardCopyRun
+        includeHardCopyRun,
+        this.formattingSettings
       );
 
       if (openPCRsSelectionRequest?.openPcrMode === 'query') {
@@ -764,7 +770,8 @@ export default class DgContentControls {
             this.minioAccessKey,
             this.minioSecretKey,
             this.PAT,
-            stepExecutionObject.data
+            stepExecutionObject.data,
+            this.formattingSettings
           );
 
           if (stepExecution?.generateRequirements?.requirementInclusionMode === 'query') {
@@ -865,7 +872,9 @@ export default class DgContentControls {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        false,
+        this.formattingSettings
       );
 
       await resultDataFactory.fetchTestReporterResults(

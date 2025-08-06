@@ -40,6 +40,7 @@ export default class ChangeDataFactory {
   private minioSecretKey: string;
   private PAT: string;
   private includeUnlinkedCommits: boolean;
+  private formattingSettings: any;
   constructor(
     teamProjectName,
     repoId: string,
@@ -63,7 +64,8 @@ export default class ChangeDataFactory {
     includedWorkItemByIdSet: Set<number> = undefined,
     linkedWiOptions: any = undefined,
     requestedByBuild: boolean = false,
-    includeUnlinkedCommits: boolean = false
+    includeUnlinkedCommits: boolean = false,
+    formattingSettings: any = {}
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -89,6 +91,7 @@ export default class ChangeDataFactory {
     this.linkedWiOptions = linkedWiOptions;
     this.requestedByBuild = requestedByBuild;
     this.includeUnlinkedCommits = includeUnlinkedCommits;
+    this.formattingSettings = formattingSettings;
   } //constructor
 
   async fetchSvdData() {
@@ -1144,7 +1147,8 @@ export default class ChangeDataFactory {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
+            this.formattingSettings
           );
           adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
           logger.debug(
@@ -1163,7 +1167,8 @@ export default class ChangeDataFactory {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
+            this.formattingSettings
           );
           await changesTableDataSkinAdapter.adoptSkinData();
           this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);

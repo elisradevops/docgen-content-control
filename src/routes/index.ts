@@ -16,7 +16,9 @@ export class Routes {
           body.templateUrl,
           body.minioEndPoint,
           body.minioAccessKey,
-          body.minioSecretKey
+          body.minioSecretKey,
+          undefined,
+          body.formattingSettings
         );
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateDocTemplate();
@@ -38,7 +40,9 @@ export class Routes {
           body.templateUrl,
           body.minioEndPoint,
           body.minioAccessKey,
-          body.minioSecretKey
+          body.minioSecretKey,
+          undefined,
+          body.formattingSettings
         );
         logger.info(`request recieved with body :
           ${JSON.stringify(body)}`);

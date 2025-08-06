@@ -13,6 +13,7 @@ export default class SystemOverviewDataSkinAdapter {
   private minioSecretKey: string;
   private PAT: string;
   private attachmentMinioData: any[];
+  private formattingSettings: any;
   constructor(
     teamProject,
     templatePath,
@@ -20,7 +21,8 @@ export default class SystemOverviewDataSkinAdapter {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    formattingSettings: any
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -32,6 +34,7 @@ export default class SystemOverviewDataSkinAdapter {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
+    this.formattingSettings = formattingSettings;
   }
 
   private countTotalNodes(nodes: any[]): number {
@@ -72,7 +75,11 @@ export default class SystemOverviewDataSkinAdapter {
   private async adaptDataRecursively(nodes: any[], headerLevel: number = 3) {
     for (const node of nodes) {
       let Description = node.description || 'No description';
-      let cleanedDescription = await this.htmlUtils.cleanHtml(Description);
+      let cleanedDescription = await this.htmlUtils.cleanHtml(
+        Description,
+        false,
+        this.formattingSettings.trimAdditionalSpacingInDescriptions
+      );
       let richTextFactory = new RichTextDataFactory(
         cleanedDescription,
         this.templatePath,
