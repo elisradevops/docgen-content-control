@@ -40,6 +40,7 @@ export default class TestDataFactory {
   testCaseToRequirementsLookup: Map<number, Set<any>>;
   testCaseToLinkedMomLookup: Map<number, Set<any>>;
   stepResultDetailsMap: Map<string, any>;
+  formattingSettings: any;
 
   constructor(
     attachmentsBucketName,
@@ -62,7 +63,8 @@ export default class TestDataFactory {
     minioAccessKey,
     minioSecretKey,
     PAT,
-    stepResultDetailsMap?: Map<string, any>
+    stepResultDetailsMap?: Map<string, any>,
+    formattingSettings?: any
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -94,6 +96,7 @@ export default class TestDataFactory {
     this.requirementToTestCaseTraceMap = new Map<string, string[]>();
     this.testCaseToRequirementsLookup = new Map<number, Set<any>>();
     this.testCaseToLinkedMomLookup = new Map<number, Set<any>>();
+    this.formattingSettings = formattingSettings;
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -492,7 +495,11 @@ export default class TestDataFactory {
                   let insertPageBreak = testCaseAmount > 1 && !titleOnly;
                   try {
                     let Description = testCase.description || 'No description';
-                    let cleanedDescription = await this.htmlUtils.cleanHtml(Description);
+                    let cleanedDescription = await this.htmlUtils.cleanHtml(
+                      Description,
+                      false,
+                      this.formattingSettings.trimAdditionalSpacingInDescriptions
+                    );
                     let richTextFactory = new RichTextDataFactory(
                       cleanedDescription,
                       this.templatePath,
@@ -536,10 +543,18 @@ export default class TestDataFactory {
                             let actionText = '';
                             let expectedText = '';
                             if (testStep.action) {
-                              actionText = await this.htmlUtils.cleanHtml(testStep.action);
+                              actionText = await this.htmlUtils.cleanHtml(
+                                testStep.action,
+                                false,
+                                this.formattingSettings.trimAdditionalSpacingInTables
+                              );
                             }
                             if (testStep.expected) {
-                              expectedText = await this.htmlUtils.cleanHtml(testStep.expected);
+                              expectedText = await this.htmlUtils.cleanHtml(
+                                testStep.expected,
+                                false,
+                                this.formattingSettings.trimAdditionalSpacingInTables
+                              );
                             }
 
                             let richTextFactoryAction = new RichTextDataFactory(

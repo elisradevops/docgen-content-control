@@ -692,7 +692,11 @@ export default class HtmlUtils {
     });
   };
 
-  public async cleanHtml(html, needToRemoveImg: boolean = false): Promise<any> {
+  public async cleanHtml(
+    html,
+    needToRemoveImg: boolean = false,
+    splitParagraphsIntoSeparateElements: boolean = false
+  ): Promise<any> {
     try {
       // Replace newlines within <p> elements
       html = html.replace(/<p>([\s\S]*?)<\/p>/gi, (match, content) => {
@@ -730,9 +734,13 @@ export default class HtmlUtils {
       if (needToRemoveImg) {
         this.removeImgElements();
       }
-      // Step 11: Trim text nodes before returning
+      // Step 11: Split paragraphs if table cell content and trimAdditionalSpacingInTables is enabled
+      if (splitParagraphsIntoSeparateElements) {
+        this.splitParagraphsIntoSeparateElements();
+      }
+      // Step 12: Trim text nodes before returning
       this.trimTextNodes();
-      // Step 12: Trim whitespace around <br> tags
+      // Step 13: Trim whitespace around <br> tags
       this.trimWhitespaceAroundBr();
       return this.$.html();
     } catch (error: any) {
@@ -741,4 +749,78 @@ export default class HtmlUtils {
       throw error;
     }
   }
+
+  private splitParagraphsIntoSeparateElements = () => {
+    // Process all elements that might contain text content
+    this.$('p, div, td, th, li').each((_, element) => {
+      const $element = this.$(element);
+      let html = $element.html();
+
+      if (!html) return;
+
+      // Step 1: Clean up redundant whitespace and newlines
+      // Remove newlines that are followed by <br> tags (redundant)
+      html = html.replace(/\n\s*<br\s*\/?>/gi, '<br>');
+
+      // Remove newlines that are preceded by <br> tags (redundant)
+      html = html.replace(/<br\s*\/?>\s*\n/gi, '<br>');
+
+      // Handle <br>&nbsp; patterns specifically
+      html = html.replace(/<br\s*\/?>&nbsp;\s*/gi, '<br>');
+
+      // Step 2: Split content by <br> tags and newlines
+      let parts = html.split(/<br\s*\/?>/gi);
+
+      // Further split by actual newline characters
+      const finalParts: string[] = [];
+      parts.forEach((part) => {
+        const subParts = part.split(/\n/);
+        finalParts.push(...subParts);
+      });
+
+      // Step 3: Clean each part thoroughly
+      const cleanParts = finalParts
+        .map((part) => {
+          // Replace &nbsp; with regular spaces
+          part = part.replace(/&nbsp;/g, ' ');
+          // Remove multiple consecutive spaces
+          part = part.replace(/\s+/g, ' ');
+          // Trim whitespace
+          part = part.trim();
+          return part;
+        })
+        .filter((part) => part.length > 0); // Remove empty parts
+
+      // Step 4: Replace element content based on element type
+      if (cleanParts.length > 1) {
+        if ($element.is('p')) {
+          // For paragraphs, create multiple separate paragraphs
+          const newParagraphs = cleanParts.map((part) => `<p>${part}</p>`).join('');
+          $element.replaceWith(newParagraphs);
+        } else {
+          // For other elements (div, td, th, li), create paragraphs inside
+          const newContent = cleanParts.map((part) => `<p>${part}</p>`).join('');
+          $element.html(newContent);
+        }
+      } else if (cleanParts.length === 1) {
+        // Single clean part - just update the content
+        if ($element.is('p')) {
+          $element.html(cleanParts[0]);
+        } else {
+          $element.html(`<p>${cleanParts[0]}</p>`);
+        }
+      }
+    });
+
+    // Step 5: Remove any remaining empty elements
+    this.$('p, div').each((_, element) => {
+      const $element = this.$(element);
+      const text = $element.text().trim();
+      const hasContent = $element.children().length > 0 || text.length > 0;
+
+      if (!hasContent) {
+        $element.remove();
+      }
+    });
+  };
 }

@@ -30,6 +30,7 @@ export default class PullRequestDataFactory {
   minioSecretKey: string;
   attachmentMinioData: any[];
   PAT: string;
+  formattingSettings: any;
 
   constructor(
     teamProjectName,
@@ -42,7 +43,8 @@ export default class PullRequestDataFactory {
     minioEndPoint: string,
     minioAccessKey: string,
     minioSecretKey: string,
-    PAT: string
+    PAT: string,
+    formattingSettings: any = {}
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -56,6 +58,7 @@ export default class PullRequestDataFactory {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
+    this.formattingSettings = formattingSettings;
   } //constructor
 
   /*fetches Change table data and adopts it to json skin format */
@@ -90,7 +93,8 @@ export default class PullRequestDataFactory {
       this.minioEndPoint,
       this.minioAccessKey,
       this.minioSecretKey,
-      this.PAT
+      this.PAT,
+      this.formattingSettings
     );
     await changesTableDataSkinAdapter.adoptSkinData();
     this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);

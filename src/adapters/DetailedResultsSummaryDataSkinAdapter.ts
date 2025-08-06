@@ -11,6 +11,7 @@ export default class DetailedResultsSummaryDataSkinAdapter {
   minioAccessKey: string;
   minioSecretKey: string;
   PAT: string;
+  formattingSettings: any;
   constructor(
     templatePath: string,
     teamProject: string,
@@ -18,7 +19,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     minioEndPoint,
     minioAccessKey,
     minioSecretKey,
-    PAT
+    PAT,
+    formattingSettings
   ) {
     this.htmlUtils = new HtmlUtils();
     this.templatePath = templatePath;
@@ -28,6 +30,7 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     this.minioAccessKey = minioAccessKey || '';
     this.minioSecretKey = minioSecretKey || '';
     this.PAT = PAT || '';
+    this.formattingSettings = formattingSettings || {};
   }
 
   private async htmlStrip(text): Promise<any> {
@@ -49,8 +52,16 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     try {
       return await Promise.all(
         resultDataRaw.map(async (item, idx) => {
-          const cleanedActionHtml = await this.htmlUtils.cleanHtml(`${item.stepAction}`);
-          const cleanedExpectedHtml = await this.htmlUtils.cleanHtml(`${item.stepExpected}`);
+          const cleanedActionHtml = await this.htmlUtils.cleanHtml(
+            `${item.stepAction}`,
+            false,
+            this.formattingSettings.trimAdditionalSpacingInTables
+          );
+          const cleanedExpectedHtml = await this.htmlUtils.cleanHtml(
+            `${item.stepExpected}`,
+            false,
+            this.formattingSettings.trimAdditionalSpacingInTables
+          );
 
           const action = await this.htmlStrip(cleanedActionHtml);
           const expected = await this.htmlStrip(cleanedExpectedHtml);

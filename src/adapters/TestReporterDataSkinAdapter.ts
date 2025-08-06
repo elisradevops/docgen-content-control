@@ -6,10 +6,12 @@ export default class TestReporterDataSkinAdapter {
   htmlUtils: HtmlUtils;
   templatePath: string;
   teamProject: string;
-  constructor(templatePath: string, teamProject: string) {
+  formattingSettings: any;
+  constructor(templatePath: string, teamProject: string, formattingSettings: any) {
     this.htmlUtils = new HtmlUtils();
     this.templatePath = templatePath;
     this.teamProject = teamProject;
+    this.formattingSettings = formattingSettings || {};
   }
 
   private async htmlStrip(text): Promise<any> {

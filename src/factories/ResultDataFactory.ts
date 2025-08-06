@@ -37,6 +37,7 @@ export default class ResultDataFactory {
   openPcrToTestCaseTraceMap: Map<any, any[]>;
   testCaseToOpenPcrTraceMap: Map<any, any[]>;
   testCaseToOpenPcrLookup: Map<number, Set<any>>;
+  formattingSettings: any;
 
   constructor(
     attachmentBucketName: string = '',
@@ -55,7 +56,8 @@ export default class ResultDataFactory {
     minioAccessKey,
     minioSecretKey,
     PAT,
-    includeHardCopyRun: boolean = false
+    includeHardCopyRun: boolean = false,
+    formattingSettings?: any
   ) {
     this.attachmentsBucketName = attachmentBucketName;
     this.teamProject = teamProject;
@@ -81,6 +83,7 @@ export default class ResultDataFactory {
     this.openPcrToTestCaseTraceMap = new Map<any, any[]>();
     this.testCaseToOpenPcrTraceMap = new Map<any, any[]>();
     this.testCaseToOpenPcrLookup = new Map<number, Set<any>>();
+    this.formattingSettings = formattingSettings;
   }
 
   public async fetchGetCombinedResultsSummary() {
@@ -316,14 +319,16 @@ export default class ResultDataFactory {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
+            this.formattingSettings
           );
           adoptedTestResultData = await detailedTestResultsSkinAdapter.jsonSkinDataAdapter(rawData);
           break;
         case 'test-reporter-table':
           const testReporterSkinAdapter = new TestReporterDataSkinAdapter(
             this.templatePath,
-            this.teamProject
+            this.teamProject,
+            this.formattingSettings
           );
           const adopted = await testReporterSkinAdapter.jsonSkinDataAdapter(rawData);
           adoptedTestResultData = adopted;

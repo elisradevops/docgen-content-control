@@ -18,6 +18,7 @@ export default class ChangesTableDataSkinAdapter {
   attachmentMinioData: any[];
   PAT: string;
   hasAnyLinkedItems: boolean = false; // Track if any change has linked items
+  formattingSettings: any;
 
   constructor(
     rawChangesArray: any[],
@@ -29,7 +30,8 @@ export default class ChangesTableDataSkinAdapter {
     minioEndPoint: string,
     minioAccessKey: string,
     minioSecretKey: string,
-    PAT: string
+    PAT: string,
+    formattingSettings: any
   ) {
     this.rawChangesArray = rawChangesArray;
     this.includeChangeDescription = includeChangeDescription;
@@ -43,6 +45,7 @@ export default class ChangesTableDataSkinAdapter {
     this.minioSecretKey = minioSecretKey;
     this.PAT = PAT;
     this.attachmentMinioData = [];
+    this.formattingSettings = formattingSettings;
   }
 
   getAdoptedData() {
@@ -211,7 +214,11 @@ export default class ChangesTableDataSkinAdapter {
     let hasLinkedItems = change.linkedItems && change.linkedItems.length > 0;
     let cleanedDescription = '';
     if (description) {
-      cleanedDescription = await this.htmlUtils.cleanHtml(description, false);
+      cleanedDescription = await this.htmlUtils.cleanHtml(
+        description,
+        false,
+        this.formattingSettings.trimAdditionalSpacingInDescriptions
+      );
     }
     let richTextFactory = new RichTextDataFactory(
       cleanedDescription,
