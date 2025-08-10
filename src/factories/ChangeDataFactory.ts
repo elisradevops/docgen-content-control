@@ -236,18 +236,20 @@ export default class ChangeDataFactory {
               String(this.to),
               String(this.from)
             );
-            artifactChanges = await gitDataProvider.GetItemsInCommitRange(
-              this.teamProject,
-              this.repoId,
-              commitsInCommitRange,
-              this.linkedWiOptions
-            );
+            const { commitChangesArray, commitsWithNoRelations } =
+              await gitDataProvider.GetItemsInCommitRange(
+                this.teamProject,
+                this.repoId,
+                commitsInCommitRange,
+                this.linkedWiOptions,
+                this.includeUnlinkedCommits
+              );
 
-            this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
+            this.isChangesReachedMaxSize(this.rangeType, commitChangesArray?.length);
             this.rawChangesArray.push({
               artifact: focusedArtifact,
-              changes: artifactChanges,
-              nonLinkedCommits: [],
+              changes: commitChangesArray,
+              nonLinkedCommits: commitsWithNoRelations,
             });
           }
           break;
@@ -317,14 +319,15 @@ export default class ChangeDataFactory {
                 commitsInDateRange
               );
             } else {
-              const { allExtendedCommits, commitsWithNoRelations } =
+              const { commitChangesArray, commitsWithNoRelations } =
                 await gitDataProvider.GetItemsInCommitRange(
                   this.teamProject,
                   this.repoId,
                   commitsInDateRange,
-                  this.linkedWiOptions
+                  this.linkedWiOptions,
+                  this.includeUnlinkedCommits
                 );
-              artifactChanges = [...allExtendedCommits];
+              artifactChanges = [...commitChangesArray];
               artifactChangesNoLink = [...commitsWithNoRelations];
 
               let repoName = repo.name;
