@@ -126,7 +126,7 @@ export default class DgContentControls {
             contentControlOptions.data.includeCustomerId,
             contentControlOptions.data.linkedMomRequest,
             contentControlOptions.data.traceAnalysisRequest,
-            contentControlOptions.data.flatTreeByOneLevel
+            contentControlOptions.data.flatSuiteTestCases
           );
 
           break;
@@ -294,7 +294,7 @@ export default class DgContentControls {
     includeCustomerId?: boolean,
     linkedMomRequest?: any,
     traceAnalysisRequest?: any,
-    flatTreeByOneLevel?: boolean
+    flatSuiteTestCases?: boolean
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -333,7 +333,7 @@ export default class DgContentControls {
         this.PAT,
         undefined,
         this.formattingSettings,
-        flatTreeByOneLevel
+        flatSuiteTestCases
       );
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
@@ -775,7 +775,7 @@ export default class DgContentControls {
             this.PAT,
             stepExecutionObject.data,
             this.formattingSettings,
-            stepExecution?.flatTreeByOneLevel
+            stepExecution?.flatSuiteTestCases
           );
 
           if (stepExecution?.generateRequirements?.requirementInclusionMode === 'query') {
