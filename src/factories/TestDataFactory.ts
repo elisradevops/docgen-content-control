@@ -120,10 +120,14 @@ export default class TestDataFactory {
         `${this.testPlanId}`,
         true,
         this.flatTreeByOneLevel,
-        this.isSuiteSpecific ? this.testSuiteArray : undefined  // Pass testSuiteArray as filter if suite-specific
+        this.isSuiteSpecific ? this.testSuiteArray : undefined // Pass testSuiteArray as filter if suite-specific
       );
 
-      logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}${this.isSuiteSpecific ? ` (filtered by testSuiteArray: [${this.testSuiteArray.join(',')}])` : ''}`);
+      logger.debug(
+        `fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}${
+          this.isSuiteSpecific ? ` (filtered by testSuiteArray: [${this.testSuiteArray.join(',')}])` : ''
+        }`
+      );
 
       if (testSuites.length === 0) {
         throw new Error(`Warning: No test suites for plan id ${this.testPlanId} were found`);
@@ -473,15 +477,33 @@ export default class TestDataFactory {
 
         default:
           //There is a problem when grabbing the data
+
+          // Check for flattening scenario: single suite at level 1 with flatTreeByOneLevel enabled
+          const shouldFlattenSingleSuite =
+            this.flatTreeByOneLevel &&
+            this.testDataRaw.suites.length === 1 &&
+            this.testDataRaw.suites[0].temp.level === 1;
+
+          if (shouldFlattenSingleSuite) {
+            logger.debug(
+              `[jsonSkinDataAdpater] Flattening enabled: Single level 1 suite detected, skipping suite header and promoting test case levels`
+            );
+          }
+
           adoptedTestData = await Promise.all(
             this.testDataRaw.suites.map(async (suite: any) => {
-              let suiteSkinData = {
-                fields: [
-                  { name: 'Title', value: suite.temp.name?.trim() + ' - ' },
-                  { name: 'ID', value: suite.temp.id, url: suite.temp.url },
-                ],
-                level: suite.temp.level,
-              };
+              let suiteSkinData = null; // Will be set conditionally
+
+              if (!shouldFlattenSingleSuite) {
+                // Normal case: include suite header
+                suiteSkinData = {
+                  fields: [
+                    { name: 'Title', value: suite.temp.name?.trim() + ' - ' },
+                    { name: 'ID', value: suite.temp.id, url: suite.temp.url },
+                  ],
+                  level: suite.temp.level,
+                };
+              }
               let testCaseAmount = suite.testCases?.length;
               let testCases = await Promise.all(
                 suite.testCases.map(async (testCase) => {
@@ -528,7 +550,7 @@ export default class TestDataFactory {
                           value: descriptionRichText || 'No description',
                         },
                       ],
-                      level: suite.temp.level + 1,
+                      level: shouldFlattenSingleSuite ? suite.temp.level : suite.temp.level + 1,
                     };
 
                     // Helper function to check if all the values in the array are among the target values
@@ -788,6 +810,12 @@ export default class TestDataFactory {
                   }
                 })
               );
+
+              if (shouldFlattenSingleSuite) {
+                logger.debug(
+                  `[jsonSkinDataAdpater] Flattened suite processing complete: ${testCases.length} test cases promoted to level ${suite.temp.level}, suite header skipped`
+                );
+              }
 
               return {
                 suiteSkinData,
