@@ -21,7 +21,7 @@ export default class TestDataFactory {
   includeHardCopyRun: boolean;
   includeAttachmentContent: boolean;
   runAttachmentMode: string;
-  flatTreeByOneLevel: boolean;
+  flatSuiteTestCases: boolean;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   linkedMomRequest: any;
@@ -66,7 +66,7 @@ export default class TestDataFactory {
     PAT,
     stepResultDetailsMap?: Map<string, any>,
     formattingSettings?: any,
-    flatTreeByOneLevel?: boolean
+    flatSuiteTestCases?: boolean
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -99,7 +99,7 @@ export default class TestDataFactory {
     this.testCaseToRequirementsLookup = new Map<number, Set<any>>();
     this.testCaseToLinkedMomLookup = new Map<number, Set<any>>();
     this.formattingSettings = formattingSettings;
-    this.flatTreeByOneLevel = flatTreeByOneLevel;
+    this.flatSuiteTestCases = flatSuiteTestCases;
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -119,7 +119,6 @@ export default class TestDataFactory {
         this.teamProject,
         `${this.testPlanId}`,
         true,
-        this.flatTreeByOneLevel,
         this.isSuiteSpecific ? this.testSuiteArray : undefined // Pass testSuiteArray as filter if suite-specific
       );
 
@@ -478,9 +477,9 @@ export default class TestDataFactory {
         default:
           //There is a problem when grabbing the data
 
-          // Check for flattening scenario: single suite at level 1 with flatTreeByOneLevel enabled
+          // Check for flattening scenario: single suite at level 1 with flatSuiteTestCases enabled
           const shouldFlattenSingleSuite =
-            this.flatTreeByOneLevel &&
+            this.flatSuiteTestCases &&
             this.testDataRaw.suites.length === 1 &&
             this.testDataRaw.suites[0].temp.level === 1;
 
