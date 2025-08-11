@@ -125,7 +125,8 @@ export default class DgContentControls {
             contentControlOptions.data.includeRequirements,
             contentControlOptions.data.includeCustomerId,
             contentControlOptions.data.linkedMomRequest,
-            contentControlOptions.data.traceAnalysisRequest
+            contentControlOptions.data.traceAnalysisRequest,
+            contentControlOptions.data.flatTreeByOneLevel
           );
 
           break;
@@ -292,7 +293,8 @@ export default class DgContentControls {
     includeRequirements?: boolean,
     includeCustomerId?: boolean,
     linkedMomRequest?: any,
-    traceAnalysisRequest?: any
+    traceAnalysisRequest?: any,
+    flatTreeByOneLevel?: boolean
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -330,7 +332,8 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT,
         undefined,
-        this.formattingSettings
+        this.formattingSettings,
+        flatTreeByOneLevel
       );
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
@@ -771,7 +774,8 @@ export default class DgContentControls {
             this.minioSecretKey,
             this.PAT,
             stepExecutionObject.data,
-            this.formattingSettings
+            this.formattingSettings,
+            stepExecution?.flatTreeByOneLevel
           );
 
           if (stepExecution?.generateRequirements?.requirementInclusionMode === 'query') {

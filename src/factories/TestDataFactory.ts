@@ -21,6 +21,7 @@ export default class TestDataFactory {
   includeHardCopyRun: boolean;
   includeAttachmentContent: boolean;
   runAttachmentMode: string;
+  flatTreeByOneLevel: boolean;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   linkedMomRequest: any;
@@ -64,7 +65,8 @@ export default class TestDataFactory {
     minioSecretKey,
     PAT,
     stepResultDetailsMap?: Map<string, any>,
-    formattingSettings?: any
+    formattingSettings?: any,
+    flatTreeByOneLevel?: boolean
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -97,38 +99,36 @@ export default class TestDataFactory {
     this.testCaseToRequirementsLookup = new Map<number, Set<any>>();
     this.testCaseToLinkedMomLookup = new Map<number, Set<any>>();
     this.formattingSettings = formattingSettings;
+    this.flatTreeByOneLevel = flatTreeByOneLevel;
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
-      let testfilteredPlan;
+      let testFilteredPlan;
       let testDataProvider = await this.dgDataProvider.getTestDataProvider();
       let projectTestPlans: any = await testDataProvider.GetTestPlans(this.teamProject);
 
       if (!projectTestPlans || projectTestPlans.count === 0) {
         throw new Error(`No test plans for project ${this.teamProject} were found`);
       }
-      testfilteredPlan = projectTestPlans.value.filter((testPlan) => {
+      testFilteredPlan = projectTestPlans.value.filter((testPlan) => {
         return testPlan.id === this.testPlanId;
       });
+
+      // Fetch suites with optional filtering at the source level
       let testSuites: any[] = await testDataProvider.GetTestSuitesByPlan(
         this.teamProject,
         `${this.testPlanId}`,
-        true
+        true,
+        this.flatTreeByOneLevel,
+        this.isSuiteSpecific ? this.testSuiteArray : undefined  // Pass testSuiteArray as filter if suite-specific
       );
-      logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}`);
-      // check if reccurse fetching by plan or per suite
+
+      logger.debug(`fetched ${testSuites.length} testSuites for test plan ${this.testPlanId}${this.isSuiteSpecific ? ` (filtered by testSuiteArray: [${this.testSuiteArray.join(',')}])` : ''}`);
 
       if (testSuites.length === 0) {
         throw new Error(`Warning: No test suites for plan id ${this.testPlanId} were found`);
       }
 
-      if (this.isSuiteSpecific == true && testSuites.length != 0) {
-        await Promise.all(
-          (testSuites = testSuites.filter((suite) => {
-            return this.testSuiteArray.indexOf(suite.id) !== -1;
-          }))
-        );
-      } //end of if
       let {
         testCasesList: allTestCases,
         requirementToTestCaseTraceMap,
@@ -142,7 +142,8 @@ export default class TestDataFactory {
         this.includeCustomerId,
         this.linkedMomRequest.linkedMomMode === 'relation',
         this.stepResultDetailsMap,
-        this.testCaseToLinkedMomLookup
+        this.testCaseToLinkedMomLookup,
+        testSuites
       );
 
       logger.debug(`fetched ${allTestCases.length} test cases for test suite ${this.testPlanId}`);
@@ -166,7 +167,7 @@ export default class TestDataFactory {
         }
 
         this.testDataRaw = {
-          plan: testfilteredPlan,
+          plan: testFilteredPlan,
           suites: SuitesAndTestCases,
         };
         this.adoptedTestData = await this.jsonSkinDataAdpater(null, isByQuery);
