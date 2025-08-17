@@ -33,6 +33,9 @@ export default class HtmlUtils {
       img: ['src', 'alt', 'width', 'height'],
       div: ['align'],
       p: ['align', 'margin-top', 'margin-bottom'],
+      ol: [], // Allow ol elements to preserve their style attributes
+      ul: [], // Allow ul elements to preserve their style attributes
+      li: [], // Allow li elements to preserve their style attributes
     };
 
     // Element-specific allowed style properties
@@ -44,6 +47,9 @@ export default class HtmlUtils {
       thead: [...commonTableStyles],
       tbody: [...commonTableStyles],
       tfoot: [...commonTableStyles],
+      ol: ['list-style', 'list-style-type'], // Allow list-style properties for ol
+      ul: ['list-style', 'list-style-type'], // Allow list-style properties for ul
+      li: [], // Allow li elements to preserve their style attributes
     };
 
     // Remove attributes from non-supported elements
@@ -708,7 +714,9 @@ export default class HtmlUtils {
         conservativeCollapse: true,
         preserveLineBreaks: false,
         removeEmptyElements: true,
-        removeOptionalTags: true,
+        removeOptionalTags: false, // Preserve style attributes including list-style
+        removeEmptyAttributes: false, // Don't remove style attributes that might appear "empty"
+        removeStyleLinkTypeAttributes: false, // Preserve all style-related attributes
       });
       // this.$ = cheerio.load(minifiedHtml, { decodeEntities: false });
       this.$ = cheerio.load(minifiedHtml);
@@ -718,29 +726,31 @@ export default class HtmlUtils {
       this.preserveListSpacing();
       // Step 3: Convert table widths to percentages
       this.convertTableWidthsToPercentages();
-      // Step 4: Remove redundant elements
+      // Step 4: Normalize list-style attributes to list-style-type
+      this.normalizeListStyleAttributes();
+      // Step 5: Remove redundant elements
       this.removeRedundantElements();
-      // Step 5: Apply existing cleaning methods
+      // Step 6: Apply existing cleaning methods
       this.cleanAndPreserveTableAttributes();
-      //  Step 6: Replace newlines in inline elements
+      // Step 7: Replace newlines in inline elements
       this.replaceNewlinesInInlineElements();
-      // Step 7: Cleanup block elements
+      // Step 8: Cleanup block elements
       this.cleanupBlockElements();
-      // Step 8: Remove invalid inline wrappers around blocks
+      // Step 9: Remove invalid inline wrappers around blocks
       this.removeInvalidInlineWrappersAroundBlocks();
-      // Step 9: Clear <br> before end of paragraph
+      // Step 10: Clear <br> before end of paragraph
       this.clearBrBeforeEndOfParagraph();
-      // Step 10: Remove <img> elements if needed
+      // Step 11: Remove <img> elements if needed
       if (needToRemoveImg) {
         this.removeImgElements();
       }
-      // Step 11: Split paragraphs if table cell content and trimAdditionalSpacingInTables is enabled
+      // Step 12: Split paragraphs if table cell content and trimAdditionalSpacingInTables is enabled
       if (splitParagraphsIntoSeparateElements) {
         this.splitParagraphsIntoSeparateElements();
       }
-      // Step 12: Trim text nodes before returning
+      // Step 13: Trim text nodes before returning
       this.trimTextNodes();
-      // Step 13: Trim whitespace around <br> tags
+      // Step 14: Trim whitespace around <br> tags
       this.trimWhitespaceAroundBr();
       return this.$.html();
     } catch (error: any) {
@@ -820,6 +830,60 @@ export default class HtmlUtils {
 
       if (!hasContent) {
         $element.remove();
+      }
+    });
+  };
+
+  /**
+   * Normalizes list-style attributes to list-style-type attributes.
+   * Converts shorthand 'list-style' CSS property to specific 'list-style-type' property
+   * for proper parsing by HTML to OpenXML converters.
+   */
+  private normalizeListStyleAttributes = (): void => {
+    // Find all ol and ul elements with style attributes
+    this.$('ol[style], ul[style]').each((_, element) => {
+      const $element = this.$(element);
+      const styleAttr = $element.attr('style');
+      
+      if (!styleAttr) return;
+
+      // Parse the style attribute to extract list-style values
+      const styles = styleAttr.split(';').reduce((acc, style) => {
+        const [property, value] = style.split(':').map(s => s.trim());
+        if (property && value) {
+          acc[property] = value;
+        }
+        return acc;
+      }, {} as Record<string, string>);
+
+      // Check if list-style property exists and list-style-type doesn't
+      if (styles['list-style'] && !styles['list-style-type']) {
+        const listStyleValue = styles['list-style'].trim();
+        
+        // Extract the list-style-type from the list-style shorthand
+        // Common list-style-type values: decimal, lower-alpha, upper-alpha, lower-roman, upper-roman, disc, circle, square, none
+        const listStyleTypes = [
+          'decimal', 'lower-alpha', 'upper-alpha', 'lower-roman', 'upper-roman',
+          'disc', 'circle', 'square', 'none'
+        ];
+        
+        // Find matching list-style-type in the shorthand value
+        const matchedType = listStyleTypes.find(type => 
+          listStyleValue.includes(type)
+        );
+        
+        if (matchedType) {
+          // Remove the old list-style property and add list-style-type
+          delete styles['list-style'];
+          styles['list-style-type'] = matchedType;
+          
+          // Rebuild the style attribute
+          const newStyleAttr = Object.entries(styles)
+            .map(([prop, val]) => `${prop}: ${val}`)
+            .join('; ');
+          
+          $element.attr('style', newStyleAttr);
+        }
       }
     });
   };
