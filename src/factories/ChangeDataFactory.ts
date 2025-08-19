@@ -1038,10 +1038,14 @@ export default class ChangeDataFactory {
       !toRelease.variables ||
       !toRelease.variables.servicesJson ||
       !toRelease.variables.servicesJsonVersion ||
-      !toRelease.variables.servicesJsonVersionType
+      !toRelease.variables.servicesJsonVersionType ||
+      (!toRelease.variables.servicesJsonTagPrefix &&
+        (!toRelease.environments[0].variables.branch || !fromRelease.environments[0].variables.branch))
     ) {
       logger.warn(`missing variables in release`);
-      logger.warn(`required: servicesJson, servicesJsonVersion, servicesJsonVersionType`);
+      logger.warn(
+        `required: servicesJson, servicesJsonVersion, servicesJsonVersionType, servicesJsonTagPrefix/branchto-from`
+      );
       return;
     }
 
@@ -1054,7 +1058,34 @@ export default class ChangeDataFactory {
 
     let servicesJsonVersion = toRelease.variables.servicesJsonVersion.value;
     let servicesJsonVersionType = toRelease.variables.servicesJsonVersionType.value;
-    let servicesJsonTagPrefix = toRelease.variables.servicesJsonTagPrefix.value;
+    let fromBranch = '';
+    let toBranch = '';
+    // ARGOS releases
+
+    /* We search for servicesJsonTagPrefix in variables. it will be "ARGOS-"
+    Then we build tag name, from tag prefix + ARGOS release number. it will be ARGOS-1.0.64 for example
+    we use tag name for current release and for previous release we run this from tag to tag
+
+    MEWP Releases
+    We search for branch in variables.
+    We use branch name for current release and for previous release we run this from branch to branch
+    */
+
+    let servicesJsonTagPrefix = '';
+
+    if (toRelease.variables.servicesJsonTagPrefix) {
+      servicesJsonTagPrefix = toRelease.variables.servicesJsonTagPrefix.value;
+    }
+    let releaseBranchName = '';
+    if (toRelease.variables.branch) {
+      releaseBranchName = toRelease.variables?.branch?.value;
+      fromBranch = fromRelease?.variables?.branch?.value?.trim();
+      toBranch = toRelease?.variables?.branch?.value?.trim();
+    } else if (toRelease.environments[0].variables.branch) {
+      releaseBranchName = toRelease.environments[0]?.variables?.branch?.value?.trim();
+      fromBranch = fromRelease?.environments[0]?.variables?.branch?.value?.trim();
+      toBranch = toRelease?.environments[0]?.variables?.branch?.value?.trim();
+    }
 
     // fetch the serviceJson file
     let serviceJsonFile: any = await provider.GetFileFromGitRepo(
@@ -1074,45 +1105,123 @@ export default class ChangeDataFactory {
 
     const services = serviceJsonFile.services;
     for (const service of services) {
-      let fromTag = `${servicesJsonTagPrefix}${fromRelease.name}`;
-      let toTag = `${servicesJsonTagPrefix}${toRelease.name}`;
+      let fromTag = '';
+      let toTag = '';
+      let fromVersion = '';
+      let toVersion = '';
+      let fromVersionType = '';
+      let toVersionType = '';
+
       let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
       repoName = repoName?.replace(/%20/g, ' ');
       let serviceGitRepoApiUrl = service.serviceLocation.gitRepoUrl.replace(
         '/_git/',
         '/_apis/git/repositories/'
       );
+      logger.info(
+        `Processing service: ${service.serviceName} | Repo: ${repoName} | API URL: ${serviceGitRepoApiUrl}`
+      );
+      if (servicesJsonTagPrefix) {
+        fromTag = `${servicesJsonTagPrefix}${fromRelease.name}`;
+        toTag = `${servicesJsonTagPrefix}${toRelease.name}`;
+        logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
+
+        let fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
+
+        if (!fromTagData || !fromTagData.value || fromTagData.count == 0) {
+          logger.warn(
+            `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
+          );
+          continue;
+        }
+
+        let toTagData = await provider.GetTag(serviceGitRepoApiUrl, toTag);
+        if (!toTagData || !toTagData.value || toTagData.count == 0) {
+          logger.warn(
+            `Service ${service.serviceName}: Target tag '${toTag}' does not exist in repository ${repoName}`
+          );
+          continue;
+        }
+
+        fromVersion = fromTag;
+        toVersion = toTag;
+        fromVersionType = 'Tag';
+        toVersionType = 'Tag';
+      } else if (releaseBranchName !== '') {
+        logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
+        let fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
+
+        if (!fromBranchData || !fromBranchData.value || fromBranchData.count == 0) {
+          logger.warn(
+            `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
+          );
+          continue;
+        }
+
+        let toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
+        if (!toBranchData || !toBranchData.value || toBranchData.count == 0) {
+          logger.warn(
+            `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
+          );
+          continue;
+        }
+
+        fromVersion = fromBranchData.value[0].name?.replace('refs/heads/', '');
+        toVersion = toBranchData.value[0].name?.replace('refs/heads/', '');
+        fromVersionType = 'Branch';
+        toVersionType = 'Branch';
+      }
 
       let itemPaths = service.serviceLocation.pathInGit.split(',');
-
       for (const itemPath of itemPaths) {
         // check if item exists in from tag
-        let itemExistingInTag = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-          version: fromTag,
-          versionType: 'tag',
+        let itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+          version: fromVersion,
+          versionType: fromVersionType,
         });
-        if (!itemExistingInTag) {
-          logger.info(`item ${itemPath} does not exist in tag ${fromTag}`);
+        if (!itemExistingInVersion) {
+          logger.warn(
+            `Service ${
+              service.serviceName
+            }: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
+          );
           continue;
         }
 
-        itemExistingInTag = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-          version: toTag,
-          versionType: 'tag',
+        itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+          version: toVersion,
+          versionType: toVersionType,
         });
-        if (!itemExistingInTag) {
-          logger.info(`item ${itemPath} does not exist in tag ${toTag}`);
+        if (!itemExistingInVersion) {
+          logger.warn(
+            `Service ${
+              service.serviceName
+            }: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
+          );
           continue;
         }
 
-        // Test this
+        // Check if fromVersion and toVersion are the same for branches
+        if (fromVersionType === 'Branch' && toVersionType === 'Branch' && fromVersion === toVersion) {
+          logger.warn(
+            `Service ${service.serviceName}: Skipping - source and target are the same branch (${fromVersion}). No changes to process.`
+          );
+          continue;
+        }
+
+        logger.info(
+          `Service ${
+            service.serviceName
+          }: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
+        );
+
         const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
           provider,
           projectId,
-          fromTag,
-          'tag',
-          toTag,
-          'tag',
+          fromVersion,
+          fromVersionType,
+          toVersion,
+          toVersionType,
           repoName,
           serviceGitRepoApiUrl,
           this.includedWorkItemByIdSet,
@@ -1122,6 +1231,11 @@ export default class ChangeDataFactory {
         );
 
         this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
+        logger.info(
+          `Service ${service.serviceName}: Found ${
+            allExtendedCommits?.length || 0
+          } commits with work items and ${commitsWithNoRelations?.length || 0} commits without work items`
+        );
         this.rawChangesArray.push({
           artifact: { name: `Service: ${service.serviceName}` },
           changes: [...allExtendedCommits],

@@ -36,6 +36,7 @@ export default class HtmlUtils {
       ol: [], // Allow ol elements to preserve their style attributes
       ul: [], // Allow ul elements to preserve their style attributes
       li: [], // Allow li elements to preserve their style attributes
+      span: [], // Allow span elements to preserve their style attributes
     };
 
     // Element-specific allowed style properties
@@ -50,6 +51,7 @@ export default class HtmlUtils {
       ol: ['list-style', 'list-style-type'], // Allow list-style properties for ol
       ul: ['list-style', 'list-style-type'], // Allow list-style properties for ul
       li: [], // Allow li elements to preserve their style attributes
+      span: ['font-family'], // Allow font-family for span elements (specifically for Wingdings)
     };
 
     // Remove attributes from non-supported elements
@@ -554,10 +556,21 @@ export default class HtmlUtils {
   };
 
   private removeRedundantElements = () => {
-    // First, unwrap all span elements
+    // First, unwrap span elements, but preserve those with font-family:Windings
     this.$('span').each((_, element) => {
       const $span = this.$(element);
-      $span.replaceWith($span.contents());
+      const style = $span.attr('style') || '';
+      
+      // Check if the span has font-family:Wingdings in its style
+      const hasWindingsFont = /font-family:\s*[^;]*Wingdings/i.test(style);
+      
+      if (!hasWindingsFont) {
+        // Remove span if it doesn't have Windings font
+        $span.replaceWith($span.contents());
+      } else {
+        // If it has Wingdings font, keep only the font-family:Wingdings style
+        $span.attr('style', 'font-family:Wingdings');
+      }
     });
 
     // Then remove other empty inline elements
