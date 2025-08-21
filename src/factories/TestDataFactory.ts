@@ -477,24 +477,43 @@ export default class TestDataFactory {
         default:
           //There is a problem when grabbing the data
 
-          // Check for flattening scenario: single suite at level 1 with flatSuiteTestCases enabled
+          // Enhanced flattening logic: Check for single suite at level 1 with child content
           const shouldFlattenSingleSuite =
             this.flatSuiteTestCases &&
-            this.testDataRaw.suites.length === 1 &&
-            this.testDataRaw.suites[0].temp.level === 1;
+            this.testDataRaw.suites.length > 0 &&
+            this.testDataRaw.suites[0].temp.level === 1 &&
+            (this.testDataRaw.suites.length === 1 || // Single suite case
+              (this.testDataRaw.suites.length > 1 && // Multiple suites but only one at level 1
+                this.testDataRaw.suites.filter(suite => suite.temp.level === 1).length === 1));
 
           if (shouldFlattenSingleSuite) {
+            const parentSuite = this.testDataRaw.suites[0];
+            const hasTestCases = parentSuite.testCases && parentSuite.testCases.length > 0;
+            const hasChildSuites = this.testDataRaw.suites.length > 1;
+            
             logger.debug(
-              `[jsonSkinDataAdpater] Flattening enabled: Single level 1 suite detected, skipping suite header and promoting test case levels`
+              `[jsonSkinDataAdpater] Enhanced flattening enabled: Single level 1 suite detected (ID: ${parentSuite.temp.id}), ` +
+              `has ${hasTestCases ? parentSuite.testCases.length : 0} test cases and ${hasChildSuites ? this.testDataRaw.suites.length - 1 : 0} child suites. ` +
+              `Skipping parent suite header and promoting all child levels by 1.`
             );
+
+            // Promote all child suite levels by 1 (reduce level by 1)
+            if (hasChildSuites) {
+              for (let i = 1; i < this.testDataRaw.suites.length; i++) {
+                this.testDataRaw.suites[i].temp.level = Math.max(1, this.testDataRaw.suites[i].temp.level - 1);
+              }
+            }
           }
 
           adoptedTestData = await Promise.all(
-            this.testDataRaw.suites.map(async (suite: any) => {
+            this.testDataRaw.suites.map(async (suite: any, suiteIndex: number) => {
               let suiteSkinData = null; // Will be set conditionally
 
-              if (!shouldFlattenSingleSuite) {
-                // Normal case: include suite header
+              // Skip the parent suite header when flattening is enabled and this is the first (parent) suite
+              const skipSuiteHeader = shouldFlattenSingleSuite && suiteIndex === 0;
+
+              if (!skipSuiteHeader) {
+                // Normal case or child suite: include suite header
                 suiteSkinData = {
                   fields: [
                     { name: 'Title', value: suite.temp.name?.trim() + ' - ' },
@@ -549,7 +568,7 @@ export default class TestDataFactory {
                           value: descriptionRichText || 'No description',
                         },
                       ],
-                      level: shouldFlattenSingleSuite ? suite.temp.level : suite.temp.level + 1,
+                      level: shouldFlattenSingleSuite && suiteIndex === 0 ? suite.temp.level : suite.temp.level + 1,
                     };
 
                     // Helper function to check if all the values in the array are among the target values
@@ -810,9 +829,13 @@ export default class TestDataFactory {
                 })
               );
 
-              if (shouldFlattenSingleSuite) {
+              if (shouldFlattenSingleSuite && suiteIndex === 0) {
                 logger.debug(
-                  `[jsonSkinDataAdpater] Flattened suite processing complete: ${testCases.length} test cases promoted to level ${suite.temp.level}, suite header skipped`
+                  `[jsonSkinDataAdpater] Flattened parent suite processing complete: ${testCases.length} test cases promoted to level ${suite.temp.level}, parent suite header skipped`
+                );
+              } else if (shouldFlattenSingleSuite && suiteIndex > 0) {
+                logger.debug(
+                  `[jsonSkinDataAdpater] Child suite processing complete: Suite ${suite.temp.id} level promoted to ${suite.temp.level}, ${testCases.length} test cases at level ${suite.temp.level + 1}`
                 );
               }
 
