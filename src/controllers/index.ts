@@ -10,6 +10,7 @@ import logger from '../services/logger';
 import { contentControl } from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
+import RequirementsDataFactory from '../factories/RequirementsDataFactory';
 
 let defaultStyles = {
   isBold: false,
@@ -192,6 +193,13 @@ export default class DgContentControls {
             contentControlOptions.data.repoId,
             contentControlOptions.data.prIds,
             contentControlOptions.data.linkTypeFilterArray,
+            contentControlOptions.title,
+            contentControlOptions.headingLevel
+          );
+          break;
+        case 'srs-document':
+          contentControlData = await this.addSRSContent(
+            contentControlOptions.data.queriesRequest,
             contentControlOptions.title,
             contentControlOptions.headingLevel
           );
@@ -1249,6 +1257,115 @@ export default class DgContentControls {
       }
     } catch (error) {
       logger.error(`Error adding pull request description table: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async addSRSContent(queriesRequest: any, contentControlTitle: string, headingLevel?: number) {
+    let adoptedRequirementsData;
+    try {
+      logger.debug(`adding SRS content with params:
+        queriesRequest:${JSON.stringify(queriesRequest)}`);
+
+      let srsDataFactory = new RequirementsDataFactory(
+        this.teamProjectName,
+        this.templatePath,
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT,
+        this.dgDataProviderAzureDevOps,
+        queriesRequest,
+        this.formattingSettings
+      );
+      await srsDataFactory.fetchRequirementsData();
+      adoptedRequirementsData = srsDataFactory.getAdoptedData();
+      this.minioAttachmentData.push(...srsDataFactory.getAttachmentMinioData());
+    } catch (error) {
+      logger.error(`Error initializing requirements data factory: ${error}`);
+      throw error;
+    }
+
+    try {
+      const contentControls: contentControl[] = [];
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true, // Specific to header
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false, // Specific to regular styles
+      };
+
+      // Handle system requirements
+      if (adoptedRequirementsData.systemRequirementsData) {
+        const systemReqSkin = await this.skins.addNewContentToDocumentSkin(
+          'system-requirements',
+          this.skins.SKIN_TYPE_SYSTEM_OVERVIEW,
+          adoptedRequirementsData.systemRequirementsData,
+          headerStyles,
+          styles,
+          headingLevel,
+          true
+        );
+        contentControls.push({ title: 'system-requirements', wordObjects: systemReqSkin });
+      }
+
+      // Handle traceability data
+      const traceabilityConfig = [
+        {
+          data: adoptedRequirementsData.sysReqToSoftReqAdoptedData || {},
+          title: 'requirements-traceability',
+          noDataMessage: 'No System to Software Requirements traceability data',
+        },
+        {
+          data: adoptedRequirementsData.softReqToSysReqAdoptedData || {},
+          title: 'reverse-requirements-traceability',
+          noDataMessage: 'No Software to System Requirements traceability data',
+        },
+      ];
+
+      for (const { data, title, noDataMessage } of traceabilityConfig) {
+        if (data && (data.adoptedData || data.title)) {
+          data['errorMessage'] = !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+
+          const contentControlResults: contentControl = {
+            title,
+            wordObjects: [],
+          };
+
+          const traceabilitySkins = await this.skins.addNewContentToDocumentSkin(
+            title,
+            this.skins.SKIN_TYPE_TRACE,
+            data,
+            headerStyles,
+            styles,
+            headingLevel
+          );
+
+          traceabilitySkins.forEach((skin) => {
+            contentControlResults.wordObjects.push(skin);
+          });
+
+          contentControls.push(contentControlResults);
+        }
+      }
+
+      return contentControls;
+    } catch (error) {
+      logger.error(`Error adding SRS content: ${error.message}`);
       throw error;
     }
   }
