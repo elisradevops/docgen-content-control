@@ -176,28 +176,35 @@ export default class ChangeDataFactory {
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
       let queryResults = {};
       if (this.queriesRequest.sysOverviewQuery) {
-        logger.info('starting to fetch system overview query results');
+        logger.debug('starting to fetch system overview query results');
 
-        logger.info('fetching results');
+        logger.debug('fetching results');
         let systemOverviewQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.sysOverviewQuery.wiql.href,
           false,
           null
         );
-        logger.info(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
-        queryResults['systemOverviewQueryData'] = systemOverviewQueryData;
+        logger.debug(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
+        // Pass roots array when present; also expose workItemRelations for link-driven rendering
+        queryResults['systemOverviewQueryData'] =
+          systemOverviewQueryData?.roots ?? systemOverviewQueryData;
+        if (systemOverviewQueryData?.workItemRelations) {
+          queryResults['systemOverviewLinksDebug'] = {
+            workItemRelations: systemOverviewQueryData.workItemRelations,
+          };
+        }
       }
 
       if (this.queriesRequest.knownBugsQuery) {
-        logger.info('starting to fetch known bugs query results');
+        logger.debug('starting to fetch known bugs query results');
 
-        logger.info('fetching results');
+        logger.debug('fetching results');
         let knownBugsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.knownBugsQuery.wiql.href,
           true,
           null
         );
-        logger.info(`known bugs query results are ${knownBugsQueryData ? 'ready' : 'not found'}`);
+        logger.debug(`known bugs query results are ${knownBugsQueryData ? 'ready' : 'not found'}`);
         queryResults['knownBugsQueryData'] = knownBugsQueryData;
       }
       return queryResults;
