@@ -5,6 +5,14 @@ import TraceAnalysisRequirementsAdapter from '../adapters/TraceAnalysisRequireme
 //Import Data skin adapter
 //import RequirementsDataSkinAdapter from "../adapters/RequirementsDataSkinAdapter";
 
+/**
+ * Builds the data payloads for SRS/requirements-related content controls.
+ *
+ * Responsibilities:
+ * - Fetch query results for system requirements and traceability queries
+ * - Adapt raw results through dedicated adapters
+ * - Optionally provide link-driven debug payloads for exact link-order rendering
+ */
 export default class RequirementsDataFactory {
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   teamProject: string;
@@ -19,6 +27,9 @@ export default class RequirementsDataFactory {
   private formattingSettings: any;
   private attachmentMinioData: any[];
 
+  /**
+   * Creates a RequirementsDataFactory
+   */
   constructor(
     teamProjectName,
     templatePath,
@@ -45,6 +56,9 @@ export default class RequirementsDataFactory {
     this.attachmentMinioData = [];
   }
 
+  /**
+   * Fetches all requested requirements data and adapts it once.
+   */
   async fetchRequirementsData() {
     try {
       logger.debug(`fetching requirements data`);
@@ -58,35 +72,47 @@ export default class RequirementsDataFactory {
     }
   }
 
+  /**
+   * Fetches query results for system requirements and traceability requests.
+   * - For system requirements: returns a tree of roots and a link debug block (if available)
+   * - For traceability: returns the raw payloads used by the trace adapters
+   */
   private async fetchQueryResults(): Promise<any> {
     try {
       logger.debug(`fetching query results`);
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
-      let queryResults = {};
+      const queryResults: any = {};
       if (this.queriesRequest.systemRequirements) {
-        logger.info('starting to fetch system requirements query results');
+        logger.debug('starting to fetch system requirements query results');
 
-        logger.info('fetching results');
+        logger.debug('fetching results');
         let systemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.systemRequirements.wiql.href,
           false,
           null
         );
-        logger.info(
+        logger.debug(
           `system requirements query results are ${systemRequirementsQueryData ? 'ready' : 'not found'}`
         );
-        queryResults['systemRequirementsQueryData'] = systemRequirementsQueryData;
+        queryResults['systemRequirementsQueryData'] =
+          systemRequirementsQueryData.roots ?? systemRequirementsQueryData;
+        // Expose workItemRelations for link-driven rendering when present
+        if (systemRequirementsQueryData?.workItemRelations) {
+          queryResults['systemRequirementsLinksDebug'] = {
+            workItemRelations: systemRequirementsQueryData.workItemRelations,
+          };
+        }
       }
       if (this.queriesRequest.systemToSoftwareRequirements) {
-        logger.info('starting to fetch system to software requirements query results');
+        logger.debug('starting to fetch system to software requirements query results');
 
-        logger.info('fetching results');
+        logger.debug('fetching results');
         let systemToSoftwareRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.systemToSoftwareRequirements.wiql.href,
           true, // Enable work item relations for traceability analysis
           null
         );
-        logger.info(
+        logger.debug(
           `system to software requirements query results are ${
             systemToSoftwareRequirementsQueryData ? 'ready' : 'not found'
           }`
@@ -94,15 +120,15 @@ export default class RequirementsDataFactory {
         queryResults['systemToSoftwareRequirementsQueryData'] = systemToSoftwareRequirementsQueryData;
       }
       if (this.queriesRequest.softwareToSystemRequirements) {
-        logger.info('starting to fetch software to system requirements query results');
+        logger.debug('starting to fetch software to system requirements query results');
 
-        logger.info('fetching results');
+        logger.debug('fetching results');
         let softwareToSystemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.softwareToSystemRequirements.wiql.href,
           true, // Enable work item relations for traceability analysis
           null
         );
-        logger.info(
+        logger.debug(
           `software to system requirements query results are ${
             softwareToSystemRequirementsQueryData ? 'ready' : 'not found'
           }`
@@ -117,6 +143,11 @@ export default class RequirementsDataFactory {
     }
   }
 
+  /**
+   * Adapts the fetched requirements data to skin-friendly structures.
+   * - systemRequirements: emits in link order when provided with links debug, otherwise sanitized tree
+   * - traceability: uses the TraceAnalysisRequirementsAdapter
+   */
   private async jsonSkinDataAdapter(adapterType: string = null, rawData: any) {
     let adoptedRequirementsData: any = {};
     try {
@@ -153,8 +184,22 @@ export default class RequirementsDataFactory {
           this.PAT,
           this.formattingSettings
         );
+        // If we have a link-order debug payload, let the adapter emit exactly in that order
+        // and therefore use the raw provider tree (do not sanitize) so all ids are present
+        const hasLinksDebug = !!rawData.systemRequirementsLinksDebug;
+        if (hasLinksDebug) {
+          logger.debug(
+            `systemRequirementsLinksDebug keys: ${Object.keys(
+              rawData.systemRequirementsLinksDebug || {}
+            ).join(', ')}`
+          );
+        }
+        const treeForAdapter = hasLinksDebug
+          ? rawData.systemRequirementsQueryData
+          : this.sanitizeHierarchy(rawData.systemRequirementsQueryData);
         const systemRequirementsData = await requirementSkinAdapter.jsonSkinAdapter({
-          requirementQueryData: rawData.systemRequirementsQueryData,
+          requirementQueryData: treeForAdapter,
+          workItemLinksDebug: rawData.systemRequirementsLinksDebug,
         });
         this.attachmentMinioData.push(...requirementSkinAdapter.getAttachmentMinioData());
         adoptedRequirementsData['systemRequirementsData'] = systemRequirementsData;
@@ -229,5 +274,67 @@ export default class RequirementsDataFactory {
 
   getAttachmentMinioData() {
     return this.attachmentMinioData;
+  }
+
+  // --- Helpers to sanitize hierarchical data returned by the provider ---
+  /**
+   * Produces a sanitized copy of the input hierarchical tree:
+   * - Dedupes roots and children per parent
+   * - Prunes cycles defensively
+   */
+  private sanitizeHierarchy(roots: any[]): any[] {
+    try {
+      if (!Array.isArray(roots) || roots.length === 0) return roots;
+      // Dedupe roots by id, preserve first occurrence order
+      const seenRoots = new Set<any>();
+      const dedupedRoots: any[] = [];
+      for (const r of roots) {
+        const key = r?.id ?? r;
+        if (seenRoots.has(key)) continue;
+        seenRoots.add(key);
+        dedupedRoots.push(r);
+      }
+
+      // Recursively dedupe children per parent and break cycles
+      const result: any[] = [];
+      const ancestry = new Set<any>();
+      for (const root of dedupedRoots) {
+        const sanitized = this.sanitizeNode(root, ancestry);
+        if (sanitized) result.push(sanitized);
+      }
+      logger.debug(`sanitizeHierarchy: inputRoots=${roots.length}, outputRoots=${result.length}`);
+      return result;
+    } catch (e) {
+      logger.debug(`sanitizeHierarchy failed: ${e?.message || e}`);
+      return roots;
+    }
+  }
+
+  /**
+   * Recursively sanitize a node, deduping per parent and pruning cycles.
+   */
+  private sanitizeNode(node: any, ancestry: Set<any>): any | null {
+    if (!node) return null;
+    const key = node?.id ?? node;
+    if (ancestry.has(key)) return null; // break cycle
+    // Shallow-copy node to avoid mutating original
+    const out: any = {
+      ...node,
+      children: [],
+    };
+    ancestry.add(key);
+    const siblingsSeen = new Set<any>();
+    const children = Array.isArray(node.children) ? node.children : [];
+    for (const child of children) {
+      const ckey = child?.id ?? child;
+      if (siblingsSeen.has(ckey)) continue; // dedupe per parent
+      const sanitizedChild = this.sanitizeNode(child, ancestry);
+      if (sanitizedChild) {
+        siblingsSeen.add(ckey);
+        out.children.push(sanitizedChild);
+      }
+    }
+    ancestry.delete(key);
+    return out;
   }
 }
