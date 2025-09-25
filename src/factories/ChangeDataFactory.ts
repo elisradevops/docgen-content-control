@@ -186,8 +186,7 @@ export default class ChangeDataFactory {
         );
         logger.debug(`system overview are ${systemOverviewQueryData ? 'ready' : 'not found'}`);
         // Pass roots array when present; also expose workItemRelations for link-driven rendering
-        queryResults['systemOverviewQueryData'] =
-          systemOverviewQueryData?.roots ?? systemOverviewQueryData;
+        queryResults['systemOverviewQueryData'] = systemOverviewQueryData?.roots ?? systemOverviewQueryData;
         if (systemOverviewQueryData?.workItemRelations) {
           queryResults['systemOverviewLinksDebug'] = {
             workItemRelations: systemOverviewQueryData.workItemRelations,
@@ -1040,6 +1039,7 @@ export default class ChangeDataFactory {
   }
 
   private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider) {
+    logger.debug('---------------Handling service json file-----------------');
     if (
       !toRelease ||
       !toRelease.variables ||
@@ -1084,14 +1084,10 @@ export default class ChangeDataFactory {
       servicesJsonTagPrefix = toRelease.variables.servicesJsonTagPrefix.value;
     }
     let releaseBranchName = '';
-    if (toRelease.variables.branch) {
-      releaseBranchName = toRelease.variables?.branch?.value;
-      fromBranch = fromRelease?.variables?.branch?.value?.trim();
-      toBranch = toRelease?.variables?.branch?.value?.trim();
-    } else if (toRelease.environments[0].variables.branch) {
-      releaseBranchName = toRelease.environments[0]?.variables?.branch?.value?.trim();
-      fromBranch = fromRelease?.environments[0]?.variables?.branch?.value?.trim();
-      toBranch = toRelease?.environments[0]?.variables?.branch?.value?.trim();
+    if (toRelease.environments[0].variables.branch) {
+      releaseBranchName = toRelease.environments[0].variables?.branch?.value;
+      fromBranch = fromRelease?.environments[0].variables?.branch?.value?.trim();
+      toBranch = toRelease?.environments[0].variables?.branch?.value?.trim();
     }
 
     // fetch the serviceJson file
@@ -1111,13 +1107,16 @@ export default class ChangeDataFactory {
     serviceJsonFile = JSON.parse(serviceJsonFile);
 
     const services = serviceJsonFile.services;
+    logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
     for (const service of services) {
-      let fromTag = '';
-      let toTag = '';
+      logger.debug('---------------Iterating service-----------------');
+      logger.debug(`Processing service: ${service.serviceName}`);
       let fromVersion = '';
       let toVersion = '';
       let fromVersionType = '';
       let toVersionType = '';
+      let fromTag = '';
+      let toTag = '';
 
       let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
       repoName = repoName?.replace(/%20/g, ' ');
@@ -1128,14 +1127,14 @@ export default class ChangeDataFactory {
       logger.info(
         `Processing service: ${service.serviceName} | Repo: ${repoName} | API URL: ${serviceGitRepoApiUrl}`
       );
-      if (servicesJsonTagPrefix) {
+      if (servicesJsonTagPrefix !== '') {
         fromTag = `${servicesJsonTagPrefix}${fromRelease.name}`;
         toTag = `${servicesJsonTagPrefix}${toRelease.name}`;
         logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
 
         let fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
 
-        if (!fromTagData || !fromTagData.value || fromTagData.count == 0) {
+        if (!fromTagData || !fromTagData.value || fromTagData?.count == 0) {
           logger.warn(
             `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
           );
@@ -1143,7 +1142,7 @@ export default class ChangeDataFactory {
         }
 
         let toTagData = await provider.GetTag(serviceGitRepoApiUrl, toTag);
-        if (!toTagData || !toTagData.value || toTagData.count == 0) {
+        if (!toTagData || !toTagData.value || toTagData?.count == 0) {
           logger.warn(
             `Service ${service.serviceName}: Target tag '${toTag}' does not exist in repository ${repoName}`
           );
@@ -1158,7 +1157,7 @@ export default class ChangeDataFactory {
         logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
         let fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
 
-        if (!fromBranchData || !fromBranchData.value || fromBranchData.count == 0) {
+        if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
           logger.warn(
             `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
           );
@@ -1166,15 +1165,15 @@ export default class ChangeDataFactory {
         }
 
         let toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
-        if (!toBranchData || !toBranchData.value || toBranchData.count == 0) {
+        if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
           logger.warn(
             `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
           );
           continue;
         }
 
-        fromVersion = fromBranchData.value[0].name?.replace('refs/heads/', '');
-        toVersion = toBranchData.value[0].name?.replace('refs/heads/', '');
+        fromVersion = fromBranch;
+        toVersion = toBranch;
         fromVersionType = 'Branch';
         toVersionType = 'Branch';
       }
@@ -1204,14 +1203,6 @@ export default class ChangeDataFactory {
             `Service ${
               service.serviceName
             }: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
-          );
-          continue;
-        }
-
-        // Check if fromVersion and toVersion are the same for branches
-        if (fromVersionType === 'Branch' && toVersionType === 'Branch' && fromVersion === toVersion) {
-          logger.warn(
-            `Service ${service.serviceName}: Skipping - source and target are the same branch (${fromVersion}). No changes to process.`
           );
           continue;
         }
