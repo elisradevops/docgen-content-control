@@ -289,5 +289,17 @@ export class Routes {
           res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
         }
       });
+
+    app.route('/azure/work-item-types').post(async ({ body }: Request, res: Response) => {
+      try {
+        const { teamProjectId = '' } = body || {};
+        const svc = new AzureDataService(body.orgUrl, body.token);
+        const data = await svc.getWorkItemTypeList(teamProjectId);
+        res.status(StatusCodes.OK).json(data ?? []);
+      } catch (error) {
+        logger.error(`azure/work-item-types error: ${error.message}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      }
+    });
   }
 }

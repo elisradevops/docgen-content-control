@@ -96,4 +96,9 @@ export default class AzureDataService {
     const pipelines = await this.dg.getPipelinesDataProvider();
     return pipelines.GetReleaseHistory(teamProjectId, String(definitionId));
   }
+
+  async getWorkItemTypeList(teamProjectId = '') {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.GetWorkItemTypeList(teamProjectId);
+  }
 }

@@ -184,6 +184,7 @@ export default class DgContentControls {
             contentControlOptions.data.systemOverviewQuery,
             contentControlOptions.data.attachmentWikiUrl,
             contentControlOptions.data.linkedWiOptions,
+            contentControlOptions.data.workItemFilterOptions,
             contentControlOptions.data.requestedByBuild,
             contentControlOptions.data.includeUnlinkedCommits
           );
@@ -193,6 +194,7 @@ export default class DgContentControls {
             contentControlOptions.data.repoId,
             contentControlOptions.data.prIds,
             contentControlOptions.data.linkTypeFilterArray,
+            contentControlOptions.data.workItemFilterOptions,
             contentControlOptions.title,
             contentControlOptions.headingLevel
           );
@@ -972,6 +974,7 @@ export default class DgContentControls {
     systemOverviewQuery: any = null,
     attachmentWikiUrl: string = '',
     linkedWiOptions: any = null,
+    workItemFilterOptions: any = null,
     requestedByBuild: boolean = false,
     includeUnlinkedCommits: boolean = false
   ) {
@@ -1011,7 +1014,9 @@ export default class DgContentControls {
         undefined,
         linkedWiOptions,
         requestedByBuild,
-        includeUnlinkedCommits
+        includeUnlinkedCommits,
+        this.formattingSettings,
+        workItemFilterOptions
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
@@ -1187,6 +1192,7 @@ export default class DgContentControls {
     repoId: string,
     prIds: any[],
     linkTypeFilterArray: string[],
+    workItemFilterOptions: any,
     contentControlTitle: string,
     headingLevel?: number,
     contentControl?: contentControl
@@ -1210,7 +1216,9 @@ export default class DgContentControls {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        this.formattingSettings,
+        workItemFilterOptions
       );
       await pullRequestDataFactory.fetchData();
       await pullRequestDataFactory.jsonSkinDataAdpater();
