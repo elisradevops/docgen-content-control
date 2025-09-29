@@ -41,6 +41,7 @@ export default class ChangeDataFactory {
   private PAT: string;
   private includeUnlinkedCommits: boolean;
   private formattingSettings: any;
+  private workItemFilterOptions: any;
   constructor(
     teamProjectName,
     repoId: string,
@@ -65,7 +66,8 @@ export default class ChangeDataFactory {
     linkedWiOptions: any = undefined,
     requestedByBuild: boolean = false,
     includeUnlinkedCommits: boolean = false,
-    formattingSettings: any = {}
+    formattingSettings: any = {},
+    workItemFilterOptions: any = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -92,6 +94,7 @@ export default class ChangeDataFactory {
     this.requestedByBuild = requestedByBuild;
     this.includeUnlinkedCommits = includeUnlinkedCommits;
     this.formattingSettings = formattingSettings;
+    this.workItemFilterOptions = workItemFilterOptions;
   } //constructor
 
   async fetchSvdData() {
@@ -372,6 +375,7 @@ export default class ChangeDataFactory {
                 }
               }
             }
+
             this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
             this.rawChangesArray.push({
               artifact: { name: '' },
@@ -390,6 +394,7 @@ export default class ChangeDataFactory {
               this.to,
               this.from
             );
+
             this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
 
             this.rawChangesArray.push({
@@ -885,6 +890,34 @@ export default class ChangeDataFactory {
     return { commitsWithRelatedWi, commitsWithNoRelations };
   }
 
+  private filterChangesByWorkItemOptions(changes: any[] = []): any[] {
+    if (!this.workItemFilterOptions?.isEnabled) {
+      return changes;
+    }
+
+    const filteredChanges = changes.filter((change) => {
+      const workItem = change?.workItem;
+      if (!workItem) {
+        return false;
+      }
+
+      const workItemType = String(workItem.fields?.['System.WorkItemType'] ?? '').toLowerCase();
+      const workItemState = String(workItem.fields?.['System.State'] ?? '').toLowerCase();
+
+      // if no filters are set, return all changes
+      const isValidType =
+        this.workItemFilterOptions.workItemTypes.length === 0 ||
+        this.workItemFilterOptions.workItemTypes.includes(workItemType);
+      const isValidState =
+        this.workItemFilterOptions.workItemStates.length === 0 ||
+        this.workItemFilterOptions.workItemStates.includes(workItemState);
+
+      return isValidType && isValidState;
+    });
+
+    return filteredChanges;
+  }
+
   private async handleBuildArtifact(
     fromArtifact: Artifact,
     toArtifact: Artifact,
@@ -913,7 +946,11 @@ export default class ChangeDataFactory {
       pipelineTitle,
       undefined,
       this.includedWorkItemByIdSet,
-      this.linkedWiOptions
+      this.linkedWiOptions,
+      this.requestedByBuild,
+      this.includeUnlinkedCommits,
+      this.formattingSettings,
+      this.workItemFilterOptions
     );
     await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
@@ -1025,7 +1062,11 @@ export default class ChangeDataFactory {
         tocTitle,
         undefined,
         this.includedWorkItemByIdSet,
-        this.linkedWiOptions
+        this.linkedWiOptions,
+        this.requestedByBuild,
+        this.includeUnlinkedCommits,
+        this.formattingSettings,
+        this.workItemFilterOptions
       );
 
       await buildChangeFactory.fetchChangesData();
@@ -1272,8 +1313,12 @@ export default class ChangeDataFactory {
           this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
+          const filteredChangesArray = this.rawChangesArray.map((item: any) => ({
+            ...item,
+            changes: this.filterChangesByWorkItemOptions(item?.changes || []),
+          }));
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
-            this.rawChangesArray,
+            filteredChangesArray,
             this.includeChangeDescription,
             this.includeCommittedBy,
             this.teamProject,
