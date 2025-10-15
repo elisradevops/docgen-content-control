@@ -1285,7 +1285,7 @@ export default class ChangeDataFactory {
   }
 
   /*arranging the test data for json skins package*/
-  async jsonSkinDataAdapter(adapterType: string, rawData: any) {
+  async jsonSkinDataAdapter(adapterType: string, rawData: any, allowBiggerThan500: boolean = false) {
     logger.info(`adapting ${adapterType} data`);
     let adoptedData = undefined;
     try {
@@ -1304,7 +1304,8 @@ export default class ChangeDataFactory {
             this.minioAccessKey,
             this.minioSecretKey,
             this.PAT,
-            this.formattingSettings
+            this.formattingSettings,
+            allowBiggerThan500
           );
           adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
           logger.debug(

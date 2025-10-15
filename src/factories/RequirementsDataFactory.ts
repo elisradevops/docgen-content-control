@@ -26,7 +26,7 @@ export default class RequirementsDataFactory {
   adoptedData: any[];
   private formattingSettings: any;
   private attachmentMinioData: any[];
-
+  private allowBiggerThan500: boolean;
   /**
    * Creates a RequirementsDataFactory
    */
@@ -40,7 +40,8 @@ export default class RequirementsDataFactory {
     PAT,
     dgDataProvider,
     queriesRequest,
-    formattingSettings
+    formattingSettings,
+    allowBiggerThan500 = false
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -54,6 +55,7 @@ export default class RequirementsDataFactory {
     this.formattingSettings = formattingSettings;
     this.adoptedData = [];
     this.attachmentMinioData = [];
+    this.allowBiggerThan500 = allowBiggerThan500;
   }
 
   /**
@@ -65,7 +67,7 @@ export default class RequirementsDataFactory {
       const queryResults = await this.fetchQueryResults();
 
       // Set raw data and call jsonSkinDataAdapter once (similar to TestDataFactory pattern)
-      this.adoptedData = await this.jsonSkinDataAdapter(null, queryResults);
+      this.adoptedData = await this.jsonSkinDataAdapter(null, queryResults, this.allowBiggerThan500);
     } catch (error) {
       logger.error(`Error fetching requirements data: ${error}`);
       throw error;
@@ -148,7 +150,11 @@ export default class RequirementsDataFactory {
    * - systemRequirements: emits in link order when provided with links debug, otherwise sanitized tree
    * - traceability: uses the TraceAnalysisRequirementsAdapter
    */
-  private async jsonSkinDataAdapter(adapterType: string = null, rawData: any) {
+  private async jsonSkinDataAdapter(
+    adapterType: string = null,
+    rawData: any,
+    allowBiggerThan500: boolean = false
+  ) {
     let adoptedRequirementsData: any = {};
     try {
       logger.debug(`=== RequirementsDataFactory.jsonSkinDataAdapter START ===`);
@@ -182,7 +188,8 @@ export default class RequirementsDataFactory {
           this.minioAccessKey,
           this.minioSecretKey,
           this.PAT,
-          this.formattingSettings
+          this.formattingSettings,
+          allowBiggerThan500
         );
         // If we have a link-order debug payload, let the adapter emit exactly in that order
         // and therefore use the raw provider tree (do not sanitize) so all ids are present

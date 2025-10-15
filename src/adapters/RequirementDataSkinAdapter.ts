@@ -17,6 +17,7 @@ export default class RequirementDataSkinAdapter {
   private minioSecretKey: string;
   private PAT: string;
   private formattingSettings: any;
+  private allowBiggerThan500: boolean;
 
   constructor(
     teamProject: string,
@@ -26,7 +27,8 @@ export default class RequirementDataSkinAdapter {
     minioAccessKey: string,
     minioSecretKey: string,
     PAT: string,
-    formattingSettings: any
+    formattingSettings: any,
+    allowBiggerThan500: boolean = false
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -39,6 +41,7 @@ export default class RequirementDataSkinAdapter {
     this.htmlUtils = new HtmlUtils();
     this.adoptedData = [];
     this.attachmentMinioData = [];
+    this.allowBiggerThan500 = allowBiggerThan500;
   }
 
   public async jsonSkinAdapter(rawData: any) {
@@ -48,8 +51,10 @@ export default class RequirementDataSkinAdapter {
         // If link-order arrays are provided, prefer adapting in that exact order
         const totalNodes = this.countFromLinks(rawData.workItemLinksDebug) ?? 0;
 
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }.
            Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
@@ -58,8 +63,10 @@ export default class RequirementDataSkinAdapter {
       } else if (requirementQueryData.length > 0) {
         const totalNodes = this.countTotalNodes(requirementQueryData);
 
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }.
            Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);

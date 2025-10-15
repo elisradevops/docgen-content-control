@@ -1285,7 +1285,8 @@ export default class DgContentControls {
         this.PAT,
         this.dgDataProviderAzureDevOps,
         queriesRequest,
-        this.formattingSettings
+        this.formattingSettings,
+        true
       );
       await srsDataFactory.fetchRequirementsData();
       adoptedRequirementsData = srsDataFactory.getAdoptedData();
@@ -1347,7 +1348,8 @@ export default class DgContentControls {
 
       for (const { data, title, noDataMessage } of traceabilityConfig) {
         if (data && (data.adoptedData || data.title)) {
-          data['errorMessage'] = !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+          data['errorMessage'] =
+            !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
 
           const contentControlResults: contentControl = {
             title,
