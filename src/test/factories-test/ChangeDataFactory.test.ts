@@ -257,7 +257,10 @@ describe('ChangeDataFactory', () => {
             const mockChanges = [{ id: 1, title: 'Change 1' }];
 
             mockGitDataProvider.GetCommitsInCommitRange.mockResolvedValue(mockCommits);
-            mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue(mockChanges);
+            mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue({
+                commitChangesArray: mockChanges,
+                commitsWithNoRelations: []
+            });
 
             await changeDataFactory.fetchChangesData();
 
@@ -270,12 +273,15 @@ describe('ChangeDataFactory', () => {
             expect(mockGitDataProvider.GetItemsInCommitRange).toHaveBeenCalledWith(
                 defaultParams.teamProject,
                 defaultParams.repoId,
-                mockCommits
+                mockCommits,
+                undefined,
+                false
             );
             expect(changeDataFactory.getRawData()).toEqual([
                 {
                     artifact: expect.any(Object),
-                    changes: mockChanges
+                    changes: mockChanges,
+                    nonLinkedCommits: []
                 }
             ]);
         });
@@ -314,7 +320,10 @@ describe('ChangeDataFactory', () => {
             const mockItems = [{ id: 1, title: 'Change in date range' }];
 
             mockGitDataProvider.GetCommitsInDateRange.mockResolvedValue(mockCommits);
-            mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue(mockItems);
+            mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue({
+                commitChangesArray: mockItems,
+                commitsWithNoRelations: []
+            });
 
             await dateFactory.fetchChangesData();
 
@@ -335,7 +344,9 @@ describe('ChangeDataFactory', () => {
             expect(mockGitDataProvider.GetItemsInCommitRange).toHaveBeenCalledWith(
                 defaultParams.teamProject,
                 defaultParams.repoId,
-                mockCommits
+                mockCommits,
+                undefined,
+                false
             );
         });
 
