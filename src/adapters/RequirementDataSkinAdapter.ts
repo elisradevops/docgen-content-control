@@ -17,6 +17,7 @@ export default class RequirementDataSkinAdapter {
   private minioSecretKey: string;
   private PAT: string;
   private formattingSettings: any;
+  private allowBiggerThan500: boolean;
 
   constructor(
     teamProject: string,
@@ -26,7 +27,8 @@ export default class RequirementDataSkinAdapter {
     minioAccessKey: string,
     minioSecretKey: string,
     PAT: string,
-    formattingSettings: any
+    formattingSettings: any,
+    allowBiggerThan500: boolean = false
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -39,18 +41,21 @@ export default class RequirementDataSkinAdapter {
     this.htmlUtils = new HtmlUtils();
     this.adoptedData = [];
     this.attachmentMinioData = [];
+    this.allowBiggerThan500 = allowBiggerThan500;
   }
 
   public async jsonSkinAdapter(rawData: any) {
     try {
       const { requirementQueryData } = rawData;
+      
       if (rawData?.workItemLinksDebug) {
         // If link-order arrays are provided, prefer adapting in that exact order
         const totalNodes = this.countFromLinks(rawData.workItemLinksDebug) ?? 0;
 
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
-           Please narrow down the query parameters.`;
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }. Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
         }
@@ -58,14 +63,16 @@ export default class RequirementDataSkinAdapter {
       } else if (requirementQueryData.length > 0) {
         const totalNodes = this.countTotalNodes(requirementQueryData);
 
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
-           Please narrow down the query parameters.`;
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }. Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
         }
         await this.adaptDataRecursively(requirementQueryData);
       }
+      logger.debug(`RequirementDataSkinAdapter: Processed ${this.adoptedData.length} items`);
       return this.adoptedData;
     } catch (err: any) {
       logger.error(`could not create the adopted data for requirements ${err.message}`);
@@ -89,8 +96,20 @@ export default class RequirementDataSkinAdapter {
    * Emits rows exactly in the link order using a stack to reconstruct hierarchy boundaries.
    */
   private async adaptDataFromLinks(requirementQueryData: any[], linksDebug: any) {
-    const idToNode = this.buildIdToNodeMap(requirementQueryData || []);
+    // Use allItems if available (contains all fetched nodes), otherwise build from tree
+    let idToNode: Record<number, any>;
+    if (linksDebug?.allItems) {
+      idToNode = linksDebug.allItems;
+      logger.debug(`Using allItems with ${Object.keys(idToNode).length} nodes`);
+    } else {
+      idToNode = this.buildIdToNodeMap(requirementQueryData || []);
+      logger.debug(`Built idToNode map from tree with ${Object.keys(idToNode).length} nodes`);
+      // Validate that all nodes are available
+      await this.enhanceIdToNodeMapFromLinks(idToNode, linksDebug);
+    }
+    
     const linkPairs = this.deriveLinkPairs(linksDebug);
+    
     // headerLevel starts at 2 for roots in this adapter
     const rootLevel = 2;
     let pathStack: number[] = [];
@@ -123,6 +142,7 @@ export default class RequirementDataSkinAdapter {
   private async emitNodeById(idToNode: Record<number, any>, id: number, headerLevel: number) {
     const node = idToNode[id];
     if (!node) {
+      logger.warn(`Node ${id} not found in idToNode map, skipping`);
       return;
     }
     let Description = node.description || 'No description';
@@ -207,14 +227,10 @@ export default class RequirementDataSkinAdapter {
     for (const node of nodes) {
       const key = node?.id ?? node;
       // Dedupe repeated siblings per parent (preserve first occurrence order)
-      if (siblingsSeen.has(key)) {
-        continue;
-      }
+      if (siblingsSeen.has(key)) continue;
       siblingsSeen.add(key);
       // If cycle detected in current ancestry path, skip emitting and do not recurse
-      if (ancestry.has(key)) {
-        continue;
-      }
+      if (ancestry.has(key)) continue;
       let Description = node.description || 'No description';
       let cleanedDescription = await this.htmlUtils.cleanHtml(
         Description,
@@ -308,5 +324,32 @@ export default class RequirementDataSkinAdapter {
     };
     walk(nodes);
     return idToNode;
+  }
+
+  /**
+   * Enhances the idToNode map by checking for missing nodes referenced in workItemRelations.
+   * With the fix in parseTreeQueryResult, all nodes should now be available.
+   */
+  private async enhanceIdToNodeMapFromLinks(idToNode: Record<number, any>, linksDebug: any): Promise<void> {
+    const workItemRelations: any[] = linksDebug?.workItemRelations ?? [];
+    if (!Array.isArray(workItemRelations) || workItemRelations.length === 0) return;
+
+    const missingIds = new Set<number>();
+
+    // Identify all IDs referenced in workItemRelations
+    for (const rel of workItemRelations) {
+      if (rel?.target?.id && !idToNode[rel.target.id]) {
+        missingIds.add(Number(rel.target.id));
+      }
+      if (rel?.source?.id && !idToNode[rel.source.id]) {
+        missingIds.add(Number(rel.source.id));
+      }
+    }
+
+    if (missingIds.size === 0) return;
+
+    // If we still have missing nodes, this indicates a problem with parseTreeQueryResult
+    logger.error(`CRITICAL: Found ${missingIds.size} missing node(s): ${Array.from(missingIds).join(', ')}`);
+    logger.error(`This indicates parseTreeQueryResult did not fetch all nodes from workItemRelations`);
   }
 }

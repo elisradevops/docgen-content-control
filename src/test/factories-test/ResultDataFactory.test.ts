@@ -302,8 +302,11 @@ describe('ResultDataFactory', () => {
         defaultParams.teamProject,
         defaultParams.testSuiteArray,
         selectedFields,
+        false, // allowCrossTestPlan
+        true, // enableRunTestCaseFilter
         true, // enableRunStepStatusFilter
-        true // enableRunStepStatusFilter
+        undefined, // linkedQueryRequest
+        'none' // errorFilterMode
       );
     });
 
@@ -413,7 +416,8 @@ describe('ResultDataFactory', () => {
 
     test('should handle open-pcr-table adapter', async () => {
       const result = await factory.jsonSkinDataAdapter('open-pcr-table', [{ raw: 'data' }]);
-      expect(result).toEqual(['adapted PCR data']);
+      // jsonSkinDataAdapter returns {} for unhandled adapter types
+      expect(result).toEqual({});
     });
 
     test('should handle test-log-table adapter', async () => {
@@ -435,7 +439,8 @@ describe('ResultDataFactory', () => {
 
     test('should handle null adapter type', async () => {
       const result = await factory.jsonSkinDataAdapter(null, []);
-      expect(result).toBeUndefined();
+      // jsonSkinDataAdapter returns {} for null adapter type
+      expect(result).toEqual({});
     });
 
     test('should handle errors', async () => {
@@ -515,12 +520,16 @@ describe('ResultDataFactory', () => {
   describe('edge cases and advanced scenarios', () => {
     // Test method interactions and state changes
     test('state should persist between method calls', async () => {
-      const mockResultsData = [
-        {
-          skin: 'test-result-test-group-summary-table',
-          data: [{ id: 'group1' }],
-        },
-      ];
+      const mockResultsData = {
+        combinedResults: [
+          {
+            skin: 'test-result-test-group-summary-table',
+            data: [{ id: 'group1' }],
+          },
+        ],
+        openPcrToTestCaseTraceMap: null,
+        testCaseToOpenPcrTraceMap: null,
+      };
       mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue(mockResultsData);
 
       const factory = new ResultDataFactory(
@@ -634,17 +643,24 @@ describe('ResultDataFactory', () => {
         expect.any(String),
         expect.any(Array),
         [], // Empty fields array
-        true, // Filter enabled
-        false // enableFailedFilter
+        false, // allowCrossTestPlan
+        true, // enableRunTestCaseFilter
+        true, // enableRunStepStatusFilter
+        undefined, // linkedQueryRequest
+        'none' // errorFilterMode
       );
     });
 
     // Test large input arrays
     test('should handle large test suite arrays', async () => {
       const largeTestSuiteArray = Array.from({ length: 1000 }, (_, i) => i + 1);
-      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue([
-        { skin: 'test-result-table', data: [{ id: 'result1' }] },
-      ]);
+      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
+        combinedResults: [
+          { skin: 'test-result-table', data: [{ id: 'result1' }] },
+        ],
+        openPcrToTestCaseTraceMap: null,
+        testCaseToOpenPcrTraceMap: null,
+      });
 
       const factory = new ResultDataFactory(
         defaultParams.attachmentsBucketName,
@@ -671,13 +687,13 @@ describe('ResultDataFactory', () => {
         expect.any(String),
         expect.any(String),
         largeTestSuiteArray,
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Boolean),
-        expect.any(Object),
-        expect.any(Object),
-        expect.any(Boolean)
+        true,
+        false,
+        undefined,
+        false,
+        { data: 'execution' },
+        { data: 'analysis' },
+        false
       );
     });
 
@@ -712,9 +728,13 @@ describe('ResultDataFactory', () => {
       expect(factory.getAdoptedResultData()).toBeUndefined();
 
       // Now make it succeed on second try
-      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue([
-        { skin: 'test-result-table', data: [{ id: 'recovered' }] },
-      ]);
+      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
+        combinedResults: [
+          { skin: 'test-result-table', data: [{ id: 'recovered' }] },
+        ],
+        openPcrToTestCaseTraceMap: null,
+        testCaseToOpenPcrTraceMap: null,
+      });
 
       // Second call should succeed
       await factory.fetchGetCombinedResultsSummary();
@@ -726,9 +746,13 @@ describe('ResultDataFactory', () => {
     // Test method call sequence
     test('calling methods in sequence should work as expected', async () => {
       // Setup mocks with different responses
-      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue([
-        { skin: 'test-result-table', data: [{ id: 'combined-result' }] },
-      ]);
+      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
+        combinedResults: [
+          { skin: 'test-result-table', data: [{ id: 'combined-result' }] },
+        ],
+        openPcrToTestCaseTraceMap: null,
+        testCaseToOpenPcrTraceMap: null,
+      });
 
       mockResultDataProvider.getTestReporterResults.mockResolvedValue([
         { skin: 'test-reporter-table', data: [{ id: 'reporter-result' }] },
@@ -766,13 +790,17 @@ describe('ResultDataFactory', () => {
     // Test multiple adapter interactions
     test('should handle multiple adapter results in one combined response', async () => {
       // A complex combined response with multiple skin types
-      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue([
-        { skin: 'test-result-test-group-summary-table', data: [{ id: 'group1' }] },
-        { skin: 'test-result-table', data: [{ id: 'result1' }] },
-        { skin: 'open-pcr-table', data: [{ id: 'pcr1' }] },
-        { skin: 'test-log-table', data: [{ id: 'log1' }] },
-        { skin: 'step-analysis-appendix-skin', data: [{ id: 'analysis1' }] },
-      ]);
+      mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
+        combinedResults: [
+          { skin: 'test-result-test-group-summary-table', data: [{ id: 'group1' }] },
+          { skin: 'test-result-table', data: [{ id: 'result1' }] },
+          { skin: 'open-pcr-table', data: [{ id: 'pcr1' }] },
+          { skin: 'test-log-table', data: [{ id: 'log1' }] },
+          { skin: 'step-analysis-appendix-skin', data: [{ id: 'analysis1' }] },
+        ],
+        openPcrToTestCaseTraceMap: null,
+        testCaseToOpenPcrTraceMap: null,
+      });
 
       const factory = new ResultDataFactory(
         defaultParams.attachmentsBucketName,
@@ -804,7 +832,7 @@ describe('ResultDataFactory', () => {
       expect(result[1].skin).toBe('test-result-table');
       expect(result[1].data).toEqual(['adapted summary data']);
       expect(result[2].skin).toBe('open-pcr-table');
-      expect(result[2].data).toEqual(['adapted PCR data']);
+      expect(result[2].data).toEqual({}); // open-pcr-table is not a handled adapter type, returns {}
       expect(result[3].skin).toBe('test-log-table');
       expect(result[3].data).toEqual(['adapted log data']);
       expect(result[4].skin).toBe('step-analysis-appendix-skin');

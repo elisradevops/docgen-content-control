@@ -16,6 +16,7 @@ export default class SystemOverviewDataSkinAdapter {
   private PAT: string;
   private attachmentMinioData: any[];
   private formattingSettings: any;
+  private allowBiggerThan500: boolean;
   constructor(
     teamProject,
     templatePath,
@@ -24,7 +25,8 @@ export default class SystemOverviewDataSkinAdapter {
     minioAccessKey,
     minioSecretKey,
     PAT,
-    formattingSettings: any
+    formattingSettings: any,
+    allowBiggerThan500: boolean = false
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -37,6 +39,7 @@ export default class SystemOverviewDataSkinAdapter {
     this.PAT = PAT;
     this.attachmentMinioData = [];
     this.formattingSettings = formattingSettings;
+    this.allowBiggerThan500 = allowBiggerThan500;
   }
 
   /**
@@ -95,8 +98,10 @@ export default class SystemOverviewDataSkinAdapter {
       const { systemOverviewQueryData } = rawData;
       if (rawData?.systemOverviewLinksDebug) {
         const totalNodes = this.countFromLinks(rawData.systemOverviewLinksDebug) ?? 0;
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }.
            Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
@@ -107,8 +112,10 @@ export default class SystemOverviewDataSkinAdapter {
         const totalNodes = this.countTotalNodes(systemOverviewQueryData);
 
         // Check against the 500 limit
-        if (totalNodes > 500) {
-          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is 500.
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+          const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
+            this.allowBiggerThan500 ? 1000 : 500
+          }.
            Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
@@ -242,11 +249,7 @@ export default class SystemOverviewDataSkinAdapter {
   /**
    * Recursively traverses the overview tree, skipping cycles and duplicate siblings per parent.
    */
-  private async adaptDataRecursively(
-    nodes: any[],
-    headerLevel: number = 3,
-    ancestry?: Set<any>
-  ) {
+  private async adaptDataRecursively(nodes: any[], headerLevel: number = 3, ancestry?: Set<any>) {
     if (!ancestry) ancestry = new Set<any>();
     const siblingsSeen = new Set<any>();
     for (const node of nodes) {

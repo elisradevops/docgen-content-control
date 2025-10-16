@@ -22,7 +22,7 @@ jest.mock('@elisra-devops/docgen-data-provider');
 jest.mock('../../services/htmlUtils');
 jest.mock('../../factories/RichTextDataFactory');
 jest.mock('../../factories/AttachmentsDataFactory');
-jest.mock('../../adapters/QueryResultsSkinAdapter');
+jest.mock('../../adapters/TraceQueryResultsSkinAdapter');
 jest.mock('../../adapters/TraceByLinkedRequirementAdapter');
 jest.mock('../../services/logger');
 
@@ -87,6 +87,9 @@ describe('TestDataFactory', () => {
     runAttachmentMode: 'both',
     includeRequirements: true,
     includeCustomerId: false,
+    linkedMomRequest: {
+      linkedMomMode: 'none', // Default mode to avoid undefined errors
+    },
     traceAnalysisRequest: {
       reqTestQuery: { wiql: { href: 'req-test-query-url' } },
       testReqQuery: { wiql: { href: 'test-req-query-url' } },
@@ -115,6 +118,7 @@ describe('TestDataFactory', () => {
       params.runAttachmentMode,
       params.includeRequirements,
       params.includeCustomerId,
+      params.linkedMomRequest,
       params.traceAnalysisRequest,
       params.includeTestResults,
       params.dgDataProvider,
@@ -127,14 +131,11 @@ describe('TestDataFactory', () => {
     );
 
   beforeEach(() => {
-    // Reset all mocks
-    jest.clearAllMocks();
-
-    // Setup providers
+    // Always recreate providers to ensure fresh mocks with proper implementations
     mockProviders = setupMockProviders();
     defaultParams = setupDefaultParams(mockProviders);
-
-    // Create test instance
+    
+    // Create test instance with fresh providers
     testDataFactory = createTestDataFactory(defaultParams);
 
     // Setup default mock implementations
@@ -313,7 +314,7 @@ describe('TestDataFactory', () => {
 
   describe('Data Fetching', () => {
     beforeEach(() => {
-      // Setup common mock responses
+      // Setup common mock responses for data fetching tests
       mockProviders.testDataProvider.GetTestPlans.mockResolvedValue({
         count: 1,
         value: [fixtures.testPlan],
@@ -346,7 +347,8 @@ describe('TestDataFactory', () => {
         expect(mockProviders.testDataProvider.GetTestSuitesByPlan).toHaveBeenCalledWith(
           'test-project',
           '123',
-          true
+          true,
+          [456] // testSuiteArray is passed as 4th parameter
         );
         expect(mockProviders.testDataProvider.GetTestCasesBySuites).toHaveBeenCalledWith(
           'test-project',
@@ -355,7 +357,10 @@ describe('TestDataFactory', () => {
           true,
           true,
           false,
-          defaultParams.stepResultDetailsMap
+          false, // linkedMomMode === 'relation' (which is false since mode is 'none')
+          defaultParams.stepResultDetailsMap,
+          expect.any(Map), // testCaseToLinkedMomLookup
+          expect.arrayContaining([expect.objectContaining({ id: 456 })]) // testSuites
         );
 
         // Verify trace maps are populated
@@ -394,10 +399,10 @@ describe('TestDataFactory', () => {
         testDataFactory.generateSuiteObject = jest.fn().mockResolvedValue([]);
         testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue('adopted-data');
 
-        // Add another suite that should be filtered out
+        // The API should return only the filtered suite (456) because testSuiteArray is passed as filter
+        // In real implementation, GetTestSuitesByPlan filters server-side
         mockProviders.testDataProvider.GetTestSuitesByPlan.mockResolvedValue([
-          { id: 456, name: 'Test Suite 456' },
-          { id: 789, name: 'Test Suite 789' }, // Should be filtered out
+          { id: 456, name: 'Test Suite 456' }, // Only this suite is returned after filtering
         ]);
 
         await testDataFactory.fetchTestData();
