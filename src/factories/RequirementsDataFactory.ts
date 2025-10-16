@@ -96,12 +96,14 @@ export default class RequirementsDataFactory {
         logger.debug(
           `system requirements query results are ${systemRequirementsQueryData ? 'ready' : 'not found'}`
         );
+        
         queryResults['systemRequirementsQueryData'] =
           systemRequirementsQueryData.roots ?? systemRequirementsQueryData;
-        // Expose workItemRelations for link-driven rendering when present
+        // Expose workItemRelations and allItems for link-driven rendering when present
         if (systemRequirementsQueryData?.workItemRelations) {
           queryResults['systemRequirementsLinksDebug'] = {
             workItemRelations: systemRequirementsQueryData.workItemRelations,
+            allItems: systemRequirementsQueryData.allItems, // Include all fetched items
           };
         }
       }
@@ -157,29 +159,9 @@ export default class RequirementsDataFactory {
   ) {
     let adoptedRequirementsData: any = {};
     try {
-      logger.debug(`=== RequirementsDataFactory.jsonSkinDataAdapter START ===`);
-      logger.debug(`AdapterType: ${adapterType}`);
-      logger.debug(`RawData keys: ${Object.keys(rawData || {}).join(', ')}`);
-      logger.debug(
-        `QueriesRequest systemToSoftwareRequirements exists: ${!!this.queriesRequest
-          .systemToSoftwareRequirements}`
-      );
-      logger.debug(
-        `RawData systemToSoftwareRequirementsQueryData exists: ${!!rawData.systemToSoftwareRequirementsQueryData}`
-      );
-      if (rawData.systemToSoftwareRequirementsQueryData) {
-        logger.debug(
-          `SystemToSoftwareRequirementsQueryData keys: ${Object.keys(
-            rawData.systemToSoftwareRequirementsQueryData
-          ).join(', ')}`
-        );
-        logger.debug(
-          `SystemToSoftwareRequirementsQueryData structure:`,
-          JSON.stringify(rawData.systemToSoftwareRequirementsQueryData, null, 2)
-        );
-      }
       // Handle system requirements if available
       if (this.queriesRequest.systemRequirements && rawData.systemRequirementsQueryData) {
+        
         const requirementSkinAdapter = new RequirementDataSkinAdapter(
           this.teamProject,
           this.templatePath,
@@ -194,16 +176,11 @@ export default class RequirementsDataFactory {
         // If we have a link-order debug payload, let the adapter emit exactly in that order
         // and therefore use the raw provider tree (do not sanitize) so all ids are present
         const hasLinksDebug = !!rawData.systemRequirementsLinksDebug;
-        if (hasLinksDebug) {
-          logger.debug(
-            `systemRequirementsLinksDebug keys: ${Object.keys(
-              rawData.systemRequirementsLinksDebug || {}
-            ).join(', ')}`
-          );
-        }
+        
         const treeForAdapter = hasLinksDebug
           ? rawData.systemRequirementsQueryData
           : this.sanitizeHierarchy(rawData.systemRequirementsQueryData);
+        
         const systemRequirementsData = await requirementSkinAdapter.jsonSkinAdapter({
           requirementQueryData: treeForAdapter,
           workItemLinksDebug: rawData.systemRequirementsLinksDebug,
@@ -292,6 +269,7 @@ export default class RequirementsDataFactory {
   private sanitizeHierarchy(roots: any[]): any[] {
     try {
       if (!Array.isArray(roots) || roots.length === 0) return roots;
+      
       // Dedupe roots by id, preserve first occurrence order
       const seenRoots = new Set<any>();
       const dedupedRoots: any[] = [];
@@ -309,10 +287,9 @@ export default class RequirementsDataFactory {
         const sanitized = this.sanitizeNode(root, ancestry);
         if (sanitized) result.push(sanitized);
       }
-      logger.debug(`sanitizeHierarchy: inputRoots=${roots.length}, outputRoots=${result.length}`);
       return result;
     } catch (e) {
-      logger.debug(`sanitizeHierarchy failed: ${e?.message || e}`);
+      logger.error(`sanitizeHierarchy failed: ${e?.message || e}`);
       return roots;
     }
   }
@@ -324,6 +301,7 @@ export default class RequirementsDataFactory {
     if (!node) return null;
     const key = node?.id ?? node;
     if (ancestry.has(key)) return null; // break cycle
+    
     // Shallow-copy node to avoid mutating original
     const out: any = {
       ...node,
