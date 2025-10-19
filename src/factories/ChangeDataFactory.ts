@@ -125,7 +125,9 @@ export default class ChangeDataFactory {
       //3. get fetch changes data required-states-and-modes
       await this.fetchChangesData();
       this.includedWorkItemByIdSet.clear();
-      logger.info(`fetchSvdData: After fetchChangesData, rawChangesArray has ${this.rawChangesArray.length} artifacts`);
+      logger.info(
+        `fetchSvdData: After fetchChangesData, rawChangesArray has ${this.rawChangesArray.length} artifacts`
+      );
       if (this.rawChangesArray.length > 0) {
         logger.info(`fetchSvdData: Calling jsonSkinDataAdapter for 'changes'`);
         this.adoptedChangeData.push({
@@ -401,15 +403,21 @@ export default class ChangeDataFactory {
 
             this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
 
-            logger.info(`Pipeline case: Pushing artifact with ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`);
-            
+            logger.info(
+              `Pipeline case: Pushing artifact with ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
+            );
+
             this.rawChangesArray.push({
               artifact: { name: this.tocTitle || '' },
               changes: [...artifactChanges],
               nonLinkedCommits: [...artifactChangesNoLink],
             });
-            
-            logger.debug(`After push, rawChangesArray[${this.rawChangesArray.length - 1}].changes.length = ${this.rawChangesArray[this.rawChangesArray.length - 1].changes.length}`);
+
+            logger.debug(
+              `After push, rawChangesArray[${this.rawChangesArray.length - 1}].changes.length = ${
+                this.rawChangesArray[this.rawChangesArray.length - 1].changes.length
+              }`
+            );
           }
           break;
         case 'release':
@@ -476,31 +484,48 @@ export default class ChangeDataFactory {
                 // Dispatch to the appropriate handler
                 const handler = handlers[artifactType];
                 if (handler) {
-                  switch (artifactType) {
-                    case 'Git':
-                      await handler(
-                        fromReleaseArtifact,
-                        toReleaseArtifact,
-                        this.teamProject,
-                        gitDataProvider
-                      );
-                      break;
-                    case 'Artifactory':
-                    case 'JFrogArtifactory':
-                      await handler(
-                        fromReleaseArtifact,
-                        toReleaseArtifact,
-                        this.teamProject,
-                        jfrogDataProvider
-                      );
-                      break;
-                    default:
-                      await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
+                  try {
+                    switch (artifactType) {
+                      case 'Git':
+                        await handler(
+                          fromReleaseArtifact,
+                          toReleaseArtifact,
+                          this.teamProject,
+                          gitDataProvider
+                        );
+                        break;
+                      case 'Artifactory':
+                      case 'JFrogArtifactory':
+                        await handler(
+                          fromReleaseArtifact,
+                          toReleaseArtifact,
+                          this.teamProject,
+                          jfrogDataProvider
+                        );
+                        break;
+                      default:
+                        await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
+                    }
+                  } catch (error: any) {
+                    logger.error(
+                      `Failed to process artifact ${artifactAlias} (${artifactType}): ${error.message}`
+                    );
+                    logger.debug(`Error stack: ${error.stack}`);
+                    // Continue processing other artifacts
                   }
                 } else {
                   logger.info(`No handler defined for artifact type ${artifactType}, skipping`);
                 }
               })
+            );
+
+            // Log summary of artifact processing
+            const totalArtifacts = toRelease.artifacts.filter((a: Artifact) =>
+              ['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(a.type)
+            ).length;
+            const processedArtifacts = this.rawChangesArray.length;
+            logger.info(
+              `Release artifact processing complete: ${processedArtifacts}/${totalArtifacts} artifacts successfully processed`
             );
 
             //handle services.json from variables of the release
@@ -658,13 +683,19 @@ export default class ChangeDataFactory {
             this.linkedWiOptions
           );
 
-          logger.debug(`getCommitRangeChanges returned: ${allExtendedCommits.length} commits with work items, ${commitsWithNoRelations.length} without`);
+          logger.debug(
+            `getCommitRangeChanges returned: ${allExtendedCommits.length} commits with work items, ${commitsWithNoRelations.length} without`
+          );
           if (allExtendedCommits.length > 0) {
             allExtendedCommits.forEach((commit, idx) => {
-              logger.debug(`  Commit ${idx + 1}: workItem=${commit.workItem?.id}, commit=${commit.commit?.commitId?.substring(0, 7)}`);
+              logger.debug(
+                `  Commit ${idx + 1}: workItem=${
+                  commit.workItem?.id
+                }, commit=${commit.commit?.commitId?.substring(0, 7)}`
+              );
             });
           }
-          
+
           artifactChanges.push(...allExtendedCommits);
           artifactChangesNoLink.push(...commitsWithNoRelations);
         }
@@ -767,12 +798,16 @@ export default class ChangeDataFactory {
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
     }
-    
-    logger.info(`GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`);
+
+    logger.info(
+      `GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
+    );
     if (artifactChanges.length > 0) {
-      logger.debug(`First change has workItem: ${!!artifactChanges[0].workItem}, commit: ${!!artifactChanges[0].commit}`);
+      logger.debug(
+        `First change has workItem: ${!!artifactChanges[0].workItem}, commit: ${!!artifactChanges[0].commit}`
+      );
     }
-    
+
     return { artifactChanges, artifactChangesNoLink };
   }
 
@@ -814,6 +849,8 @@ export default class ChangeDataFactory {
         { version: toVersion, versionType: toVersionType },
         specificItemPath
       );
+
+      logger.debug(`GetCommitBatch returned ${extendedCommits?.length || 0} commits`);
 
       if (extendedCommits?.length > 0) {
         const { commitChangesArray, commitsWithNoRelations: unrelatedCommits } =
@@ -1014,6 +1051,7 @@ export default class ChangeDataFactory {
     teamProject: string,
     provider?: any
   ) {
+    logger.debug('---------------Handling Artifactory artifact-----------------');
     // Extract common logic for JFrog/Artifactory here
     let jFrogUrl = await provider.getServiceConnectionUrlByConnectionId(
       teamProject,
@@ -1027,15 +1065,37 @@ export default class ChangeDataFactory {
     const toBuildVersion = toArtifact.definitionReference['version'].name;
 
     logger.info(`Fetch CI data from JFrog: ${jFrogUrl}`);
-    const toCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, toBuildName, toBuildVersion);
-    if (toCiUrl === '') {
-      logger.warn(`cannot find source url for ${toBuildName}`);
+
+    let toCiUrl: string;
+    let fromCiUrl: string;
+
+    try {
+      logger.debug(`Fetching CI URL for TO artifact: ${toBuildName} version ${toBuildVersion}`);
+      toCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, toBuildName, toBuildVersion);
+      if (toCiUrl === '') {
+        logger.warn(`Cannot find CI URL for TO artifact ${toBuildName} version ${toBuildVersion}`);
+        return;
+      }
+      logger.debug(`TO CI URL: ${toCiUrl}`);
+    } catch (error: any) {
+      logger.error(
+        `Failed to fetch CI URL for TO artifact ${toBuildName} version ${toBuildVersion}: ${error.message}`
+      );
       return;
     }
 
-    const fromCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, fromBuildName, fromBuildVersion);
-    if (fromCiUrl === '') {
-      logger.warn(`cannot find source url for ${fromBuildName}`);
+    try {
+      logger.debug(`Fetching CI URL for FROM artifact: ${fromBuildName} version ${fromBuildVersion}`);
+      fromCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, fromBuildName, fromBuildVersion);
+      if (fromCiUrl === '') {
+        logger.warn(`Cannot find CI URL for FROM artifact ${fromBuildName} version ${fromBuildVersion}`);
+        return;
+      }
+      logger.debug(`FROM CI URL: ${fromCiUrl}`);
+    } catch (error: any) {
+      logger.error(
+        `Failed to fetch CI URL for FROM artifact ${fromBuildName} version ${fromBuildVersion}: ${error.message}`
+      );
       return;
     }
 
@@ -1044,63 +1104,32 @@ export default class ChangeDataFactory {
     const fromUrlParts = fromCiUrl.split('/');
     const toUrlSuffix = toUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
     const fromUrlSuffix = fromUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
-    
+
     // Extract project info first (needed for both scenarios)
     const toTeamProject = toUrlParts.pop();
-    
-    let jfrogUploader = 'pipeline'; // Always use pipeline mode
-    let toBuildId: string;
-    let fromBuildId: string;
-    
+
+    let jfrogUploader = '';
     if (toUrlSuffix.startsWith('_release?releaseId=')) {
-      // When JFrog points to a release, we need to extract the actual build from that release
-      logger.info(`Artifactory artifact points to releases, extracting build information`);
-      const toReleaseId = toUrlSuffix.split('=').pop();
-      const fromReleaseId = fromUrlSuffix.split('=').pop();
-      
-      logger.debug(`Fetching release ${fromReleaseId} and ${toReleaseId} from project ${toTeamProject}`);
-      const pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
-      
-      try {
-        const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(toTeamProject, Number(fromReleaseId));
-        const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(toTeamProject, Number(toReleaseId));
-        
-        // Find the Build artifact in the releases that corresponds to this JFrog artifact
-        // Typically the first Build artifact or the one with matching name
-        const fromBuildArtifact = fromRelease.artifacts?.find((a: any) => a.type === 'Build');
-        const toBuildArtifact = toRelease.artifacts?.find((a: any) => a.type === 'Build');
-        
-        if (!fromBuildArtifact || !toBuildArtifact) {
-          logger.warn(`Could not find Build artifacts in releases ${fromReleaseId} and ${toReleaseId}`);
-          return;
-        }
-        
-        fromBuildId = fromBuildArtifact.definitionReference['version'].id;
-        toBuildId = toBuildArtifact.definitionReference['version'].id;
-        
-        logger.info(`Extracted builds from releases: ${fromBuildId} → ${toBuildId}`);
-      } catch (error: any) {
-        logger.error(`Failed to fetch releases: ${error.message}`);
-        return;
-      }
+      jfrogUploader = 'release';
     } else if (toUrlSuffix.startsWith('_build?buildId=')) {
-      toBuildId = toUrlSuffix.split('=').pop();
-      fromBuildId = fromUrlSuffix.split('=').pop();
-      logger.debug(`Artifactory artifact points to builds: ${fromBuildId} → ${toBuildId}`);
+      jfrogUploader = 'pipeline';
     } else {
       logger.warn(`Unsupported URL suffix: ${toUrlSuffix}`);
       return; // Unsupported suffix
     }
+    const toBuildId = toUrlSuffix.split('=').pop();
+    logger.debug(`to build ${toBuildId}`);
+    const fromBuildId = fromUrlSuffix.split('=').pop();
+    logger.debug(`from build ${fromBuildId}`);
 
     const tocTitle = `Artifactory ${toBuildName} ${toBuildVersion}`;
-
     try {
       const buildChangeFactory = new ChangeDataFactory(
         toTeamProject,
         '',
-        fromBuildId,
-        toBuildId,
-        jfrogUploader, // Now always 'pipeline'
+        fromBuildId, // 3rd param = from (older build 58516)
+        toBuildId, // 4th param = to (newer build 58518)
+        jfrogUploader,
         null,
         '',
         true,
@@ -1125,23 +1154,28 @@ export default class ChangeDataFactory {
 
       await buildChangeFactory.fetchChangesData();
       const rawData = buildChangeFactory.getRawData();
-      
+
       // Log artifact names and work item IDs
       logger.info(`handleArtifactoryArtifact: Received ${rawData.length} artifacts from nested factory`);
       rawData.forEach((item) => {
-        const workItemIds = item.changes
-          ?.map((change: any) => change.workItem?.id)
-          .filter((id: any) => id !== undefined) || [];
+        const workItemIds =
+          item.changes?.map((change: any) => change.workItem?.id).filter((id: any) => id !== undefined) || [];
         logger.debug(
-          `  Artifact: "${item.artifact?.name || 'N/A'}" | Changes: ${item.changes?.length || 0} | Work Item IDs: [${workItemIds.join(', ')}]`
+          `  Artifact: "${item.artifact?.name || 'N/A'}" | Changes: ${
+            item.changes?.length || 0
+          } | Work Item IDs: [${workItemIds.join(', ')}]`
         );
       });
-      
+
       this.rawChangesArray.push(...rawData);
-      logger.info(`handleArtifactoryArtifact: After push, parent rawChangesArray has ${this.rawChangesArray.length} total artifacts`);
+      logger.info(
+        `handleArtifactoryArtifact: After push, parent rawChangesArray has ${this.rawChangesArray.length} total artifacts`
+      );
     } catch (error: any) {
-      logger.error(`could not handle ${tocTitle} ${error.message}`);
-      throw error;
+      logger.error(`could not handle ${tocTitle}: ${error.message}`);
+      logger.debug(`Error stack: ${error.stack}`);
+      // Don't throw - allow other artifacts to be processed
+      // The artifact will simply not be included in the final output
     }
   }
 
@@ -1380,25 +1414,35 @@ export default class ChangeDataFactory {
           this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
-          logger.info(`jsonSkinDataAdapter: Processing 'changes' - rawChangesArray has ${this.rawChangesArray.length} artifacts`);
+          logger.info(
+            `jsonSkinDataAdapter: Processing 'changes' - rawChangesArray has ${this.rawChangesArray.length} artifacts`
+          );
           this.rawChangesArray.forEach((item: any, index: number) => {
-            logger.debug(`  Artifact #${index + 1}: "${item.artifact?.name || 'N/A'}" with ${item.changes?.length || 0} changes`);
+            logger.debug(
+              `  Artifact #${index + 1}: "${item.artifact?.name || 'N/A'}" with ${
+                item.changes?.length || 0
+              } changes`
+            );
           });
-          
+
           const filteredChangesArray = this.rawChangesArray.map((item: any) => {
             const originalCount = item?.changes?.length || 0;
             const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
             const filteredCount = filteredChanges.length;
             if (originalCount !== filteredCount) {
-              logger.info(`  Filtered artifact "${item.artifact?.name}": ${originalCount} → ${filteredCount} changes`);
+              logger.info(
+                `  Filtered artifact "${item.artifact?.name}": ${originalCount} → ${filteredCount} changes`
+              );
             }
             return {
               ...item,
               changes: filteredChanges,
             };
           });
-          
-          logger.info(`jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`);
+
+          logger.info(
+            `jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`
+          );
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
             filteredChangesArray,
             this.includeChangeDescription,
