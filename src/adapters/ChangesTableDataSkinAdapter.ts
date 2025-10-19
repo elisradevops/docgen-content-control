@@ -127,6 +127,7 @@ export default class ChangesTableDataSkinAdapter {
 
   async adoptSkinData() {
     console.log('adoptSkinData: Started adopting skin data');
+    logger.info(`adoptSkinData: Processing ${this.rawChangesArray.length} artifacts`);
 
     this.adoptedData = [];
     let changeCounter = 0;
@@ -139,11 +140,18 @@ export default class ChangesTableDataSkinAdapter {
     );
 
     for (const rawChange of this.rawChangesArray) {
+      logger.debug(`Processing artifact: "${rawChange.artifact?.name || 'N/A'}"`);
+      logger.debug(`  - Changes count: ${rawChange.changes?.length || 0}`);
+      logger.debug(`  - NonLinkedCommits count: ${rawChange.nonLinkedCommits?.length || 0}`);
       // If no changes exist for this artifact, push an error message and move on.
       if (!rawChange.changes || rawChange.changes.length === 0) {
+        logger.warn(`No changes found for artifact: "${rawChange.artifact?.name || 'N/A'}"`);
+        logger.warn(`  - rawChange.changes is ${rawChange.changes === undefined ? 'undefined' : rawChange.changes === null ? 'null' : 'empty array'}`);
         this.adoptedData.push(this.buildNoChangesError(rawChange.artifact.name));
         continue;
       }
+      
+      logger.info(`Processing ${rawChange.changes.length} changes for artifact: "${rawChange.artifact?.name}"`);
 
       const artifactObject: any = {};
 
@@ -154,7 +162,12 @@ export default class ChangesTableDataSkinAdapter {
 
       const artifactChanges = [];
       for (const change of rawChange.changes) {
+        logger.debug(`  - Processing change #${changeCounter + 1}`);
+        logger.debug(`    - Has workItem: ${!!change.workItem}`);
+        logger.debug(`    - Has commit: ${!!change.commit}`);
+        logger.debug(`    - Has pullrequest: ${!!change.pullrequest}`);
         if (change.workItem) {
+          logger.debug(`    - Work Item ID: ${change.workItem.id}`);
           // Changes that have a work item
           const workItemRows = await this.buildWorkItemChangeRow(change, changeCounter);
           if (Array.isArray(workItemRows)) {
@@ -171,10 +184,19 @@ export default class ChangesTableDataSkinAdapter {
         }
         changeCounter++;
       }
+      logger.info(`Built ${artifactChanges.length} artifact change rows for "${rawChange.artifact?.name}"`);
       artifactObject.artifactChanges = artifactChanges;
       this.adoptedData.push(artifactObject);
     }
 
+    logger.info(`adoptSkinData: Completed. Total adopted artifacts: ${this.adoptedData.length}`);
+    this.adoptedData.forEach((item, index) => {
+      if (item.errorMessage) {
+        logger.warn(`  Artifact #${index + 1}: ERROR - ${item.errorMessage[0]?.fields[0]?.value}`);
+      } else {
+        logger.info(`  Artifact #${index + 1}: ${item.artifactChanges?.length || 0} changes`);
+      }
+    });
     console.log('adoptSkinData: Completed adopting skin data', this.adoptedData);
   }
 

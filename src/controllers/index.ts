@@ -203,7 +203,8 @@ export default class DgContentControls {
           contentControlData = await this.addSRSContent(
             contentControlOptions.data.queriesRequest,
             contentControlOptions.title,
-            contentControlOptions.headingLevel
+            contentControlOptions.headingLevel,
+            contentControlOptions.data.displayMode
           );
           break;
       }
@@ -1269,7 +1270,12 @@ export default class DgContentControls {
     }
   }
 
-  async addSRSContent(queriesRequest: any, contentControlTitle: string, headingLevel?: number) {
+  async addSRSContent(
+    queriesRequest: any,
+    contentControlTitle: string,
+    headingLevel?: number,
+    displayMode?: string
+  ) {
     let adoptedRequirementsData;
     try {
       logger.debug(`adding SRS content with params:
@@ -1286,7 +1292,8 @@ export default class DgContentControls {
         this.dgDataProviderAzureDevOps,
         queriesRequest,
         this.formattingSettings,
-        true
+        true,
+        displayMode || 'hierarchical'
       );
       await srsDataFactory.fetchRequirementsData();
       adoptedRequirementsData = srsDataFactory.getAdoptedData();
