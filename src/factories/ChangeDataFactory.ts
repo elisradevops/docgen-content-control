@@ -815,6 +815,8 @@ export default class ChangeDataFactory {
         specificItemPath
       );
 
+      logger.debug(`GetCommitBatch returned ${extendedCommits?.length || 0} commits`);
+      
       if (extendedCommits?.length > 0) {
         const { commitChangesArray, commitsWithNoRelations: unrelatedCommits } =
           await gitDataProvider.getItemsForPipelineRange(
@@ -1027,17 +1029,21 @@ export default class ChangeDataFactory {
     const toBuildVersion = toArtifact.definitionReference['version'].name;
 
     logger.info(`Fetch CI data from JFrog: ${jFrogUrl}`);
+    logger.debug(`Fetching CI URL for TO artifact: ${toBuildName} version ${toBuildVersion}`);
     const toCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, toBuildName, toBuildVersion);
     if (toCiUrl === '') {
       logger.warn(`cannot find source url for ${toBuildName}`);
       return;
     }
+    logger.debug(`TO CI URL: ${toCiUrl}`);
 
+    logger.debug(`Fetching CI URL for FROM artifact: ${fromBuildName} version ${fromBuildVersion}`);
     const fromCiUrl = await provider.getCiDataFromJfrog(jFrogUrl, fromBuildName, fromBuildVersion);
     if (fromCiUrl === '') {
       logger.warn(`cannot find source url for ${fromBuildName}`);
       return;
     }
+    logger.debug(`FROM CI URL: ${fromCiUrl}`);
 
     // Determine if CI or Release
     const toUrlParts = toCiUrl.split('/');
@@ -1098,8 +1104,8 @@ export default class ChangeDataFactory {
       const buildChangeFactory = new ChangeDataFactory(
         toTeamProject,
         '',
-        fromBuildId,
-        toBuildId,
+        fromBuildId,  // 3rd param = from (older build 58516)
+        toBuildId,    // 4th param = to (newer build 58518)
         jfrogUploader, // Now always 'pipeline'
         null,
         '',
@@ -1140,8 +1146,14 @@ export default class ChangeDataFactory {
       this.rawChangesArray.push(...rawData);
       logger.info(`handleArtifactoryArtifact: After push, parent rawChangesArray has ${this.rawChangesArray.length} total artifacts`);
     } catch (error: any) {
-      logger.error(`could not handle ${tocTitle} ${error.message}`);
-      throw error;
+      logger.error(`could not handle ${tocTitle}: ${error.message}`);
+      // Don't throw - just log and continue so other artifacts can be processed
+      // Push an empty artifact to indicate the error
+      this.rawChangesArray.push({
+        artifact: { name: tocTitle },
+        changes: [],
+        nonLinkedCommits: [],
+      });
     }
   }
 
