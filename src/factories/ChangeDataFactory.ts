@@ -125,12 +125,16 @@ export default class ChangeDataFactory {
       //3. get fetch changes data required-states-and-modes
       await this.fetchChangesData();
       this.includedWorkItemByIdSet.clear();
+      logger.info(`fetchSvdData: After fetchChangesData, rawChangesArray has ${this.rawChangesArray.length} artifacts`);
       if (this.rawChangesArray.length > 0) {
+        logger.info(`fetchSvdData: Calling jsonSkinDataAdapter for 'changes'`);
         this.adoptedChangeData.push({
           contentControl: 'required-states-and-modes',
           data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
           skin: 'required-states-and-modes-skin',
         });
+      } else {
+        logger.warn(`fetchSvdData: rawChangesArray is empty, skipping changes adaptation`);
       }
       //4.get installation data (via file) installation-instructions-content-control
       if (this.attachmentWikiUrl) {
@@ -983,7 +987,7 @@ export default class ChangeDataFactory {
     this.rawChangesArray.push({
       artifact: { name: gitTitle || '' },
       changes: [...allExtendedCommits],
-      noRelationChanges: [...commitsWithNoRelations],
+      nonLinkedCommits: [...commitsWithNoRelations],
     });
   }
 
@@ -1023,30 +1027,63 @@ export default class ChangeDataFactory {
     const fromUrlParts = fromCiUrl.split('/');
     const toUrlSuffix = toUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
     const fromUrlSuffix = fromUrlParts.pop(); // gets either _release?releaseId={id} or _build?buildId={id}
-    let jfrogUploader = '';
+    
+    // Extract project info first (needed for both scenarios)
+    const toTeamProject = toUrlParts.pop();
+    
+    let jfrogUploader = 'pipeline'; // Always use pipeline mode
+    let toBuildId: string;
+    let fromBuildId: string;
+    
     if (toUrlSuffix.startsWith('_release?releaseId=')) {
-      jfrogUploader = 'release';
+      // When JFrog points to a release, we need to extract the actual build from that release
+      logger.info(`Artifactory artifact points to releases, extracting build information`);
+      const toReleaseId = toUrlSuffix.split('=').pop();
+      const fromReleaseId = fromUrlSuffix.split('=').pop();
+      
+      logger.debug(`Fetching release ${fromReleaseId} and ${toReleaseId} from project ${toTeamProject}`);
+      const pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+      
+      try {
+        const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(toTeamProject, Number(fromReleaseId));
+        const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(toTeamProject, Number(toReleaseId));
+        
+        // Find the Build artifact in the releases that corresponds to this JFrog artifact
+        // Typically the first Build artifact or the one with matching name
+        const fromBuildArtifact = fromRelease.artifacts?.find((a: any) => a.type === 'Build');
+        const toBuildArtifact = toRelease.artifacts?.find((a: any) => a.type === 'Build');
+        
+        if (!fromBuildArtifact || !toBuildArtifact) {
+          logger.warn(`Could not find Build artifacts in releases ${fromReleaseId} and ${toReleaseId}`);
+          return;
+        }
+        
+        fromBuildId = fromBuildArtifact.definitionReference['version'].id;
+        toBuildId = toBuildArtifact.definitionReference['version'].id;
+        
+        logger.info(`Extracted builds from releases: ${fromBuildId} → ${toBuildId}`);
+      } catch (error: any) {
+        logger.error(`Failed to fetch releases: ${error.message}`);
+        return;
+      }
     } else if (toUrlSuffix.startsWith('_build?buildId=')) {
-      jfrogUploader = 'pipeline';
+      toBuildId = toUrlSuffix.split('=').pop();
+      fromBuildId = fromUrlSuffix.split('=').pop();
+      logger.debug(`Artifactory artifact points to builds: ${fromBuildId} → ${toBuildId}`);
     } else {
+      logger.warn(`Unsupported URL suffix: ${toUrlSuffix}`);
       return; // Unsupported suffix
     }
 
-    const toBuildId = toUrlSuffix.split('=').pop();
-    logger.debug(`to build ${toBuildId}`);
-    const fromBuildId = fromUrlSuffix.split('=').pop();
-    logger.debug(`from build ${fromBuildId}`);
     const tocTitle = `Artifactory ${toBuildName} ${toBuildVersion}`;
 
     try {
-      // Extract project info if needed
-      const toTeamProject = toUrlParts.pop(); //Ejecting the project name
       const buildChangeFactory = new ChangeDataFactory(
         toTeamProject,
         '',
         fromBuildId,
         toBuildId,
-        jfrogUploader,
+        jfrogUploader, // Now always 'pipeline'
         null,
         '',
         true,
@@ -1071,8 +1108,20 @@ export default class ChangeDataFactory {
 
       await buildChangeFactory.fetchChangesData();
       const rawData = buildChangeFactory.getRawData();
-      logger.debug(`raw data for ${jfrogUploader} ${JSON.stringify(rawData)}`);
+      
+      // Log artifact names and work item IDs
+      logger.info(`handleArtifactoryArtifact: Received ${rawData.length} artifacts from nested factory`);
+      rawData.forEach((item) => {
+        const workItemIds = item.changes
+          ?.map((change: any) => change.workItem?.id)
+          .filter((id: any) => id !== undefined) || [];
+        logger.debug(
+          `  Artifact: "${item.artifact?.name || 'N/A'}" | Changes: ${item.changes?.length || 0} | Work Item IDs: [${workItemIds.join(', ')}]`
+        );
+      });
+      
       this.rawChangesArray.push(...rawData);
+      logger.info(`handleArtifactoryArtifact: After push, parent rawChangesArray has ${this.rawChangesArray.length} total artifacts`);
     } catch (error: any) {
       logger.error(`could not handle ${tocTitle} ${error.message}`);
       throw error;
@@ -1314,10 +1363,25 @@ export default class ChangeDataFactory {
           this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
-          const filteredChangesArray = this.rawChangesArray.map((item: any) => ({
-            ...item,
-            changes: this.filterChangesByWorkItemOptions(item?.changes || []),
-          }));
+          logger.info(`jsonSkinDataAdapter: Processing 'changes' - rawChangesArray has ${this.rawChangesArray.length} artifacts`);
+          this.rawChangesArray.forEach((item: any, index: number) => {
+            logger.debug(`  Artifact #${index + 1}: "${item.artifact?.name || 'N/A'}" with ${item.changes?.length || 0} changes`);
+          });
+          
+          const filteredChangesArray = this.rawChangesArray.map((item: any) => {
+            const originalCount = item?.changes?.length || 0;
+            const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
+            const filteredCount = filteredChanges.length;
+            if (originalCount !== filteredCount) {
+              logger.info(`  Filtered artifact "${item.artifact?.name}": ${originalCount} → ${filteredCount} changes`);
+            }
+            return {
+              ...item,
+              changes: filteredChanges,
+            };
+          });
+          
+          logger.info(`jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`);
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
             filteredChangesArray,
             this.includeChangeDescription,
