@@ -401,11 +401,15 @@ export default class ChangeDataFactory {
 
             this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
 
+            logger.info(`Pipeline case: Pushing artifact with ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`);
+            
             this.rawChangesArray.push({
               artifact: { name: this.tocTitle || '' },
               changes: [...artifactChanges],
               nonLinkedCommits: [...artifactChangesNoLink],
             });
+            
+            logger.debug(`After push, rawChangesArray[${this.rawChangesArray.length - 1}].changes.length = ${this.rawChangesArray[this.rawChangesArray.length - 1].changes.length}`);
           }
           break;
         case 'release':
@@ -654,6 +658,13 @@ export default class ChangeDataFactory {
             this.linkedWiOptions
           );
 
+          logger.debug(`getCommitRangeChanges returned: ${allExtendedCommits.length} commits with work items, ${commitsWithNoRelations.length} without`);
+          if (allExtendedCommits.length > 0) {
+            allExtendedCommits.forEach((commit, idx) => {
+              logger.debug(`  Commit ${idx + 1}: workItem=${commit.workItem?.id}, commit=${commit.commit?.commitId?.substring(0, 7)}`);
+            });
+          }
+          
           artifactChanges.push(...allExtendedCommits);
           artifactChangesNoLink.push(...commitsWithNoRelations);
         }
@@ -756,6 +767,12 @@ export default class ChangeDataFactory {
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
     }
+    
+    logger.info(`GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`);
+    if (artifactChanges.length > 0) {
+      logger.debug(`First change has workItem: ${!!artifactChanges[0].workItem}, commit: ${!!artifactChanges[0].commit}`);
+    }
+    
     return { artifactChanges, artifactChangesNoLink };
   }
 
