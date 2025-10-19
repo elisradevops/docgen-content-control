@@ -1117,10 +1117,20 @@ export default class ChangeDataFactory {
       logger.warn(`Unsupported URL suffix: ${toUrlSuffix}`);
       return; // Unsupported suffix
     }
-    const toBuildId = toUrlSuffix.split('=').pop();
-    logger.debug(`to build ${toBuildId}`);
-    const fromBuildId = fromUrlSuffix.split('=').pop();
-    logger.debug(`from build ${fromBuildId}`);
+    let toBuildId = toUrlSuffix.split('=').pop();
+    let fromBuildId = fromUrlSuffix.split('=').pop();
+
+    logger.debug(`Initial build IDs: from ${fromBuildId}, to ${toBuildId}`);
+
+    // Check if build IDs are in wrong order (from > to means backwards)
+    // This can happen when release versions don't match chronological order
+    if (Number(fromBuildId) > Number(toBuildId)) {
+      logger.warn(`Build IDs are backwards! Swapping: from ${fromBuildId} ↔ to ${toBuildId}`);
+      [fromBuildId, toBuildId] = [toBuildId, fromBuildId]; // Swap them
+      logger.debug(`After swap: from build ${fromBuildId}, to build ${toBuildId}`);
+    } else {
+      logger.debug(`Build IDs are in correct order: from ${fromBuildId} → to ${toBuildId}`);
+    }
 
     const tocTitle = `Artifactory ${toBuildName} ${toBuildVersion}`;
     try {
