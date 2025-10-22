@@ -23,6 +23,11 @@ export default class AzureDataService {
     return management.GetCllectionLinkTypes();
   }
 
+  async checkOrgUrlValidity(token?: string) {
+    const management = (await this.dg.getMangementDataProvider?.()) || null;
+    return management.CheckOrgUrlValidity(token);
+  }
+
   // Queries & Fields
   async getSharedQueries(teamProjectId = '', docType = '', path = '') {
     const tickets = await this.dg.getTicketsDataProvider();
