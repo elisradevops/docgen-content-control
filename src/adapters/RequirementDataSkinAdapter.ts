@@ -18,6 +18,7 @@ export default class RequirementDataSkinAdapter {
   private PAT: string;
   private formattingSettings: any;
   private allowBiggerThan500: boolean;
+  private includeTFSLinks: boolean;
 
   constructor(
     teamProject: string,
@@ -28,7 +29,8 @@ export default class RequirementDataSkinAdapter {
     minioSecretKey: string,
     PAT: string,
     formattingSettings: any,
-    allowBiggerThan500: boolean = false
+    allowBiggerThan500: boolean = false,
+    includeTFSLinks: boolean = true
   ) {
     this.teamProject = teamProject;
     this.templatePath = templatePath;
@@ -42,12 +44,13 @@ export default class RequirementDataSkinAdapter {
     this.adoptedData = [];
     this.attachmentMinioData = [];
     this.allowBiggerThan500 = allowBiggerThan500;
+    this.includeTFSLinks = includeTFSLinks;
   }
 
   public async jsonSkinAdapter(rawData: any) {
     try {
       const { requirementQueryData } = rawData;
-      
+
       if (rawData?.workItemLinksDebug) {
         // If link-order arrays are provided, prefer adapting in that exact order
         const totalNodes = this.countFromLinks(rawData.workItemLinksDebug) ?? 0;
@@ -107,9 +110,9 @@ export default class RequirementDataSkinAdapter {
       // Validate that all nodes are available
       await this.enhanceIdToNodeMapFromLinks(idToNode, linksDebug);
     }
-    
+
     const linkPairs = this.deriveLinkPairs(linksDebug);
-    
+
     // headerLevel starts at 2 for roots in this adapter
     const rootLevel = 2;
     let pathStack: number[] = [];
@@ -172,7 +175,7 @@ export default class RequirementDataSkinAdapter {
     let skinData = {
       fields: [
         { name: 'Title', value: node.title.trim() + ' - ' },
-        { name: 'ID', value: node.id, url: node.htmlUrl },
+        { name: 'ID', value: node.id, url: this.includeTFSLinks ? node.htmlUrl : undefined },
         { name: 'WI Description', value: descriptionRichText },
       ],
       level: headerLevel,

@@ -30,6 +30,7 @@ export default class RequirementsDataFactory {
   private attachmentMinioData: any[];
   private allowBiggerThan500: boolean;
   private displayMode: string;
+  private includeTFSLinks: boolean;
   /**
    * Creates a RequirementsDataFactory
    */
@@ -45,7 +46,8 @@ export default class RequirementsDataFactory {
     queriesRequest,
     formattingSettings,
     allowBiggerThan500 = false,
-    displayMode = 'hierarchical'
+    displayMode = 'hierarchical',
+    includeTFSLinks = true
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -61,6 +63,7 @@ export default class RequirementsDataFactory {
     this.attachmentMinioData = [];
     this.allowBiggerThan500 = allowBiggerThan500;
     this.displayMode = displayMode || 'hierarchical';
+    this.includeTFSLinks = includeTFSLinks;
   }
 
   /**
@@ -72,7 +75,12 @@ export default class RequirementsDataFactory {
       const queryResults = await this.fetchQueryResults();
 
       // Set raw data and call jsonSkinDataAdapter once (similar to TestDataFactory pattern)
-      this.adoptedData = await this.jsonSkinDataAdapter(null, queryResults, this.allowBiggerThan500);
+      this.adoptedData = await this.jsonSkinDataAdapter(
+        null,
+        queryResults,
+        this.allowBiggerThan500,
+        this.includeTFSLinks
+      );
     } catch (error) {
       logger.error(`Error fetching requirements data: ${error}`);
       throw error;
@@ -171,7 +179,8 @@ export default class RequirementsDataFactory {
   private async jsonSkinDataAdapter(
     adapterType: string = null,
     rawData: any,
-    allowBiggerThan500: boolean = false
+    allowBiggerThan500: boolean = false,
+    includeTFSLinks: boolean = true
   ) {
     let adoptedRequirementsData: any = {};
     try {
@@ -194,7 +203,8 @@ export default class RequirementsDataFactory {
           this.minioSecretKey,
           this.PAT,
           this.formattingSettings,
-          allowBiggerThan500
+          allowBiggerThan500,
+          includeTFSLinks
         );
         // If we have a link-order debug payload, let the adapter emit exactly in that order
         // and therefore use the raw provider tree (do not sanitize) so all ids are present

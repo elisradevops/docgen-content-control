@@ -1293,7 +1293,8 @@ export default class DgContentControls {
         queriesRequest,
         this.formattingSettings,
         true,
-        displayMode || 'hierarchical'
+        displayMode || 'hierarchical',
+        false
       );
       await srsDataFactory.fetchRequirementsData();
       adoptedRequirementsData = srsDataFactory.getAdoptedData();

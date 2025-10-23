@@ -72,14 +72,89 @@ export class Routes {
       }
     });
 
+    app.route('/azure/check-org-url').post(async ({ body }: Request, res: Response) => {
+      try {
+        const svc = new AzureDataService(body.orgUrl, '');
+        const data = await svc.checkOrgUrlValidity(body.token);
+        res.status(StatusCodes.OK).json({ valid: true, data });
+      } catch (error: any) {
+        let status = error?.response?.status || error?.status;
+        const message = error?.response?.data?.message || error?.message || 'Unknown error';
+
+        // Check for network/DNS errors - check both error.code and message content
+        const isNetworkError =
+          error?.code === 'ENOTFOUND' ||
+          error?.code === 'ECONNREFUSED' ||
+          error?.code === 'ETIMEDOUT' ||
+          error?.code === 'ECONNRESET' ||
+          /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|getaddrinfo|Network Error/i.test(message);
+
+        // Set status to 502 for network errors
+        if (isNetworkError) {
+          status = StatusCodes.BAD_GATEWAY; // 502
+        } else if (!status) {
+          status = StatusCodes.INTERNAL_SERVER_ERROR;
+        }
+
+        logger.error(`azure/check-org-url error (${status}): ${message}`);
+
+        // Return the actual status code with appropriate message
+        let errorMessage = message;
+        if (status === 404) {
+          errorMessage = 'Organization URL not found. Please verify the URL is correct.';
+        } else if (status === 401 && body.token) {
+          errorMessage = 'Invalid or expired Personal Access Token.';
+        } else if (status === 403 && body.token) {
+          errorMessage = 'Personal Access Token lacks required permissions.';
+        } else if (status === StatusCodes.BAD_GATEWAY || isNetworkError) {
+          errorMessage =
+            'Cannot reach the organization URL. Please verify the URL is correct and accessible from this network.';
+        }
+
+        res.status(status).json({
+          valid: false,
+          message: errorMessage,
+        });
+      }
+    });
+
     app.route('/azure/user/profile').post(async ({ body }: Request, res: Response) => {
       try {
         const svc = new AzureDataService(body.orgUrl, body.token);
         const data = await svc.getUserProfile();
         res.status(StatusCodes.OK).json(data ?? {});
-      } catch (error) {
-        logger.error(`azure/user/profile error: ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      } catch (error: any) {
+        // Extract the actual HTTP status from the error if available
+        let status = error?.response?.status || error?.status;
+        const message = error?.response?.data?.message || error?.message || 'Unknown error';
+
+        // Check for network/DNS errors - check both error.code and message content
+        const isNetworkError =
+          error?.code === 'ENOTFOUND' ||
+          error?.code === 'ECONNREFUSED' ||
+          error?.code === 'ETIMEDOUT' ||
+          error?.code === 'ECONNRESET' ||
+          /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|getaddrinfo|Network Error/i.test(message);
+
+        // Set status to 502 for network errors if no HTTP status exists
+        if (isNetworkError) {
+          status = StatusCodes.BAD_GATEWAY; // 502
+        } else if (!status) {
+          status = StatusCodes.INTERNAL_SERVER_ERROR;
+        }
+
+        logger.error(`azure/user/profile error (${status}): ${message}`);
+
+        // Return appropriate error message based on status
+        let errorMessage = message;
+        if (status === 401) {
+          errorMessage =
+            'Invalid or expired Personal Access Token. Please create a new PAT with the required scopes.';
+        } else if (status === StatusCodes.BAD_GATEWAY || isNetworkError) {
+          errorMessage = `Cannot reach the organization URL. Please verify the URL is correct and accessible from this network.`;
+        }
+
+        res.status(status).json({ message: errorMessage });
       }
     });
 
