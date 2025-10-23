@@ -71,7 +71,6 @@ export default class RequirementsDataFactory {
    */
   async fetchRequirementsData() {
     try {
-      logger.debug(`fetching requirements data`);
       const queryResults = await this.fetchQueryResults();
 
       // Set raw data and call jsonSkinDataAdapter once (similar to TestDataFactory pattern)
@@ -94,7 +93,6 @@ export default class RequirementsDataFactory {
    */
   private async fetchQueryResults(): Promise<any> {
     try {
-      logger.debug(`fetching query results`);
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
       const queryResults: any = {};
 
@@ -108,16 +106,10 @@ export default class RequirementsDataFactory {
           queryResults['systemRequirementsCategorized'] = categorizedData;
         } else {
           // Hierarchical mode - fetch as before
-          logger.debug('starting to fetch system requirements query results');
-
-          logger.debug('fetching results');
           let systemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
             this.queriesRequest.systemRequirements.wiql.href,
             false,
             null
-          );
-          logger.debug(
-            `system requirements query results are ${systemRequirementsQueryData ? 'ready' : 'not found'}`
           );
 
           queryResults['systemRequirementsQueryData'] =
@@ -132,34 +124,18 @@ export default class RequirementsDataFactory {
         }
       }
       if (this.queriesRequest.systemToSoftwareRequirements) {
-        logger.debug('starting to fetch system to software requirements query results');
-
-        logger.debug('fetching results');
         let systemToSoftwareRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.systemToSoftwareRequirements.wiql.href,
           true, // Enable work item relations for traceability analysis
           null
         );
-        logger.debug(
-          `system to software requirements query results are ${
-            systemToSoftwareRequirementsQueryData ? 'ready' : 'not found'
-          }`
-        );
         queryResults['systemToSoftwareRequirementsQueryData'] = systemToSoftwareRequirementsQueryData;
       }
       if (this.queriesRequest.softwareToSystemRequirements) {
-        logger.debug('starting to fetch software to system requirements query results');
-
-        logger.debug('fetching results');
         let softwareToSystemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
           this.queriesRequest.softwareToSystemRequirements.wiql.href,
           true, // Enable work item relations for traceability analysis
           null
-        );
-        logger.debug(
-          `software to system requirements query results are ${
-            softwareToSystemRequirementsQueryData ? 'ready' : 'not found'
-          }`
         );
         queryResults['softwareToSystemRequirementsQueryData'] = softwareToSystemRequirementsQueryData;
       }
@@ -187,7 +163,6 @@ export default class RequirementsDataFactory {
       // Handle system requirements based on display mode
       if (this.displayMode === 'categorized' && rawData.systemRequirementsCategorized) {
         // Categorized mode: process requirements grouped by type
-        logger.debug('Processing categorized requirements data');
         adoptedRequirementsData['systemRequirementsData'] = await this.adaptCategorizedData(
           rawData.systemRequirementsCategorized
         );
