@@ -82,7 +82,6 @@ class TraceAnalysisRequirementsAdapter {
     const sourceTitle = this.getFieldValue(source, 'System.Title') || '';
     const sourceWorkItemType = this.getFieldValue(source, 'System.WorkItemType') || 'System Requirement';
     const sourceState = this.getFieldValue(source, 'System.State') || '';
-    logger.debug(`Source link: ${source?._links?.html?.href}`);
     if (targets.length === 0) {
       // No linked software requirement
       const fields = this.buildFields({
@@ -150,22 +149,11 @@ class TraceAnalysisRequirementsAdapter {
     currentSysColor: string,
     baseShading: any
   ) {
-    logger.debug(`=== processSoftReqToSysReq START ===`);
-    logger.debug(`Source type: ${typeof source}`);
-    logger.debug(`Source keys: ${source ? Object.keys(source).join(', ') : 'null'}`);
-    logger.debug(`Source:`, JSON.stringify(source, null, 2));
-    logger.debug(`Source.id: ${source?.id}`);
-
     // Extract field values using the same pattern as OpenPcrQueryResultsSkinAdapter
     const sourceId = source?.id || '';
     const sourceTitle = this.getFieldValue(source, 'System.Title') || '';
     const sourceWorkItemType = this.getFieldValue(source, 'System.WorkItemType') || 'Software Requirement';
     const sourceState = this.getFieldValue(source, 'System.State') || '';
-
-    logger.debug(
-      `Extracted source values - ID: ${sourceId}, Title: ${sourceTitle}, Type: ${sourceWorkItemType}, State: ${sourceState}`
-    );
-    logger.debug(`Targets count: ${targets?.length || 0}`);
 
     if (targets.length === 0) {
       // No linked system requirement
@@ -268,18 +256,6 @@ class TraceAnalysisRequirementsAdapter {
   }
 
   getAdoptedData() {
-    logger.debug(`=== getAdoptedData ===`);
-    logger.debug(`Adopted data length: ${this.adoptedData?.length || 0}`);
-    logger.debug(`Adopted data:`, JSON.stringify(this.adoptedData, null, 2));
-
-    if (this.adoptedData && this.adoptedData.length > 0) {
-      logger.debug(`First adopted data item keys: ${Object.keys(this.adoptedData[0]).join(', ')}`);
-      if (this.adoptedData[0].fields) {
-        logger.debug(`First item fields length: ${this.adoptedData[0].fields.length}`);
-        logger.debug(`First item first field:`, JSON.stringify(this.adoptedData[0].fields[0], null, 2));
-      }
-    }
-
     return this.adoptedData;
   }
 }
