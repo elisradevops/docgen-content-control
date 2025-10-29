@@ -72,9 +72,9 @@ export default class NonAssociatedCommitsDataSkinAdapter {
       }
 
       if (isReleaseCommit) {
-        fields.push({ name: 'Release Version', value: commit.releaseVersion || '', width: '12.5%' });
+        fields.push({ name: 'Release', value: commit.releaseVersion || '', width: '12.5%' });
         fields.push({
-          name: 'Release Run Date',
+          name: 'Created',
           value: commit.releaseRunDate ? this.convertDateToLocalTime(commit.releaseRunDate) : '',
           width: '12.5%',
         });
