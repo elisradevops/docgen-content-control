@@ -1609,6 +1609,9 @@ export default class ChangeDataFactory {
 
       let itemPaths = service.serviceLocation.pathInGit.split(',');
       logger.debug(`Service ${service.serviceName}: evaluating paths: ${itemPaths.join(',')}`);
+      const artifactKey = `Service|${repoName}|${service.serviceName}`;
+      const aggLinked: any[] = [];
+      const aggUnlinked: any[] = [];
       for (const itemPath of itemPaths) {
         const pathResult = await this.collectPathChangesForService(
           provider,
@@ -1623,32 +1626,34 @@ export default class ChangeDataFactory {
           toVersionType
         );
         if (!pathResult) continue;
-        // Deduplicate commits per artifact group (service) so only the most recent pair keeps a commit
-        const artifactKey = `Service|${repoName}|${service.serviceName}`;
-        const uniqueLinked = this.takeNewCommits(artifactKey, pathResult.allExtendedCommits);
-        const uniqueUnlinked = this.takeNewCommits(artifactKey, pathResult.commitsWithNoRelations);
-        // annotate with release metadata for UI columns
-        const relVersion = toRelease?.name;
-        const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
-        uniqueLinked.forEach((c: any) => {
-          c.releaseVersion = relVersion;
-          c.releaseRunDate = relRunDate;
-        });
-        uniqueUnlinked.forEach((c: any) => {
-          c.releaseVersion = relVersion;
-          c.releaseRunDate = relRunDate;
-        });
-        logger.info(
-          `Service ${service.serviceName}: Found ${
-            uniqueLinked?.length || 0
-          } commits with work items and ${uniqueUnlinked?.length || 0} commits without work items`
-        );
-        this.rawChangesArray.push({
-          artifact: { name: service.serviceName },
-          changes: [...uniqueLinked],
-          nonLinkedCommits: [...uniqueUnlinked],
-        });
+        aggLinked.push(...pathResult.allExtendedCommits);
+        aggUnlinked.push(...pathResult.commitsWithNoRelations);
       }
+      // Deduplicate per service across all its paths, keeping latest-pair commits
+      const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
+      const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
+      // annotate with release metadata for UI columns
+      const relVersion = toRelease?.name;
+      const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+      uniqueLinked.forEach((c: any) => {
+        c.releaseVersion = relVersion;
+        c.releaseRunDate = relRunDate;
+      });
+      uniqueUnlinked.forEach((c: any) => {
+        c.releaseVersion = relVersion;
+        c.releaseRunDate = relRunDate;
+      });
+      logger.info(
+        `Service ${service.serviceName}: Aggregated ${
+          uniqueLinked?.length || 0
+        } linked and ${uniqueUnlinked?.length || 0} unlinked commits across ${itemPaths.length} path(s)`
+      );
+      // Always push one entry per service (so non-associated commits can be displayed), even if linked is 0
+      this.rawChangesArray.push({
+        artifact: { name: service.serviceName },
+        changes: [...uniqueLinked],
+        nonLinkedCommits: [...uniqueUnlinked],
+      });
     }
   }
 
@@ -1989,8 +1994,15 @@ export default class ChangeDataFactory {
           logger.info(
             `jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`
           );
+          // Exclude artifacts that have zero linked changes from the 'changes' table display
+          const displayChangesArray = filteredChangesArray.filter(
+            (a: any) => (a.changes?.length || 0) > 0
+          );
+          logger.info(
+            `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
+          );
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
-            filteredChangesArray,
+            displayChangesArray,
             this.includeChangeDescription,
             this.includeCommittedBy,
             this.teamProject,
