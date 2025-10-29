@@ -36,6 +36,13 @@ jest.mock('../../adapters/BugsTableSkinAdpater', () => {
     }));
 });
 
+jest.mock('../../adapters/NonAssociatedCommitsDataSkinAdapter', () => {
+    return jest.fn().mockImplementation(() => ({
+        adoptSkinData: jest.fn().mockResolvedValue(undefined),
+        getAdoptedData: jest.fn().mockReturnValue([{ rows: [] }])
+    }));
+});
+
 // Now it's safe to import the modules
 import ChangeDataFactory from '../../factories/ChangeDataFactory';
 import logger from '../../services/logger';
@@ -166,6 +173,51 @@ describe('ChangeDataFactory', () => {
         );
     });
 
+    describe('ChangesTableDataSkinAdapter behavior (no nonLinkedCommits rendering)', () => {
+        it('should not render nonLinkedCommits in the main changes table', async () => {
+            const realAdapterModule = jest.requireActual('../../adapters/ChangesTableDataSkinAdapter');
+            const RealChangesTableDataSkinAdapter = realAdapterModule.default;
+
+            const rawChangesArray = [
+                {
+                    artifact: { name: 'Repo A' },
+                    changes: [
+                        { workItem: { id: 101, fields: { 'System.Title': 'A' }, _links: { html: { href: 'u' } } } },
+                        { workItem: { id: 102, fields: { 'System.Title': 'B' }, _links: { html: { href: 'u' } } } },
+                    ],
+                    nonLinkedCommits: [
+                        {
+                            commitId: 'abcdef0',
+                            commitDate: '2025-01-01T00:00:00Z',
+                            committer: 'Someone',
+                            comment: 'unlinked',
+                            url: 'http://example/abcdef0'
+                        }
+                    ]
+                }
+            ];
+
+            const adapter = new RealChangesTableDataSkinAdapter(
+                rawChangesArray as any,
+                false,
+                false,
+                'TestProject',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
+                { trimAdditionalSpacingInDescriptions: false, trimAdditionalSpacingInTables: false }
+            );
+            await adapter.adoptSkinData();
+            const adopted = adapter.getAdoptedData();
+            expect(adopted).toHaveLength(1);
+            // Should have exactly 2 rows for 2 changes, and ignore the 1 nonLinkedCommit
+            expect(adopted[0].artifactChanges).toHaveLength(2);
+        });
+    });
+
     describe('constructor', () => {
         it('should initialize properly with all parameters', () => {
             expect(changeDataFactory.dgDataProviderAzureDevOps).toBe(mockDgDataProvider);
@@ -180,6 +232,43 @@ describe('ChangeDataFactory', () => {
             expect(changeDataFactory.attachmentWikiUrl).toBe(defaultParams.attachmentWikiUrl);
             expect(changeDataFactory.includeChangeDescription).toBe(defaultParams.includeChangeDescription);
             expect(changeDataFactory.includeCommittedBy).toBe(defaultParams.includeCommittedBy);
+        });
+
+        it('should adapt non-associated-commits data using the dedicated adapter', async () => {
+            const mockRawData = [
+                {
+                    artifact: { name: 'Repo 1' },
+                    changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+                    nonLinkedCommits: [
+                        {
+                            commitId: 'deadbeef',
+                            commitDate: '2025-10-28T10:00:00Z',
+                            committer: 'Bob',
+                            comment: 'no WI',
+                            url: 'http://example/deadbeef'
+                        }
+                    ]
+                },
+                {
+                    artifact: { name: 'Repo 2' },
+                    changes: [],
+                    nonLinkedCommits: []
+                }
+            ];
+
+            const mockAdapter = {
+                adoptSkinData: jest.fn().mockResolvedValue(undefined),
+                getAdoptedData: jest.fn().mockReturnValue([{ rows: [{ col: 'val' }] }])
+            };
+            require('../../adapters/NonAssociatedCommitsDataSkinAdapter').mockImplementation(
+                () => mockAdapter
+            );
+
+            const result = await changeDataFactory.jsonSkinDataAdapter('non-associated-commits', mockRawData);
+
+            expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
+            expect(mockAdapter.getAdoptedData).toHaveBeenCalled();
+            expect(result).toEqual([{ rows: [{ col: 'val' }] }]);
         });
 
         it('should initialize with default includedWorkItemByIdSet if not provided', () => {
@@ -254,7 +343,7 @@ describe('ChangeDataFactory', () => {
     describe('fetchChangesData', () => {
         it('should fetch changes for commitSha range type', async () => {
             const mockCommits = [{ commitId: 'commit-123' }];
-            const mockChanges = [{ id: 1, title: 'Change 1' }];
+            const mockChanges = [{ workItem: { id: 42, fields: {}, _links: {} } }];
 
             mockGitDataProvider.GetCommitsInCommitRange.mockResolvedValue(mockCommits);
             mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue({
@@ -284,6 +373,34 @@ describe('ChangeDataFactory', () => {
                     nonLinkedCommits: []
                 }
             ]);
+        });
+
+        it('should include non-linked commits when includeUnlinkedCommits is true', async () => {
+            const mockCommits = [{ commitId: 'commit-abc' }];
+            const unlinked = [
+                {
+                    commitId: 'commit-abc',
+                    commitDate: '2025-10-28T10:00:00Z',
+                    committer: 'Alice',
+                    comment: 'no WI',
+                    url: 'http://example/commit-abc'
+                }
+            ];
+
+            mockGitDataProvider.GetCommitsInCommitRange.mockResolvedValue(mockCommits);
+            mockGitDataProvider.GetItemsInCommitRange.mockResolvedValue({
+                commitChangesArray: [],
+                commitsWithNoRelations: unlinked
+            });
+
+            // Enable includeUnlinkedCommits on the factory
+            (changeDataFactory as any)['includeUnlinkedCommits'] = true;
+
+            await changeDataFactory.fetchChangesData();
+
+            const rd = changeDataFactory.getRawData();
+            expect(rd).toHaveLength(1);
+            expect(rd[0].nonLinkedCommits).toEqual(unlinked);
         });
 
         it('should fetch changes for date range type', async () => {
@@ -526,7 +643,11 @@ describe('ChangeDataFactory', () => {
 
             // Mock changes data
             const mockChangesArray = [
-                { artifact: { name: 'Repo 1' }, changes: [{ id: 1 }] }
+                {
+                    artifact: { name: 'Repo 1' },
+                    changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+                    nonLinkedCommits: []
+                }
             ];
             jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
                 changeDataFactory['rawChangesArray'] = mockChangesArray;
@@ -614,7 +735,11 @@ describe('ChangeDataFactory', () => {
 
         it('should adapt changes data', async () => {
             const mockRawData = [
-                { artifact: { name: 'Repo 1' }, changes: [{ id: 1 }] }
+                {
+                    artifact: { name: 'Repo 1' },
+                    changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+                    nonLinkedCommits: []
+                }
             ];
             const mockAdaptedData = [{ title: 'Change 1' }];
             const mockAttachmentData = [{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }];
@@ -627,7 +752,7 @@ describe('ChangeDataFactory', () => {
 
             require('../../adapters/ChangesTableDataSkinAdapter').mockImplementation(() => mockAdapter);
 
-            changeDataFactory['rawChangesArray'] = mockRawData;
+            changeDataFactory['rawChangesArray'] = mockRawData as any;
             const result = await changeDataFactory.jsonSkinDataAdapter('changes', mockRawData);
 
             expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
@@ -711,7 +836,11 @@ describe('ChangeDataFactory', () => {
         beforeEach(() => {
             // Setup some test data
             changeDataFactory['rawChangesArray'] = [
-                { artifact: { name: 'test-artifact' }, changes: [{ id: 1 }] }
+                {
+                    artifact: { name: 'test-artifact' },
+                    changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+                    nonLinkedCommits: []
+                }
             ];
             changeDataFactory['adoptedChangeData'] = [
                 { contentControl: 'test-control', data: [{ title: 'Test' }], skin: 'test-skin' }
@@ -724,7 +853,11 @@ describe('ChangeDataFactory', () => {
         it('getRawData should return raw changes array', () => {
             const result = changeDataFactory.getRawData();
             expect(result).toEqual([
-                { artifact: { name: 'test-artifact' }, changes: [{ id: 1 }] }
+                {
+                    artifact: { name: 'test-artifact' },
+                    changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+                    nonLinkedCommits: []
+                }
             ]);
         });
 
