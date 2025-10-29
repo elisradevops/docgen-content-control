@@ -180,72 +180,72 @@ export default class ChangesTableDataSkinAdapter {
         logger.debug(`Processing artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
         logger.debug(`  - Changes count: ${artifactGroup.changes?.length || 0}`);
         logger.debug(`  - NonLinkedCommits count: ${artifactGroup.nonLinkedCommits?.length || 0}`);
-      // If no changes exist for this artifact, push an error message and move on.
-      if (!artifactGroup.changes || artifactGroup.changes.length === 0) {
-        logger.warn(`No changes found for artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
-        logger.warn(
-          `  - rawChange.changes is ${
-            artifactGroup.changes === undefined
-              ? 'undefined'
-              : artifactGroup.changes === null
-              ? 'null'
-              : 'empty array'
-          }`
-        );
-        this.adoptedData.push(this.buildNoChangesError(artifactGroup.artifact.name));
-        continue;
-      }
-
-      logger.info(
-        `Processing ${artifactGroup.changes.length} changes for artifact: "${artifactGroup.artifact?.name}"`
-      );
-
-      const artifactSection: any = {};
-
-      // Include artifact title only if artifact name is not empty.
-      if (artifactGroup.artifact.name !== '') {
-        artifactSection.artifact = this.buildArtifactTitle(artifactGroup.artifact.name);
-      }
-
-      const artifactChanges: any[] = [];
-      const sortedChanges: ChangeEntry[] = [...artifactGroup.changes].sort(
-        buildReleaseRunChangeComparator<ChangeEntry>(
-          (c) => c?.releaseVersion || '',
-          (c) => c?.releaseRunDate,
-          (c) =>
-            c?.commit
-              ? c.commit.committer?.date || c.commit.author?.date
-              : c?.pullrequest
-              ? c.pullrequest.closedDate || c.pullrequest.creationDate
-              : c?.workItem
-              ? c.workItem.fields?.['Microsoft.VSTS.Common.ClosedDate']
-              : undefined
-        )
-      );
-      for (const change of sortedChanges) {
-        logger.debug(`  - Processing change #${changeCounter + 1}`);
-        logger.debug(`    - Has workItem: ${!!change.workItem}`);
-        logger.debug(`    - Has commit: ${!!change.commit}`);
-        logger.debug(`    - Has pullrequest: ${!!change.pullrequest}`);
-        if (change.workItem) {
-          logger.debug(`    - Work Item ID: ${change.workItem.id}`);
-          // Changes that have a work item
-          const workItemRows = await this.buildWorkItemChangeRow(change, changeCounter);
-          if (Array.isArray(workItemRows)) {
-            // Multiple rows due to linked items
-            artifactChanges.push(...workItemRows);
-          } else {
-            // Single row
-            artifactChanges.push(workItemRows);
-          }
-        } else {
-          // Changes that are pull requests
-          const pullRequestRow = this.buildPullRequestChangeRow(change, changeCounter);
-          artifactChanges.push(pullRequestRow);
+        // If no changes exist for this artifact, push an error message and move on.
+        if (!artifactGroup.changes || artifactGroup.changes.length === 0) {
+          logger.warn(`No changes found for artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
+          logger.warn(
+            `  - rawChange.changes is ${
+              artifactGroup.changes === undefined
+                ? 'undefined'
+                : artifactGroup.changes === null
+                ? 'null'
+                : 'empty array'
+            }`
+          );
+          this.adoptedData.push(this.buildNoChangesError(artifactGroup.artifact.name));
+          continue;
         }
-        changeCounter++;
-      }
-      // non-linked commits are handled exclusively by NonAssociatedCommitsDataSkinAdapter
+
+        logger.info(
+          `Processing ${artifactGroup.changes.length} changes for artifact: "${artifactGroup.artifact?.name}"`
+        );
+
+        const artifactSection: any = {};
+
+        // Include artifact title only if artifact name is not empty.
+        if (artifactGroup.artifact.name !== '') {
+          artifactSection.artifact = this.buildArtifactTitle(artifactGroup.artifact.name);
+        }
+
+        const artifactChanges: any[] = [];
+        const sortedChanges: ChangeEntry[] = [...artifactGroup.changes].sort(
+          buildReleaseRunChangeComparator<ChangeEntry>(
+            (c) => c?.releaseVersion || '',
+            (c) => c?.releaseRunDate,
+            (c) =>
+              c?.commit
+                ? c.commit.committer?.date || c.commit.author?.date
+                : c?.pullrequest
+                ? c.pullrequest.closedDate || c.pullrequest.creationDate
+                : c?.workItem
+                ? c.workItem.fields?.['Microsoft.VSTS.Common.ClosedDate']
+                : undefined
+          )
+        );
+        for (const change of sortedChanges) {
+          logger.debug(`  - Processing change #${changeCounter + 1}`);
+          logger.debug(`    - Has workItem: ${!!change.workItem}`);
+          logger.debug(`    - Has commit: ${!!change.commit}`);
+          logger.debug(`    - Has pullrequest: ${!!change.pullrequest}`);
+          if (change.workItem) {
+            logger.debug(`    - Work Item ID: ${change.workItem.id}`);
+            // Changes that have a work item
+            const workItemRows = await this.buildWorkItemChangeRow(change, changeCounter);
+            if (Array.isArray(workItemRows)) {
+              // Multiple rows due to linked items
+              artifactChanges.push(...workItemRows);
+            } else {
+              // Single row
+              artifactChanges.push(workItemRows);
+            }
+          } else {
+            // Changes that are pull requests
+            const pullRequestRow = this.buildPullRequestChangeRow(change, changeCounter);
+            artifactChanges.push(pullRequestRow);
+          }
+          changeCounter++;
+        }
+        // non-linked commits are handled exclusively by NonAssociatedCommitsDataSkinAdapter
         logger.info(
           `Built ${artifactChanges.length} artifact change rows for "${artifactGroup.artifact?.name}"`
         );
@@ -395,14 +395,14 @@ export default class ChangesTableDataSkinAdapter {
       },
       change.releaseVersion && change.releaseRunDate
         ? {
-            name: 'Release Version',
+            name: 'Release',
             value: change.releaseVersion || '',
             width: '9.0%',
           }
         : null,
       change.releaseVersion && change.releaseRunDate
         ? {
-            name: 'Release Run Date',
+            name: 'Created',
             value: this.convertDateToLocalTime(change.releaseRunDate),
             width: `${this.hasAnyLinkedItems ? '9.0%' : '10.0%'}`,
           }
@@ -494,19 +494,19 @@ export default class ChangesTableDataSkinAdapter {
         width: '10%',
       },
       {
-        name: 'Release Version',
+        name: 'Created by',
+        value: change.createdBy,
+        condition: this.includeCommittedBy,
+      },
+      {
+        name: 'Release',
         value: change.releaseVersion || '',
         width: '10%',
       },
       {
-        name: 'Release Run Date',
+        name: 'Created',
         value: change.releaseRunDate ? this.convertDateToLocalTime(change.releaseRunDate) : '',
         width: '12%',
-      },
-      {
-        name: 'Created by',
-        value: change.createdBy,
-        condition: this.includeCommittedBy,
       },
     ].filter((field) => field.condition === undefined || field.condition === true);
 
