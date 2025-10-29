@@ -44,6 +44,10 @@ export default class ChangeDataFactory {
   private includeUnlinkedCommits: boolean;
   private formattingSettings: any;
   private workItemFilterOptions: any;
+  private pathExistenceCache: Map<string, boolean> = new Map();
+  private branchExistenceCache: Map<string, boolean> = new Map();
+  private jfrogCiUrlCache: Map<string, string> = new Map();
+  private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
   constructor(
     teamProjectName,
     repoId: string,
@@ -98,6 +102,10 @@ export default class ChangeDataFactory {
     this.includeUnlinkedCommits = includeUnlinkedCommits;
     this.formattingSettings = formattingSettings;
     this.workItemFilterOptions = workItemFilterOptions;
+    this.pathExistenceCache = new Map();
+    this.branchExistenceCache = new Map();
+    this.jfrogCiUrlCache = new Map();
+    this.pairCompareCache = new Map();
   } //constructor
 
   async fetchSvdData() {
@@ -507,332 +515,388 @@ export default class ChangeDataFactory {
               return defName;
             };
 
-            // Iterate consecutive pairs in reverse (latest first) so duplicates keep the most recent target release
-            for (let i = releasesBetween.length - 2; i >= 0; i--) {
-              try {
-                const prevReleaseMeta = releasesBetween[i];
-                const nextReleaseMeta = releasesBetween[i + 1];
+            // Iterate all pairs (i -> j) with latest target first, and within same target iterate from newest source down
+            for (let j = releasesBetween.length - 1; j >= 1; j--) {
+              for (let i = j - 1; i >= 0; i--) {
+                try {
+                  const fromRelMeta = releasesBetween[i];
+                  const toRelMeta = releasesBetween[j];
 
-                const prevRelease = prevReleaseMeta?.artifacts
-                  ? prevReleaseMeta
-                  : await pipelinesDataProvider.GetReleaseByReleaseId(
-                      this.teamProject,
-                      Number(prevReleaseMeta.id)
-                    );
-                const nextRelease = nextReleaseMeta?.artifacts
-                  ? nextReleaseMeta
-                  : await pipelinesDataProvider.GetReleaseByReleaseId(
-                      this.teamProject,
-                      Number(nextReleaseMeta.id)
-                    );
-
-                const releaseVersion = nextRelease?.name;
-                const releaseRunDate =
-                  nextRelease?.createdOn || nextRelease?.created || nextRelease?.createdDate;
-
-                logger.debug(`Comparing consecutive releases: ${prevRelease.id} -> ${nextRelease.id}`);
-
-                // Map previous release artifacts by type+alias for quick match
-                const prevArtifactMap = new Map<string, Artifact>();
-                for (const fa of prevRelease.artifacts) {
-                  prevArtifactMap.set(this.buildArtifactKey(fa), fa);
-                }
-
-                const artifactsToProcess = [...nextRelease.artifacts].sort((a: any, b: any) => {
-                  const prio = (t: string) =>
-                    t === 'Git'
-                      ? 0
-                      : t === 'Artifactory' || t === 'JFrogArtifactory'
-                      ? 1
-                      : t === 'Build'
-                      ? 2
-                      : 3;
-                  return prio(a.type) - prio(b.type);
-                });
-
-                for (const toRelArt of artifactsToProcess) {
-                  const artifactType = toRelArt.type;
-                  const artifactAlias = toRelArt.alias;
-
-                  if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
-                    continue;
-                  }
-
-                  if (
-                    artifactType === 'Build' &&
-                    !['TfsGit', 'TfsVersionControl'].includes(
-                      toRelArt.definitionReference['repository.provider']?.id
-                    )
-                  ) {
-                    continue;
-                  }
-
-                  // Build a stable, unique key per artifact group (type + definition id + alias when possible)
-                  const key = this.buildArtifactKey(toRelArt);
-                  let fromRelArt = prevArtifactMap.get(key);
-                  if (!fromRelArt) {
-                    const fallbackKey = `${artifactType}|${artifactAlias}`;
-                    fromRelArt = prevArtifactMap.get(fallbackKey);
-                  }
-                  if (!fromRelArt) {
-                    continue;
-                  }
-
-                  if (
-                    fromRelArt.definitionReference['version'].name ===
-                    toRelArt.definitionReference['version'].name
-                  ) {
-                    continue;
-                  }
-
-                  const artifactDisplayName = getArtifactDisplayName(artifactType, toRelArt);
-
-                  try {
-                    if (artifactType === 'Git') {
-                      if (!artifactWiSets.has(key)) artifactWiSets.set(key, new Set<number>());
-                      let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(
-                        toRelArt.definitionReference['definition'].id
-                      );
-                      logger.debug(
-                        `Release compare [Git ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                      );
-                      const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
-                        gitDataProvider,
+                  const fromRelease = fromRelMeta?.artifacts
+                    ? fromRelMeta
+                    : await pipelinesDataProvider.GetReleaseByReleaseId(
                         this.teamProject,
-                        fromRelArt.definitionReference['version'].id,
-                        'commit',
-                        toRelArt.definitionReference['version'].id,
-                        'commit',
-                        toRelArt.definitionReference['definition'].name,
-                        gitRepo.url,
-                        artifactWiSets.get(key)!,
-                        undefined,
-                        undefined,
-                        this.linkedWiOptions
+                        Number(fromRelMeta.id)
                       );
-
-                      // Keep only commits not yet seen (latest pair wins because of reverse iteration)
-                      const uniqueLinked = this.takeNewCommits(key, allExtendedCommits);
-                      const uniqueUnlinked = this.takeNewCommits(key, commitsWithNoRelations);
-                      logger.debug(
-                        `Release compare [Git ${artifactAlias}]: linked=${uniqueLinked.length} (filtered from ${allExtendedCommits.length}), unlinked=${uniqueUnlinked.length} (filtered from ${commitsWithNoRelations.length})`
-                      );
-
-                      // annotate with release metadata
-                      uniqueLinked.forEach((c: any) => {
-                        c.releaseVersion = releaseVersion;
-                        c.releaseRunDate = releaseRunDate;
-                      });
-                      uniqueUnlinked.forEach((c: any) => {
-                        c.releaseVersion = releaseVersion;
-                        c.releaseRunDate = releaseRunDate;
-                      });
-
-                      if (!artifactGroupsByKey.has(key)) {
-                        artifactGroupsByKey.set(key, {
-                          artifact: { name: artifactDisplayName },
-                          changes: [],
-                          nonLinkedCommits: [],
-                        });
-                      }
-                      const agg = artifactGroupsByKey.get(key)!;
-                      agg.changes.push(...uniqueLinked);
-                      agg.nonLinkedCommits.push(...uniqueUnlinked);
-                    } else if (artifactType === 'Build') {
-                      logger.debug(
-                        `Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                      );
-                      const buildFactory = new ChangeDataFactory(
+                  const toRelease = toRelMeta?.artifacts
+                    ? toRelMeta
+                    : await pipelinesDataProvider.GetReleaseByReleaseId(
                         this.teamProject,
-                        '',
-                        fromRelArt.definitionReference['version'].id,
-                        toRelArt.definitionReference['version'].id,
-                        'pipeline',
-                        null,
-                        '',
-                        true,
-                        '',
-                        false,
-                        false,
-                        this.dgDataProviderAzureDevOps,
-                        this.attachmentsBucketName,
-                        this.minioEndPoint,
-                        this.minioAccessKey,
-                        this.minioSecretKey,
-                        this.PAT,
-                        `Pipeline ${toRelArt.definitionReference['definition'].name}`,
-                        undefined,
-                        new Set<number>(),
-                        this.linkedWiOptions,
-                        this.requestedByBuild,
-                        this.includeUnlinkedCommits,
-                        this.formattingSettings,
-                        this.workItemFilterOptions
-                      );
-                      await buildFactory.fetchChangesData();
-                      const rawData = buildFactory.getRawData();
-                      const mergedChanges: any[] = [];
-                      const mergedNoLink: any[] = [];
-                      rawData.forEach((a: any) => {
-                        (a.changes || []).forEach((c: any) => {
-                          c.releaseVersion = releaseVersion;
-                          c.releaseRunDate = releaseRunDate;
-                          mergedChanges.push(c);
-                        });
-                        (a.nonLinkedCommits || []).forEach((c: any) => {
-                          c.releaseVersion = releaseVersion;
-                          c.releaseRunDate = releaseRunDate;
-                          mergedNoLink.push(c);
-                        });
-                      });
-                      logger.debug(
-                        `Release compare [Build ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
-                      );
-                      // Deduplicate by commitId keeping latest pair results
-                      const uniqueMergedChanges = this.takeNewCommits(key, mergedChanges);
-                      const uniqueMergedNoLink = this.takeNewCommits(key, mergedNoLink);
-                      if (!artifactGroupsByKey.has(key)) {
-                        artifactGroupsByKey.set(key, {
-                          artifact: { name: artifactDisplayName },
-                          changes: [],
-                          nonLinkedCommits: [],
-                        });
-                      }
-                      const agg = artifactGroupsByKey.get(key)!;
-                      agg.changes.push(...uniqueMergedChanges);
-                      agg.nonLinkedCommits.push(...uniqueMergedNoLink);
-                    } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
-                      logger.debug(
-                        `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                      );
-                      let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
-                        this.teamProject,
-                        fromRelArt.definitionReference.connection.id
+                        Number(toRelMeta.id)
                       );
 
-                      const toBuildName = toRelArt.definitionReference['definition'].name;
-                      const toBuildVersion = toRelArt.definitionReference['version'].name;
-                      const fromBuildName = fromRelArt.definitionReference['definition'].name;
-                      const fromBuildVersion = fromRelArt.definitionReference['version'].name;
+                  const releaseVersion = toRelease?.name;
+                  const releaseRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
 
-                      let toCiUrl: string = '';
-                      let fromCiUrl: string = '';
-                      try {
-                        toCiUrl = await jfrogDataProvider.getCiDataFromJfrog(
-                          jFrogUrl,
-                          toBuildName,
-                          toBuildVersion
-                        );
-                        if (toCiUrl === '') {
-                          continue;
-                        }
-                      } catch (e: any) {
-                        continue;
-                      }
-                      try {
-                        fromCiUrl = await jfrogDataProvider.getCiDataFromJfrog(
-                          jFrogUrl,
-                          fromBuildName,
-                          fromBuildVersion
-                        );
-                        if (fromCiUrl === '') {
-                          continue;
-                        }
-                      } catch (e: any) {
-                        continue;
-                      }
+                  logger.debug(`Comparing releases: ${fromRelease.id} -> ${toRelease.id}`);
 
-                      const toParts = toCiUrl.split('/');
-                      const fromParts = fromCiUrl.split('/');
-                      const toSuffix = toParts.pop() as string;
-                      const fromSuffix = fromParts.pop() as string;
-                      const toTeamProject = toParts.pop();
+                  // Map from-release artifacts by type+alias for quick match
+                  const fromArtifactMap = new Map<string, Artifact>();
+                  for (const fa of fromRelease.artifacts) {
+                    fromArtifactMap.set(this.buildArtifactKey(fa), fa);
+                  }
 
-                      let jfrogUploader = '';
-                      if (toSuffix.startsWith('_release?releaseId=')) jfrogUploader = 'release';
-                      else if (toSuffix.startsWith('_build?buildId=')) jfrogUploader = 'pipeline';
-                      else continue;
+                  const artifactsToProcess = [...toRelease.artifacts].sort((a: any, b: any) => {
+                    const prio = (t: string) =>
+                      t === 'Git'
+                        ? 0
+                        : t === 'Artifactory' || t === 'JFrogArtifactory'
+                        ? 1
+                        : t === 'Build'
+                        ? 2
+                        : 3;
+                    return prio(a.type) - prio(b.type);
+                  });
 
-                      let toBuildId = toSuffix.split('=').pop();
-                      let fromBuildId = fromSuffix.split('=').pop();
-                      if (Number(fromBuildId) > Number(toBuildId)) {
-                        [fromBuildId, toBuildId] = [toBuildId, fromBuildId];
-                      }
+                  for (const toRelArt of artifactsToProcess) {
+                    const artifactType = toRelArt.type;
+                    const artifactAlias = toRelArt.alias;
 
-                      const artFactory = new ChangeDataFactory(
-                        toTeamProject,
-                        '',
-                        fromBuildId,
-                        toBuildId,
-                        jfrogUploader,
-                        null,
-                        '',
-                        true,
-                        '',
-                        false,
-                        false,
-                        this.dgDataProviderAzureDevOps,
-                        this.attachmentsBucketName,
-                        this.minioEndPoint,
-                        this.minioAccessKey,
-                        this.minioSecretKey,
-                        this.PAT,
-                        `Artifactory ${toBuildName}`,
-                        undefined,
-                        new Set<number>(),
-                        this.linkedWiOptions,
-                        this.requestedByBuild,
-                        this.includeUnlinkedCommits,
-                        this.formattingSettings,
-                        this.workItemFilterOptions
-                      );
-                      await artFactory.fetchChangesData();
-                      const rawData = artFactory.getRawData();
-                      const mergedChanges: any[] = [];
-                      const mergedNoLink: any[] = [];
-                      rawData.forEach((a: any) => {
-                        (a.changes || []).forEach((c: any) => {
-                          c.releaseVersion = releaseVersion;
-                          c.releaseRunDate = releaseRunDate;
-                          mergedChanges.push(c);
-                        });
-                        (a.nonLinkedCommits || []).forEach((c: any) => {
-                          c.releaseVersion = releaseVersion;
-                          c.releaseRunDate = releaseRunDate;
-                          mergedNoLink.push(c);
-                        });
-                      });
-                      logger.debug(
-                        `Release compare [Artifactory ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
-                      );
-
-                      if (!artifactGroupsByKey.has(key)) {
-                        artifactGroupsByKey.set(key, {
-                          artifact: { name: artifactDisplayName },
-                          changes: [],
-                          nonLinkedCommits: [],
-                        });
-                      }
-                      const agg = artifactGroupsByKey.get(key)!;
-                      agg.changes.push(...mergedChanges);
-                      agg.nonLinkedCommits.push(...mergedNoLink);
+                    if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
+                      continue;
                     }
-                  } catch (error: any) {
-                    logger.error(
-                      `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${prevRelease.id} -> ${nextRelease.id}: ${error.message}`
-                    );
-                    logger.debug(`Error stack: ${error.stack}`);
-                  }
-                } // end for each artifact
 
-                // Handle services.json for this specific consecutive pair as well
-                await this.handleServiceJsonFile(prevRelease, nextRelease, this.teamProject, gitDataProvider);
-              } catch (e: any) {
-                logger.error(`Failed comparing pair index ${i}: ${e.message}`);
-                logger.debug(`Pair error stack: ${e.stack}`);
-                continue;
-              }
-            } // end for each consecutive release pair
+                    if (
+                      artifactType === 'Build' &&
+                      !['TfsGit', 'TfsVersionControl'].includes(
+                        toRelArt.definitionReference['repository.provider']?.id
+                      )
+                    ) {
+                      continue;
+                    }
+
+                    // Build a stable, unique key per artifact group (type + definition id + alias when possible)
+                    const key = this.buildArtifactKey(toRelArt);
+                    let fromRelArt = fromArtifactMap.get(key);
+                    if (!fromRelArt) {
+                      const fallbackKey = `${artifactType}|${artifactAlias}`;
+                      fromRelArt = fromArtifactMap.get(fallbackKey);
+                    }
+                    if (!fromRelArt) {
+                      continue;
+                    }
+
+                    if (
+                      fromRelArt.definitionReference['version'].name ===
+                      toRelArt.definitionReference['version'].name
+                    ) {
+                      continue;
+                    }
+
+                    const artifactDisplayName = getArtifactDisplayName(artifactType, toRelArt);
+
+                    try {
+                      if (artifactType === 'Git') {
+                        if (!artifactWiSets.has(key)) artifactWiSets.set(key, new Set<number>());
+                        let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(
+                          toRelArt.definitionReference['definition'].id
+                        );
+                        logger.debug(
+                          `Release compare [Git ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                        );
+                        const gitCacheKey =
+                          `${key}|Git|${gitRepo.url}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
+                        let allExtendedCommits: any[];
+                        let commitsWithNoRelations: any[];
+                        const gitCached = this.pairCompareCache.get(gitCacheKey);
+                        if (gitCached) {
+                          allExtendedCommits = gitCached.linked;
+                          commitsWithNoRelations = gitCached.unlinked;
+                        } else {
+                          const res = await this.getCommitRangeChanges(
+                            gitDataProvider,
+                            this.teamProject,
+                            fromRelArt.definitionReference['version'].id,
+                            'commit',
+                            toRelArt.definitionReference['version'].id,
+                            'commit',
+                            toRelArt.definitionReference['definition'].name,
+                            gitRepo.url,
+                            artifactWiSets.get(key)!,
+                            undefined,
+                            undefined,
+                            this.linkedWiOptions
+                          );
+                          allExtendedCommits = res.allExtendedCommits || [];
+                          commitsWithNoRelations = res.commitsWithNoRelations || [];
+                          this.pairCompareCache.set(gitCacheKey, {
+                            linked: allExtendedCommits,
+                            unlinked: commitsWithNoRelations,
+                          });
+                        }
+
+                        // Clone before annotation to avoid mutating cached objects
+                        const uniqueLinked = this.takeNewCommits(
+                          key,
+                          allExtendedCommits.map((c) => ({ ...c }))
+                        );
+                        const uniqueUnlinked = this.takeNewCommits(
+                          key,
+                          commitsWithNoRelations.map((c) => ({ ...c }))
+                        );
+                        logger.debug(
+                          `Release compare [Git ${artifactAlias}]: linked=${uniqueLinked.length} (filtered from ${allExtendedCommits.length}), unlinked=${uniqueUnlinked.length} (filtered from ${commitsWithNoRelations.length})`
+                        );
+
+                        // annotate with release metadata
+                        uniqueLinked.forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                        });
+                        uniqueUnlinked.forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                        });
+
+                        if (!artifactGroupsByKey.has(key)) {
+                          artifactGroupsByKey.set(key, {
+                            artifact: { name: artifactDisplayName },
+                            changes: [],
+                            nonLinkedCommits: [],
+                          });
+                        }
+                        const agg = artifactGroupsByKey.get(key)!;
+                        agg.changes.push(...uniqueLinked);
+                        agg.nonLinkedCommits.push(...uniqueUnlinked);
+                      } else if (artifactType === 'Build') {
+                        logger.debug(
+                          `Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                        );
+                        const buildFactory = new ChangeDataFactory(
+                          this.teamProject,
+                          '',
+                          fromRelArt.definitionReference['version'].id,
+                          toRelArt.definitionReference['version'].id,
+                          'pipeline',
+                          null,
+                          '',
+                          true,
+                          '',
+                          false,
+                          false,
+                          this.dgDataProviderAzureDevOps,
+                          this.attachmentsBucketName,
+                          this.minioEndPoint,
+                          this.minioAccessKey,
+                          this.minioSecretKey,
+                          this.PAT,
+                          `Pipeline ${toRelArt.definitionReference['definition'].name}`,
+                          undefined,
+                          new Set<number>(),
+                          this.linkedWiOptions,
+                          this.requestedByBuild,
+                          this.includeUnlinkedCommits,
+                          this.formattingSettings,
+                          this.workItemFilterOptions
+                        );
+                        const buildCacheKey = `${key}|Build|${this.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
+                        let mergedChanges: any[] = [];
+                        let mergedNoLink: any[] = [];
+                        const buildCached = this.pairCompareCache.get(buildCacheKey);
+                        if (buildCached) {
+                          mergedChanges = buildCached.linked;
+                          mergedNoLink = buildCached.unlinked;
+                        } else {
+                          await buildFactory.fetchChangesData();
+                          const rawData = buildFactory.getRawData();
+                          rawData.forEach((a: any) => {
+                            (a.changes || []).forEach((c: any) => {
+                              mergedChanges.push(c);
+                            });
+                            (a.nonLinkedCommits || []).forEach((c: any) => {
+                              mergedNoLink.push(c);
+                            });
+                          });
+                          this.pairCompareCache.set(buildCacheKey, {
+                            linked: mergedChanges,
+                            unlinked: mergedNoLink,
+                          });
+                        }
+                        logger.debug(
+                          `Release compare [Build ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                        );
+                        // Deduplicate by commitId keeping latest pair results; clone before annotation
+                        const uniqueMergedChanges = this.takeNewCommits(
+                          key,
+                          mergedChanges.map((c) => ({ ...c, releaseVersion, releaseRunDate }))
+                        );
+                        const uniqueMergedNoLink = this.takeNewCommits(
+                          key,
+                          mergedNoLink.map((c) => ({ ...c, releaseVersion, releaseRunDate }))
+                        );
+                        if (!artifactGroupsByKey.has(key)) {
+                          artifactGroupsByKey.set(key, {
+                            artifact: { name: artifactDisplayName },
+                            changes: [],
+                            nonLinkedCommits: [],
+                          });
+                        }
+                        const agg = artifactGroupsByKey.get(key)!;
+                        agg.changes.push(...uniqueMergedChanges);
+                        agg.nonLinkedCommits.push(...uniqueMergedNoLink);
+                      } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
+                        logger.debug(
+                          `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                        );
+                        let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
+                          this.teamProject,
+                          fromRelArt.definitionReference.connection.id
+                        );
+
+                        const toBuildName = toRelArt.definitionReference['definition'].name;
+                        const toBuildVersion = toRelArt.definitionReference['version'].name;
+                        const fromBuildName = fromRelArt.definitionReference['definition'].name;
+                        const fromBuildVersion = fromRelArt.definitionReference['version'].name;
+
+                        let toCiUrl: string = '';
+                        let fromCiUrl: string = '';
+                        try {
+                          toCiUrl = await this.getCachedJfrogCiUrl(
+                            jfrogDataProvider,
+                            jFrogUrl,
+                            toBuildName,
+                            toBuildVersion
+                          );
+                          if (toCiUrl === '') {
+                            continue;
+                          }
+                        } catch (e: any) {
+                          continue;
+                        }
+                        try {
+                          fromCiUrl = await this.getCachedJfrogCiUrl(
+                            jfrogDataProvider,
+                            jFrogUrl,
+                            fromBuildName,
+                            fromBuildVersion
+                          );
+                          if (fromCiUrl === '') {
+                            continue;
+                          }
+                        } catch (e: any) {
+                          continue;
+                        }
+
+                        const toParts = toCiUrl.split('/');
+                        const fromParts = fromCiUrl.split('/');
+                        const toSuffix = toParts.pop() as string;
+                        const fromSuffix = fromParts.pop() as string;
+                        const toTeamProject = toParts.pop();
+
+                        let jfrogUploader = '';
+                        if (toSuffix.startsWith('_release?releaseId=')) jfrogUploader = 'release';
+                        else if (toSuffix.startsWith('_build?buildId=')) jfrogUploader = 'pipeline';
+                        else continue;
+
+                        let toBuildId = toSuffix.split('=').pop();
+                        let fromBuildId = fromSuffix.split('=').pop();
+                        if (Number(fromBuildId) > Number(toBuildId)) {
+                          [fromBuildId, toBuildId] = [toBuildId, fromBuildId];
+                        }
+
+                        const artFactory = new ChangeDataFactory(
+                          toTeamProject,
+                          '',
+                          fromBuildId,
+                          toBuildId,
+                          jfrogUploader,
+                          null,
+                          '',
+                          true,
+                          '',
+                          false,
+                          false,
+                          this.dgDataProviderAzureDevOps,
+                          this.attachmentsBucketName,
+                          this.minioEndPoint,
+                          this.minioAccessKey,
+                          this.minioSecretKey,
+                          this.PAT,
+                          `Artifactory ${toBuildName}`,
+                          undefined,
+                          new Set<number>(),
+                          this.linkedWiOptions,
+                          this.requestedByBuild,
+                          this.includeUnlinkedCommits,
+                          this.formattingSettings,
+                          this.workItemFilterOptions
+                        );
+                        const jfrogCacheKey = `${key}|JFrog|${toTeamProject}|${fromBuildId}->${toBuildId}`;
+                        let mergedChanges: any[] = [];
+                        let mergedNoLink: any[] = [];
+                        const jfrogCached = this.pairCompareCache.get(jfrogCacheKey);
+                        if (jfrogCached) {
+                          mergedChanges = jfrogCached.linked;
+                          mergedNoLink = jfrogCached.unlinked;
+                        } else {
+                          await artFactory.fetchChangesData();
+                          const rawData = artFactory.getRawData();
+                          rawData.forEach((a: any) => {
+                            (a.changes || []).forEach((c: any) => {
+                              mergedChanges.push(c);
+                            });
+                            (a.nonLinkedCommits || []).forEach((c: any) => {
+                              mergedNoLink.push(c);
+                            });
+                          });
+                          this.pairCompareCache.set(jfrogCacheKey, {
+                            linked: mergedChanges,
+                            unlinked: mergedNoLink,
+                          });
+                        }
+                        logger.debug(
+                          `Release compare [Artifactory ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                        );
+
+                        if (!artifactGroupsByKey.has(key)) {
+                          artifactGroupsByKey.set(key, {
+                            artifact: { name: artifactDisplayName },
+                            changes: [],
+                            nonLinkedCommits: [],
+                          });
+                        }
+                        // Clone before annotation to avoid mutating cached objects
+                        const agg = artifactGroupsByKey.get(key)!;
+                        const clonedLinked = mergedChanges.map((c) => ({ ...c }));
+                        const clonedNoLink = mergedNoLink.map((c) => ({ ...c }));
+                        clonedLinked.forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                        });
+                        clonedNoLink.forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                        });
+                        agg.changes.push(...this.takeNewCommits(key, clonedLinked));
+                        agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+                      }
+                    } catch (error: any) {
+                      logger.error(
+                        `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${fromRelease.id} -> ${toRelease.id}: ${error.message}`
+                      );
+                      logger.debug(`Error stack: ${error.stack}`);
+                    }
+                  } // end for each artifact
+
+                  // Handle services.json directly for this pair
+                  await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
+                } catch (e: any) {
+                  logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
+                  logger.debug(`Pair error stack: ${e.stack}`);
+                  continue;
+                }
+              } // end inner from-loop for this target
+            } // end all-pairs loop
 
             // Persist aggregated results
             this.rawChangesArray.push(...Array.from(artifactGroupsByKey.values()));
@@ -1501,7 +1565,7 @@ export default class ChangeDataFactory {
     }
   }
 
-  private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider) {
+  private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider): Promise<boolean> {
     logger.debug('---------------Handling service json file-----------------');
     const vars = toRelease?.variables;
     const servicesJsonVar = vars?.servicesJson?.value?.trim();
@@ -1519,7 +1583,7 @@ export default class ChangeDataFactory {
     if (!servicesJsonVar || !servicesJsonVersion || !servicesJsonVersionType) {
       logger.warn(`missing variables in release`);
       logger.warn(`required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value`);
-      return;
+      return false;
     }
 
     const useTagMode = tagPrefix.length > 0;
@@ -1527,7 +1591,7 @@ export default class ChangeDataFactory {
     const hasBranches = !!fromBranchVal && !!toBranchVal;
     if (!useTagMode && !useBranchMode) {
       logger.warn(`services.json: Neither Tag nor Branch parameters available; skipping for this pair`);
-      return;
+      return false;
     }
 
     const {
@@ -1569,7 +1633,7 @@ export default class ChangeDataFactory {
       servicesJsonFileGitRepoApiUrl,
       servicesJsonFileGitPath
     );
-    if (!serviceJsonFile) return;
+    if (!serviceJsonFile) return false;
 
     const services = serviceJsonFile.services;
     logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
@@ -1644,9 +1708,9 @@ export default class ChangeDataFactory {
         c.releaseRunDate = relRunDate;
       });
       logger.info(
-        `Service ${service.serviceName}: Aggregated ${
-          uniqueLinked?.length || 0
-        } linked and ${uniqueUnlinked?.length || 0} unlinked commits across ${itemPaths.length} path(s)`
+        `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
+          uniqueUnlinked?.length || 0
+        } unlinked commits across ${itemPaths.length} path(s)`
       );
       // Always push one entry per service (so non-associated commits can be displayed), even if linked is 0
       this.rawChangesArray.push({
@@ -1655,6 +1719,7 @@ export default class ChangeDataFactory {
         nonLinkedCommits: [...uniqueUnlinked],
       });
     }
+    return true;
   }
 
   private async resolveServiceRange(
@@ -1762,15 +1827,15 @@ export default class ChangeDataFactory {
       }
     } else if (useBranchMode) {
       logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
-      const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
-      if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
+      const fromExists = await this.getCachedBranchExists(provider, serviceGitRepoApiUrl, fromBranch);
+      if (!fromExists) {
         logger.warn(
           `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
         );
         return null;
       }
-      const toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
-      if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
+      const toExists = await this.getCachedBranchExists(provider, serviceGitRepoApiUrl, toBranch);
+      if (!toExists) {
         logger.warn(
           `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
         );
@@ -1800,10 +1865,17 @@ export default class ChangeDataFactory {
     toVersionType: string
   ) {
     logger.debug(`Checking path '${itemPath}' exists in source ${fromVersionType} '${fromVersion}'`);
-    let itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-      version: fromVersion,
-      versionType: fromVersionType,
-    });
+    const srcKey = `${serviceGitRepoApiUrl}|${itemPath}|${fromVersionType}|${fromVersion}`;
+    let itemExistingInVersion: boolean;
+    if (this.pathExistenceCache.has(srcKey)) {
+      itemExistingInVersion = this.pathExistenceCache.get(srcKey)!;
+    } else {
+      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+        version: fromVersion,
+        versionType: fromVersionType,
+      });
+      this.pathExistenceCache.set(srcKey, !!itemExistingInVersion);
+    }
     if (!itemExistingInVersion) {
       logger.warn(
         `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
@@ -1811,10 +1883,16 @@ export default class ChangeDataFactory {
       return null;
     }
     logger.debug(`Checking path '${itemPath}' exists in target ${toVersionType} '${toVersion}'`);
-    itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-      version: toVersion,
-      versionType: toVersionType,
-    });
+    const dstKey = `${serviceGitRepoApiUrl}|${itemPath}|${toVersionType}|${toVersion}`;
+    if (this.pathExistenceCache.has(dstKey)) {
+      itemExistingInVersion = this.pathExistenceCache.get(dstKey)!;
+    } else {
+      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+        version: toVersion,
+        versionType: toVersionType,
+      });
+      this.pathExistenceCache.set(dstKey, !!itemExistingInVersion);
+    }
     if (!itemExistingInVersion) {
       logger.warn(
         `Service ${serviceName}: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
@@ -1874,6 +1952,28 @@ export default class ChangeDataFactory {
       servicesJsonFileGitRepoName,
       servicesJsonFileGitRepoApiUrl,
     };
+  }
+
+  private async getCachedBranchExists(provider: any, repoApiUrl: string, branch: string): Promise<boolean> {
+    const key = `${repoApiUrl}|branch|${branch}`;
+    if (this.branchExistenceCache.has(key)) return this.branchExistenceCache.get(key)!;
+    const data = await provider.GetBranch(repoApiUrl, branch);
+    const exists = !!(data && data.value && data.count !== 0);
+    this.branchExistenceCache.set(key, exists);
+    return exists;
+  }
+
+  private async getCachedJfrogCiUrl(
+    provider: any,
+    jFrogUrl: string,
+    buildName: string,
+    buildVersion: string
+  ): Promise<string> {
+    const key = `${jFrogUrl}|${buildName}|${buildVersion}`;
+    if (this.jfrogCiUrlCache.has(key)) return this.jfrogCiUrlCache.get(key)!;
+    const url = await provider.getCiDataFromJfrog(jFrogUrl, buildName, buildVersion);
+    this.jfrogCiUrlCache.set(key, url || '');
+    return url || '';
   }
 
   private async fetchAndParseServicesJson(
@@ -1995,9 +2095,7 @@ export default class ChangeDataFactory {
             `jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
-          const displayChangesArray = filteredChangesArray.filter(
-            (a: any) => (a.changes?.length || 0) > 0
-          );
+          const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
           logger.info(
             `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
           );
