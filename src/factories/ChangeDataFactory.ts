@@ -515,8 +515,8 @@ export default class ChangeDataFactory {
               return defName;
             };
 
-            // Iterate all pairs (i -> j) with latest target first, and within same target iterate from newest source down
-            for (let j = releasesBetween.length - 1; j >= 1; j--) {
+            // Iterate all pairs (i -> j) with earliest target first, and within same target iterate from newest source down
+            for (let j = 1; j < releasesBetween.length; j++) {
               for (let i = j - 1; i >= 0; i--) {
                 try {
                   const fromRelMeta = releasesBetween[i];
