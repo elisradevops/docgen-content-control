@@ -4,6 +4,7 @@ import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
 import { Artifact, GitObject } from '../models/contentControl';
+import { ArtifactChangesGroup } from '../models/changeModels';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
@@ -20,7 +21,7 @@ export default class ChangeDataFactory {
   linkTypeFilterArray: string[];
   contentControlTitle: string;
   headingLevel?: number;
-  rawChangesArray: any = [];
+  rawChangesArray: ArtifactChangesGroup[] = [];
   linkedWiItems: any[] = [];
   adoptedChangeData: any[] = [];
   branchName: string;
@@ -31,6 +32,7 @@ export default class ChangeDataFactory {
   tocTitle?: string;
   queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
+  private includedCommitIdsByArtifact: Map<string, Set<string>> = new Map();
   linkedWiOptions: any;
   requestedByBuild: boolean;
   private attachmentMinioData: any[]; //attachment data
@@ -84,6 +86,7 @@ export default class ChangeDataFactory {
     this.tocTitle = tocTitle;
     this.queriesRequest = queriesRequest;
     this.includedWorkItemByIdSet = includedWorkItemByIdSet ?? new Set();
+    this.includedCommitIdsByArtifact = new Map<string, Set<string>>();
     this.attachmentsBucketName = attachmentsBucketName;
     this.minioEndPoint = minioEndPoint;
     this.minioAccessKey = minioAccessKey;
@@ -225,6 +228,9 @@ export default class ChangeDataFactory {
   /*fetches Change table data and adopts it to json skin format */
   async fetchChangesData() {
     try {
+      logger.info(
+        `fetchChangesData: rangeType=${this.rangeType}, includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+      );
       let focusedArtifact;
       let artifactChanges: any[] = [];
       let artifactChangesNoLink: any[] = [];
@@ -432,104 +438,411 @@ export default class ChangeDataFactory {
             );
 
             logger.info(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
-            // Precompute a map for quick lookups
-            const fromArtifactMap = new Map<string, Artifact>();
-            for (const fa of fromRelease.artifacts) {
-              const key = `${fa.type}-${fa.alias}`;
-              fromArtifactMap.set(key, fa);
+
+            // Determine release definition and fetch history
+            const releaseDefinitionId =
+              toRelease?.releaseDefinition?.id ?? toRelease?.releaseDefinitionId ?? toRelease?.definitionId;
+            if (!releaseDefinitionId) {
+              logger.warn(
+                'Could not determine release definition id from target release, falling back to direct compare'
+              );
             }
 
-            await Promise.all(
-              toRelease.artifacts.map(async (toReleaseArtifact: Artifact) => {
-                const artifactType = toReleaseArtifact.type;
-                const artifactAlias = toReleaseArtifact.alias;
-                logger.info(`Processing artifact: ${artifactAlias} (${artifactType})`);
+            // Build the ordered list of releases between from and to (inclusive), then create consecutive pairs
+            const fromId = Number(this.from);
+            const toId = Number(this.to);
 
-                // Skip unsupported artifact types
-                if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
-                  logger.info(`Artifact ${artifactAlias} type ${artifactType} is not supported, skipping`);
-                  return;
-                }
-
-                // Additional check for Build artifact repository provider
-                if (
-                  artifactType === 'Build' &&
-                  !['TfsGit', 'TfsVersionControl'].includes(
-                    toReleaseArtifact.definitionReference['repository.provider']?.id
-                  )
-                ) {
-                  logger.info(`Artifact ${artifactAlias} repository provider is unknown, skipping`);
-                  return;
-                }
-
-                const key = `${artifactType}-${artifactAlias}`;
-                const fromReleaseArtifact = fromArtifactMap.get(key);
-                if (!fromReleaseArtifact) {
-                  // Artifact didn't exist in previous release
-                  logger.info(`Artifact ${artifactAlias} not found in previous release`);
-                  return;
-                }
-
-                // If same version, nothing to compare
-                if (
-                  fromReleaseArtifact.definitionReference['version'].name ===
-                  toReleaseArtifact.definitionReference['version'].name
-                ) {
-                  logger.info(
-                    `Same artifact ${fromReleaseArtifact.definitionReference['version'].name} nothing to compare`
+            let releasesBetween: any[] = [];
+            if (releaseDefinitionId) {
+              try {
+                const history =
+                  typeof (pipelinesDataProvider as any).GetAllReleaseHistory === 'function'
+                    ? await (pipelinesDataProvider as any).GetAllReleaseHistory(
+                        this.teamProject,
+                        String(releaseDefinitionId)
+                      )
+                    : await pipelinesDataProvider.GetReleaseHistory(
+                        this.teamProject,
+                        String(releaseDefinitionId)
+                      );
+                const list: any[] = ((history as any)?.value ?? []).sort((a: any, b: any) => {
+                  const ad = new Date(a.createdOn || a.createdDate || a.created || 0).getTime();
+                  const bd = new Date(b.createdOn || b.createdDate || b.created || 0).getTime();
+                  return ad - bd;
+                });
+                const fromIdx = list.findIndex((r: any) => Number(r.id) === fromId);
+                const toIdx = list.findIndex((r: any) => Number(r.id) === toId);
+                if (fromIdx !== -1 && toIdx !== -1) {
+                  const start = Math.min(fromIdx, toIdx);
+                  const end = Math.max(fromIdx, toIdx);
+                  releasesBetween = list.slice(start, end + 1);
+                } else {
+                  logger.warn(
+                    `Could not locate both from (${fromId}) and to (${toId}) in release history; falling back to direct compare`
                   );
-                  return;
+                }
+              } catch (e: any) {
+                logger.warn(
+                  `GetReleaseHistory failed: ${e.message}. Will compare only provided from/to releases.`
+                );
+              }
+            }
+
+            // Fallback if history is unavailable or empty
+            if (releasesBetween.length === 0) {
+              releasesBetween = [fromRelease, toRelease].sort(
+                (a: any, b: any) => Number(a.id) - Number(b.id)
+              );
+            }
+
+            const artifactGroupsByKey = new Map<string, ArtifactChangesGroup>();
+            const artifactWiSets = new Map<string, Set<number>>();
+
+            // Helper to get stable artifact display name per type/alias
+            const getArtifactDisplayName = (type: string, toArt: any) => {
+              const defName = toArt?.definitionReference?.['definition']?.name || toArt?.alias || '';
+              if (type === 'Git') return `Repository ${defName}`;
+              if (type === 'Build') return `Pipeline ${defName}`;
+              if (type === 'Artifactory' || type === 'JFrogArtifactory') return `Artifactory ${defName}`;
+              return defName;
+            };
+
+            // Iterate consecutive pairs in reverse (latest first) so duplicates keep the most recent target release
+            for (let i = releasesBetween.length - 2; i >= 0; i--) {
+              try {
+                const prevReleaseMeta = releasesBetween[i];
+                const nextReleaseMeta = releasesBetween[i + 1];
+
+                const prevRelease = prevReleaseMeta?.artifacts
+                  ? prevReleaseMeta
+                  : await pipelinesDataProvider.GetReleaseByReleaseId(
+                      this.teamProject,
+                      Number(prevReleaseMeta.id)
+                    );
+                const nextRelease = nextReleaseMeta?.artifacts
+                  ? nextReleaseMeta
+                  : await pipelinesDataProvider.GetReleaseByReleaseId(
+                      this.teamProject,
+                      Number(nextReleaseMeta.id)
+                    );
+
+                const releaseVersion = nextRelease?.name;
+                const releaseRunDate =
+                  nextRelease?.createdOn || nextRelease?.created || nextRelease?.createdDate;
+
+                logger.debug(`Comparing consecutive releases: ${prevRelease.id} -> ${nextRelease.id}`);
+
+                // Map previous release artifacts by type+alias for quick match
+                const prevArtifactMap = new Map<string, Artifact>();
+                for (const fa of prevRelease.artifacts) {
+                  prevArtifactMap.set(this.buildArtifactKey(fa), fa);
                 }
 
-                // Dispatch to the appropriate handler
-                const handler = handlers[artifactType];
-                if (handler) {
+                const artifactsToProcess = [...nextRelease.artifacts].sort((a: any, b: any) => {
+                  const prio = (t: string) =>
+                    t === 'Git'
+                      ? 0
+                      : t === 'Artifactory' || t === 'JFrogArtifactory'
+                      ? 1
+                      : t === 'Build'
+                      ? 2
+                      : 3;
+                  return prio(a.type) - prio(b.type);
+                });
+
+                for (const toRelArt of artifactsToProcess) {
+                  const artifactType = toRelArt.type;
+                  const artifactAlias = toRelArt.alias;
+
+                  if (!['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(artifactType)) {
+                    continue;
+                  }
+
+                  if (
+                    artifactType === 'Build' &&
+                    !['TfsGit', 'TfsVersionControl'].includes(
+                      toRelArt.definitionReference['repository.provider']?.id
+                    )
+                  ) {
+                    continue;
+                  }
+
+                  // Build a stable, unique key per artifact group (type + definition id + alias when possible)
+                  const key = this.buildArtifactKey(toRelArt);
+                  let fromRelArt = prevArtifactMap.get(key);
+                  if (!fromRelArt) {
+                    const fallbackKey = `${artifactType}|${artifactAlias}`;
+                    fromRelArt = prevArtifactMap.get(fallbackKey);
+                  }
+                  if (!fromRelArt) {
+                    continue;
+                  }
+
+                  if (
+                    fromRelArt.definitionReference['version'].name ===
+                    toRelArt.definitionReference['version'].name
+                  ) {
+                    continue;
+                  }
+
+                  const artifactDisplayName = getArtifactDisplayName(artifactType, toRelArt);
+
                   try {
-                    switch (artifactType) {
-                      case 'Git':
-                        await handler(
-                          fromReleaseArtifact,
-                          toReleaseArtifact,
-                          this.teamProject,
-                          gitDataProvider
+                    if (artifactType === 'Git') {
+                      if (!artifactWiSets.has(key)) artifactWiSets.set(key, new Set<number>());
+                      let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(
+                        toRelArt.definitionReference['definition'].id
+                      );
+                      logger.debug(
+                        `Release compare [Git ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                      );
+                      const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
+                        gitDataProvider,
+                        this.teamProject,
+                        fromRelArt.definitionReference['version'].id,
+                        'commit',
+                        toRelArt.definitionReference['version'].id,
+                        'commit',
+                        toRelArt.definitionReference['definition'].name,
+                        gitRepo.url,
+                        artifactWiSets.get(key)!,
+                        undefined,
+                        undefined,
+                        this.linkedWiOptions
+                      );
+
+                      // Keep only commits not yet seen (latest pair wins because of reverse iteration)
+                      const uniqueLinked = this.takeNewCommits(key, allExtendedCommits);
+                      const uniqueUnlinked = this.takeNewCommits(key, commitsWithNoRelations);
+                      logger.debug(
+                        `Release compare [Git ${artifactAlias}]: linked=${uniqueLinked.length} (filtered from ${allExtendedCommits.length}), unlinked=${uniqueUnlinked.length} (filtered from ${commitsWithNoRelations.length})`
+                      );
+
+                      // annotate with release metadata
+                      uniqueLinked.forEach((c: any) => {
+                        c.releaseVersion = releaseVersion;
+                        c.releaseRunDate = releaseRunDate;
+                      });
+                      uniqueUnlinked.forEach((c: any) => {
+                        c.releaseVersion = releaseVersion;
+                        c.releaseRunDate = releaseRunDate;
+                      });
+
+                      if (!artifactGroupsByKey.has(key)) {
+                        artifactGroupsByKey.set(key, {
+                          artifact: { name: artifactDisplayName },
+                          changes: [],
+                          nonLinkedCommits: [],
+                        });
+                      }
+                      const agg = artifactGroupsByKey.get(key)!;
+                      agg.changes.push(...uniqueLinked);
+                      agg.nonLinkedCommits.push(...uniqueUnlinked);
+                    } else if (artifactType === 'Build') {
+                      logger.debug(
+                        `Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                      );
+                      const buildFactory = new ChangeDataFactory(
+                        this.teamProject,
+                        '',
+                        fromRelArt.definitionReference['version'].id,
+                        toRelArt.definitionReference['version'].id,
+                        'pipeline',
+                        null,
+                        '',
+                        true,
+                        '',
+                        false,
+                        false,
+                        this.dgDataProviderAzureDevOps,
+                        this.attachmentsBucketName,
+                        this.minioEndPoint,
+                        this.minioAccessKey,
+                        this.minioSecretKey,
+                        this.PAT,
+                        `Pipeline ${toRelArt.definitionReference['definition'].name}`,
+                        undefined,
+                        new Set<number>(),
+                        this.linkedWiOptions,
+                        this.requestedByBuild,
+                        this.includeUnlinkedCommits,
+                        this.formattingSettings,
+                        this.workItemFilterOptions
+                      );
+                      await buildFactory.fetchChangesData();
+                      const rawData = buildFactory.getRawData();
+                      const mergedChanges: any[] = [];
+                      const mergedNoLink: any[] = [];
+                      rawData.forEach((a: any) => {
+                        (a.changes || []).forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                          mergedChanges.push(c);
+                        });
+                        (a.nonLinkedCommits || []).forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                          mergedNoLink.push(c);
+                        });
+                      });
+                      logger.debug(
+                        `Release compare [Build ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                      );
+                      // Deduplicate by commitId keeping latest pair results
+                      const uniqueMergedChanges = this.takeNewCommits(key, mergedChanges);
+                      const uniqueMergedNoLink = this.takeNewCommits(key, mergedNoLink);
+                      if (!artifactGroupsByKey.has(key)) {
+                        artifactGroupsByKey.set(key, {
+                          artifact: { name: artifactDisplayName },
+                          changes: [],
+                          nonLinkedCommits: [],
+                        });
+                      }
+                      const agg = artifactGroupsByKey.get(key)!;
+                      agg.changes.push(...uniqueMergedChanges);
+                      agg.nonLinkedCommits.push(...uniqueMergedNoLink);
+                    } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
+                      logger.debug(
+                        `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+                      );
+                      let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
+                        this.teamProject,
+                        fromRelArt.definitionReference.connection.id
+                      );
+
+                      const toBuildName = toRelArt.definitionReference['definition'].name;
+                      const toBuildVersion = toRelArt.definitionReference['version'].name;
+                      const fromBuildName = fromRelArt.definitionReference['definition'].name;
+                      const fromBuildVersion = fromRelArt.definitionReference['version'].name;
+
+                      let toCiUrl: string = '';
+                      let fromCiUrl: string = '';
+                      try {
+                        toCiUrl = await jfrogDataProvider.getCiDataFromJfrog(
+                          jFrogUrl,
+                          toBuildName,
+                          toBuildVersion
                         );
-                        break;
-                      case 'Artifactory':
-                      case 'JFrogArtifactory':
-                        await handler(
-                          fromReleaseArtifact,
-                          toReleaseArtifact,
-                          this.teamProject,
-                          jfrogDataProvider
+                        if (toCiUrl === '') {
+                          continue;
+                        }
+                      } catch (e: any) {
+                        continue;
+                      }
+                      try {
+                        fromCiUrl = await jfrogDataProvider.getCiDataFromJfrog(
+                          jFrogUrl,
+                          fromBuildName,
+                          fromBuildVersion
                         );
-                        break;
-                      default:
-                        await handler(fromReleaseArtifact, toReleaseArtifact, this.teamProject);
+                        if (fromCiUrl === '') {
+                          continue;
+                        }
+                      } catch (e: any) {
+                        continue;
+                      }
+
+                      const toParts = toCiUrl.split('/');
+                      const fromParts = fromCiUrl.split('/');
+                      const toSuffix = toParts.pop() as string;
+                      const fromSuffix = fromParts.pop() as string;
+                      const toTeamProject = toParts.pop();
+
+                      let jfrogUploader = '';
+                      if (toSuffix.startsWith('_release?releaseId=')) jfrogUploader = 'release';
+                      else if (toSuffix.startsWith('_build?buildId=')) jfrogUploader = 'pipeline';
+                      else continue;
+
+                      let toBuildId = toSuffix.split('=').pop();
+                      let fromBuildId = fromSuffix.split('=').pop();
+                      if (Number(fromBuildId) > Number(toBuildId)) {
+                        [fromBuildId, toBuildId] = [toBuildId, fromBuildId];
+                      }
+
+                      const artFactory = new ChangeDataFactory(
+                        toTeamProject,
+                        '',
+                        fromBuildId,
+                        toBuildId,
+                        jfrogUploader,
+                        null,
+                        '',
+                        true,
+                        '',
+                        false,
+                        false,
+                        this.dgDataProviderAzureDevOps,
+                        this.attachmentsBucketName,
+                        this.minioEndPoint,
+                        this.minioAccessKey,
+                        this.minioSecretKey,
+                        this.PAT,
+                        `Artifactory ${toBuildName}`,
+                        undefined,
+                        new Set<number>(),
+                        this.linkedWiOptions,
+                        this.requestedByBuild,
+                        this.includeUnlinkedCommits,
+                        this.formattingSettings,
+                        this.workItemFilterOptions
+                      );
+                      await artFactory.fetchChangesData();
+                      const rawData = artFactory.getRawData();
+                      const mergedChanges: any[] = [];
+                      const mergedNoLink: any[] = [];
+                      rawData.forEach((a: any) => {
+                        (a.changes || []).forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                          mergedChanges.push(c);
+                        });
+                        (a.nonLinkedCommits || []).forEach((c: any) => {
+                          c.releaseVersion = releaseVersion;
+                          c.releaseRunDate = releaseRunDate;
+                          mergedNoLink.push(c);
+                        });
+                      });
+                      logger.debug(
+                        `Release compare [Artifactory ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                      );
+
+                      if (!artifactGroupsByKey.has(key)) {
+                        artifactGroupsByKey.set(key, {
+                          artifact: { name: artifactDisplayName },
+                          changes: [],
+                          nonLinkedCommits: [],
+                        });
+                      }
+                      const agg = artifactGroupsByKey.get(key)!;
+                      agg.changes.push(...mergedChanges);
+                      agg.nonLinkedCommits.push(...mergedNoLink);
                     }
                   } catch (error: any) {
                     logger.error(
-                      `Failed to process artifact ${artifactAlias} (${artifactType}): ${error.message}`
+                      `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${prevRelease.id} -> ${nextRelease.id}: ${error.message}`
                     );
                     logger.debug(`Error stack: ${error.stack}`);
-                    // Continue processing other artifacts
                   }
-                } else {
-                  logger.info(`No handler defined for artifact type ${artifactType}, skipping`);
-                }
-              })
-            );
+                } // end for each artifact
 
-            // Log summary of artifact processing
-            const totalArtifacts = toRelease.artifacts.filter((a: Artifact) =>
-              ['Build', 'Git', 'Artifactory', 'JFrogArtifactory'].includes(a.type)
-            ).length;
-            const processedArtifacts = this.rawChangesArray.length;
-            logger.info(
-              `Release artifact processing complete: ${processedArtifacts}/${totalArtifacts} artifacts successfully processed`
-            );
+                // Handle services.json for this specific consecutive pair as well
+                await this.handleServiceJsonFile(prevRelease, nextRelease, this.teamProject, gitDataProvider);
+              } catch (e: any) {
+                logger.error(`Failed comparing pair index ${i}: ${e.message}`);
+                logger.debug(`Pair error stack: ${e.stack}`);
+                continue;
+              }
+            } // end for each consecutive release pair
 
-            //handle services.json from variables of the release
-            await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
+            // Persist aggregated results
+            this.rawChangesArray.push(...Array.from(artifactGroupsByKey.values()));
+            Array.from(artifactGroupsByKey.values()).forEach((grp) =>
+              logger.info(
+                `Aggregated group: ${grp.artifact?.name} -> linked=${grp.changes?.length || 0}, unlinked=${
+                  grp.nonLinkedCommits?.length || 0
+                }`
+              )
+            );
           }
           break;
         default:
@@ -667,7 +980,7 @@ export default class ChangeDataFactory {
           }
 
           let fromCommit = fromGitRepoVersion;
-          logger.info(`fromCommit ${fromCommit} toCommit ${toCommit}`);
+          logger.debug(`fromCommit ${fromCommit} toCommit ${toCommit}`);
           const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
             gitDataProvider,
             teamProject,
@@ -709,15 +1022,14 @@ export default class ChangeDataFactory {
         let targetResourcePipelineName = targetPipeline_pipeline.name;
         let targetResourcePipelineProvider = targetPipeline_pipeline.provider;
         if (targetResourcePipelineProvider !== 'TfsGit') {
-          logger.info(
+          logger.debug(
             `resource pipeline ${targetResourcePipelineProvider} is not based on azure devops git, skipping`
           );
           continue;
         }
 
-        logger.info(`Processing resource pipeline ${targetResourceBuildNumber}`);
-
-        logger.info(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
+        logger.debug(`Processing resource pipeline ${targetResourceBuildNumber}`);
+        logger.debug(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
 
         const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
           targetResourcePipelineTeamProject,
@@ -726,7 +1038,7 @@ export default class ChangeDataFactory {
         );
 
         if (!targetResourcePipeline) {
-          logger.info(
+          logger.debug(
             `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
           );
           continue;
@@ -741,27 +1053,27 @@ export default class ChangeDataFactory {
           let sourceResourcePipelineProvider = sourcePipeline_pipeline.provider;
 
           if (sourceResourcePipelineProvider !== 'TfsGit') {
-            logger.info(
+            logger.debug(
               `resource pipeline ${sourceResourcePipelineProvider} is not based on azure devops git, skipping`
             );
             continue;
           }
 
           if (sourceResourcePipelineName !== targetResourcePipelineName) {
-            logger.info(
+            logger.debug(
               `resource pipeline ${sourceResourcePipelineName} is not the same as ${targetResourcePipelineName}, skipping`
             );
             continue;
           }
 
           if (sourceResourcePipelineRunId === targetResourcePipelineRunId) {
-            logger.info(
+            logger.debug(
               `resource pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber} is the same as ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
             );
             break;
           }
 
-          logger.info(
+          logger.debug(
             `Locate the previous pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}`
           );
 
@@ -1191,33 +1503,42 @@ export default class ChangeDataFactory {
 
   private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider) {
     logger.debug('---------------Handling service json file-----------------');
-    if (
-      !toRelease ||
-      !toRelease.variables ||
-      !toRelease.variables.servicesJson ||
-      !toRelease.variables.servicesJsonVersion ||
-      !toRelease.variables.servicesJsonVersionType ||
-      (!toRelease.variables.servicesJsonTagPrefix &&
-        (!toRelease.environments[0].variables.branch || !fromRelease.environments[0].variables.branch))
-    ) {
+    const vars = toRelease?.variables;
+    const servicesJsonVar = vars?.servicesJson?.value?.trim();
+    const servicesJsonVersion = vars?.servicesJsonVersion?.value?.trim();
+    const servicesJsonVersionType = vars?.servicesJsonVersionType?.value?.trim();
+    const tagPrefix = vars?.servicesJsonTagPrefix?.value?.trim() || '';
+    const fb = this.resolveBranch(fromRelease);
+    const tb = this.resolveBranch(toRelease);
+    const fromBranchVal = fb.v;
+    const toBranchVal = tb.v;
+    logger.debug(
+      `services.json: branch sources resolved: from=${fb.src} ('${fromBranchVal}'), to=${tb.src} ('${toBranchVal}')`
+    );
+
+    if (!servicesJsonVar || !servicesJsonVersion || !servicesJsonVersionType) {
       logger.warn(`missing variables in release`);
-      logger.warn(
-        `required: servicesJson, servicesJsonVersion, servicesJsonVersionType, servicesJsonTagPrefix/branchto-from`
-      );
+      logger.warn(`required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value`);
       return;
     }
 
-    let servicesJsonFileGitPath = toRelease.variables.servicesJson.value;
-    let servicesJsonFileName = servicesJsonFileGitPath.split(`?`).pop();
-    servicesJsonFileName = servicesJsonFileName.replace('path=', '');
-    let servicesJsonFileGitRepo = servicesJsonFileGitPath.split(`?`)[0];
-    let servicesJsonFileGitRepoName = servicesJsonFileGitRepo.split('/').pop();
-    let servicesJsonFileGitRepoApiUrl = servicesJsonFileGitRepo.replace('/_git/', '/_apis/git/repositories/');
+    const useTagMode = tagPrefix.length > 0;
+    const useBranchMode = !useTagMode && !!fromBranchVal && !!toBranchVal;
+    const hasBranches = !!fromBranchVal && !!toBranchVal;
+    if (!useTagMode && !useBranchMode) {
+      logger.warn(`services.json: Neither Tag nor Branch parameters available; skipping for this pair`);
+      return;
+    }
 
-    let servicesJsonVersion = toRelease.variables.servicesJsonVersion.value;
-    let servicesJsonVersionType = toRelease.variables.servicesJsonVersionType.value;
-    let fromBranch = '';
-    let toBranch = '';
+    const {
+      servicesJsonFileGitPath,
+      servicesJsonFileName,
+      servicesJsonFileGitRepoName,
+      servicesJsonFileGitRepoApiUrl,
+    } = this.parseServicesJsonLocation(servicesJsonVar);
+
+    let fromBranch = fromBranchVal;
+    let toBranch = toBranchVal;
     // ARGOS releases
 
     /* We search for servicesJsonTagPrefix in variables. it will be "ARGOS-"
@@ -1229,169 +1550,384 @@ export default class ChangeDataFactory {
     We use branch name for current release and for previous release we run this from branch to branch
     */
 
-    let servicesJsonTagPrefix = '';
-
-    if (toRelease.variables.servicesJsonTagPrefix) {
-      servicesJsonTagPrefix = toRelease.variables.servicesJsonTagPrefix.value;
-    }
-    let releaseBranchName = '';
-    if (toRelease.environments[0].variables.branch) {
-      releaseBranchName = toRelease.environments[0].variables?.branch?.value;
-      fromBranch = fromRelease?.environments[0].variables?.branch?.value?.trim();
-      toBranch = toRelease?.environments[0].variables?.branch?.value?.trim();
-    }
+    const modeChosen = useTagMode ? 'Tag' : 'Branch';
+    logger.debug(
+      `services.json: repo=${servicesJsonFileGitRepoName}, path=${servicesJsonFileName}, version=${servicesJsonVersion}, versionType=${servicesJsonVersionType}, mode=${modeChosen}`
+    );
+    logger.debug(
+      `services.json: tagPrefix='${tagPrefix}', fromBranch='${fromBranchVal}', toBranch='${toBranchVal}', useTagMode=${useTagMode}, useBranchMode=${useBranchMode}, hasBranches=${hasBranches}`
+    );
 
     // fetch the serviceJson file
-    let serviceJsonFile: any = await provider.GetFileFromGitRepo(
+    const serviceJsonFile: any = await this.fetchAndParseServicesJson(
+      provider,
       projectId,
       servicesJsonFileGitRepoName,
       servicesJsonFileName,
-      { version: servicesJsonVersion, versionType: servicesJsonVersionType },
-      servicesJsonFileGitRepoApiUrl
+      servicesJsonVersion,
+      servicesJsonVersionType,
+      servicesJsonFileGitRepoApiUrl,
+      servicesJsonFileGitPath
     );
-
-    if (!serviceJsonFile) {
-      logger.warn(`file ${servicesJsonFileGitPath} could not be fetched`);
-      return;
-    }
-
-    serviceJsonFile = JSON.parse(serviceJsonFile);
+    if (!serviceJsonFile) return;
 
     const services = serviceJsonFile.services;
     logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
     for (const service of services) {
       logger.debug('---------------Iterating service-----------------');
       logger.debug(`Processing service: ${service.serviceName}`);
-      let fromVersion = '';
-      let toVersion = '';
-      let fromVersionType = '';
-      let toVersionType = '';
-      let fromTag = '';
-      let toTag = '';
-
       let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
       repoName = repoName?.replace(/%20/g, ' ');
       let serviceGitRepoApiUrl = service.serviceLocation.gitRepoUrl.replace(
         '/_git/',
         '/_apis/git/repositories/'
       );
-      logger.info(
+      logger.debug(
         `Processing service: ${service.serviceName} | Repo: ${repoName} | API URL: ${serviceGitRepoApiUrl}`
       );
-      if (servicesJsonTagPrefix !== '') {
-        fromTag = `${servicesJsonTagPrefix}${fromRelease.name}`;
-        toTag = `${servicesJsonTagPrefix}${toRelease.name}`;
-        logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
+      const range = await this.resolveServiceRange(
+        provider,
+        service,
+        tagPrefix,
+        fromRelease,
+        toRelease,
+        fromBranch,
+        toBranch,
+        hasBranches,
+        serviceGitRepoApiUrl,
+        repoName,
+        useTagMode,
+        useBranchMode,
+        fromBranchVal,
+        toBranchVal
+      );
+      if (!range) {
+        continue;
+      }
 
-        let fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
+      const { fromVersion, toVersion, fromVersionType, toVersionType } = range;
 
-        if (!fromTagData || !fromTagData.value || fromTagData?.count == 0) {
-          logger.warn(
-            `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
+      let itemPaths = service.serviceLocation.pathInGit.split(',');
+      logger.debug(`Service ${service.serviceName}: evaluating paths: ${itemPaths.join(',')}`);
+      for (const itemPath of itemPaths) {
+        const pathResult = await this.collectPathChangesForService(
+          provider,
+          projectId,
+          service.serviceName,
+          repoName,
+          serviceGitRepoApiUrl,
+          itemPath,
+          fromVersion,
+          fromVersionType,
+          toVersion,
+          toVersionType
+        );
+        if (!pathResult) continue;
+        // Deduplicate commits per artifact group (service) so only the most recent pair keeps a commit
+        const artifactKey = `Service|${repoName}|${service.serviceName}`;
+        const uniqueLinked = this.takeNewCommits(artifactKey, pathResult.allExtendedCommits);
+        const uniqueUnlinked = this.takeNewCommits(artifactKey, pathResult.commitsWithNoRelations);
+        // annotate with release metadata for UI columns
+        const relVersion = toRelease?.name;
+        const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+        uniqueLinked.forEach((c: any) => {
+          c.releaseVersion = relVersion;
+          c.releaseRunDate = relRunDate;
+        });
+        uniqueUnlinked.forEach((c: any) => {
+          c.releaseVersion = relVersion;
+          c.releaseRunDate = relRunDate;
+        });
+        logger.info(
+          `Service ${service.serviceName}: Found ${
+            uniqueLinked?.length || 0
+          } commits with work items and ${uniqueUnlinked?.length || 0} commits without work items`
+        );
+        this.rawChangesArray.push({
+          artifact: { name: service.serviceName },
+          changes: [...uniqueLinked],
+          nonLinkedCommits: [...uniqueUnlinked],
+        });
+      }
+    }
+  }
+
+  private async resolveServiceRange(
+    provider: any,
+    service: any,
+    tagPrefix: string,
+    fromRelease: any,
+    toRelease: any,
+    fromBranch: string,
+    toBranch: string,
+    hasBranches: boolean,
+    serviceGitRepoApiUrl: string,
+    repoName: string,
+    useTagMode: boolean,
+    useBranchMode: boolean,
+    fromBranchVal: string,
+    toBranchVal: string
+  ) {
+    let fromVersion = '';
+    let toVersion = '';
+    let fromVersionType = '';
+    let toVersionType = '';
+    if (useTagMode) {
+      const fromTag = `${tagPrefix}${fromRelease.name}`;
+      const toTag = `${tagPrefix}${toRelease.name}`;
+      logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
+      const fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
+      if (!fromTagData || !fromTagData.value || fromTagData?.count == 0) {
+        logger.warn(
+          `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
+        );
+        if (hasBranches) {
+          logger.info(`Tag '${fromTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
+          const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
+          if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
+            logger.warn(
+              `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
+            );
+            return null;
+          }
+          const toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
+          if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
+            logger.warn(
+              `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
+            );
+            return null;
+          }
+          fromVersion = fromBranch;
+          toVersion = toBranch;
+          fromVersionType = 'Branch';
+          toVersionType = 'Branch';
+          logger.debug(
+            `Fallback resolved to BRANCH mode for ${service.serviceName}: from ${fromVersionType} '${fromVersion}' to ${toVersionType} '${toVersion}'`
           );
-          continue;
+        } else {
+          logger.debug(
+            `No branches available for fallback on ${service.serviceName}: fromBranch='${fromBranchVal}', toBranch='${toBranchVal}'`
+          );
+          return null;
         }
-
-        let toTagData = await provider.GetTag(serviceGitRepoApiUrl, toTag);
+      } else {
+        const toTagData = await provider.GetTag(serviceGitRepoApiUrl, toTag);
         if (!toTagData || !toTagData.value || toTagData?.count == 0) {
           logger.warn(
             `Service ${service.serviceName}: Target tag '${toTag}' does not exist in repository ${repoName}`
           );
-          continue;
-        }
-
-        fromVersion = fromTag;
-        toVersion = toTag;
-        fromVersionType = 'Tag';
-        toVersionType = 'Tag';
-      } else if (releaseBranchName !== '') {
-        logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
-        let fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
-
-        if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
-          logger.warn(
-            `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
+          if (hasBranches) {
+            logger.info(`Tag '${toTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
+            const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
+            if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
+              logger.warn(
+                `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
+              );
+              return null;
+            }
+            const toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
+            if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
+              logger.warn(
+                `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
+              );
+              return null;
+            }
+            fromVersion = fromBranch;
+            toVersion = toBranch;
+            fromVersionType = 'Branch';
+            toVersionType = 'Branch';
+            logger.debug(
+              `Fallback resolved to BRANCH mode for ${service.serviceName}: from ${fromVersionType} '${fromVersion}' to ${toVersionType} '${toVersion}'`
+            );
+          } else {
+            logger.debug(
+              `No branches available for fallback on ${service.serviceName}: fromBranch='${fromBranchVal}', toBranch='${toBranchVal}'`
+            );
+            return null;
+          }
+        } else {
+          fromVersion = fromTag;
+          toVersion = toTag;
+          fromVersionType = 'Tag';
+          toVersionType = 'Tag';
+          logger.debug(
+            `Resolved to TAG mode for ${service.serviceName}: from ${fromVersionType} '${fromVersion}' to ${toVersionType} '${toVersion}'`
           );
-          continue;
         }
-
-        let toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
-        if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
-          logger.warn(
-            `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
-          );
-          continue;
-        }
-
-        fromVersion = fromBranch;
-        toVersion = toBranch;
-        fromVersionType = 'Branch';
-        toVersionType = 'Branch';
       }
-
-      let itemPaths = service.serviceLocation.pathInGit.split(',');
-      for (const itemPath of itemPaths) {
-        // check if item exists in from tag
-        let itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-          version: fromVersion,
-          versionType: fromVersionType,
-        });
-        if (!itemExistingInVersion) {
-          logger.warn(
-            `Service ${
-              service.serviceName
-            }: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
-          );
-          continue;
-        }
-
-        itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
-          version: toVersion,
-          versionType: toVersionType,
-        });
-        if (!itemExistingInVersion) {
-          logger.warn(
-            `Service ${
-              service.serviceName
-            }: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
-          );
-          continue;
-        }
-
-        logger.info(
-          `Service ${
-            service.serviceName
-          }: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
+    } else if (useBranchMode) {
+      logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
+      const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
+      if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
+        logger.warn(
+          `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
         );
-
-        const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
-          provider,
-          projectId,
-          fromVersion,
-          fromVersionType,
-          toVersion,
-          toVersionType,
-          repoName,
-          serviceGitRepoApiUrl,
-          this.includedWorkItemByIdSet,
-          undefined,
-          itemPath,
-          this.linkedWiOptions
-        );
-
-        this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
-        logger.info(
-          `Service ${service.serviceName}: Found ${
-            allExtendedCommits?.length || 0
-          } commits with work items and ${commitsWithNoRelations?.length || 0} commits without work items`
-        );
-        this.rawChangesArray.push({
-          artifact: { name: `Service: ${service.serviceName}` },
-          changes: [...allExtendedCommits],
-          nonLinkedCommits: [...commitsWithNoRelations],
-        });
+        return null;
       }
+      const toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
+      if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
+        logger.warn(
+          `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
+        );
+        return null;
+      }
+      fromVersion = fromBranch;
+      toVersion = toBranch;
+      fromVersionType = 'Branch';
+      toVersionType = 'Branch';
+      logger.debug(
+        `Resolved to BRANCH mode for ${service.serviceName}: from ${fromVersionType} '${fromVersion}' to ${toVersionType} '${toVersion}'`
+      );
     }
+    return { fromVersion, toVersion, fromVersionType, toVersionType };
+  }
+
+  private async collectPathChangesForService(
+    provider: any,
+    projectId: string,
+    serviceName: string,
+    repoName: string,
+    serviceGitRepoApiUrl: string,
+    itemPath: string,
+    fromVersion: string,
+    fromVersionType: string,
+    toVersion: string,
+    toVersionType: string
+  ) {
+    logger.debug(`Checking path '${itemPath}' exists in source ${fromVersionType} '${fromVersion}'`);
+    let itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      version: fromVersion,
+      versionType: fromVersionType,
+    });
+    if (!itemExistingInVersion) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
+      );
+      return null;
+    }
+    logger.debug(`Checking path '${itemPath}' exists in target ${toVersionType} '${toVersion}'`);
+    itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      version: toVersion,
+      versionType: toVersionType,
+    });
+    if (!itemExistingInVersion) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
+      );
+      return null;
+    }
+    logger.info(
+      `Service ${serviceName}: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
+    );
+    const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
+      provider,
+      projectId,
+      fromVersion,
+      fromVersionType,
+      toVersion,
+      toVersionType,
+      repoName,
+      serviceGitRepoApiUrl,
+      new Set<number>(),
+      undefined,
+      itemPath,
+      this.linkedWiOptions
+    );
+    this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
+    return { allExtendedCommits, commitsWithNoRelations };
+  }
+
+  private resolveBranch(rel: any) {
+    let src = 'none';
+    let v = rel?.environments?.[0]?.variables?.branch?.value;
+    if (v) src = 'env';
+    if (!v && rel?.variables?.branch?.value) {
+      v = rel.variables.branch.value;
+      src = 'release.branch';
+    }
+    if (!v && rel?.variables?.Branch?.value) {
+      v = rel.variables.Branch.value;
+      src = 'release.Branch';
+    }
+    v = (v || '').trim();
+    return { v, src };
+  }
+
+  private parseServicesJsonLocation(servicesJsonVar: string) {
+    const servicesJsonFileGitPath = servicesJsonVar;
+    let servicesJsonFileName: any = servicesJsonFileGitPath.split(`?`).pop();
+    servicesJsonFileName = servicesJsonFileName.replace('path=', '');
+    const servicesJsonFileGitRepo = servicesJsonFileGitPath.split(`?`)[0];
+    const servicesJsonFileGitRepoName = servicesJsonFileGitRepo.split('/').pop();
+    const servicesJsonFileGitRepoApiUrl = servicesJsonFileGitRepo.replace(
+      '/_git/',
+      '/_apis/git/repositories/'
+    );
+    return {
+      servicesJsonFileGitPath,
+      servicesJsonFileName,
+      servicesJsonFileGitRepoName,
+      servicesJsonFileGitRepoApiUrl,
+    };
+  }
+
+  private async fetchAndParseServicesJson(
+    provider: any,
+    projectId: string,
+    repoName: string,
+    fileName: string,
+    version: string,
+    versionType: string,
+    repoApiUrl: string,
+    originalPath: string
+  ) {
+    let serviceJsonFile: any = await provider.GetFileFromGitRepo(
+      projectId,
+      repoName,
+      fileName,
+      { version, versionType },
+      repoApiUrl
+    );
+    if (!serviceJsonFile) {
+      logger.warn(`file ${originalPath} could not be fetched`);
+      return null;
+    }
+    return JSON.parse(serviceJsonFile);
+  }
+
+  private buildArtifactKey(art: any): string {
+    const type = art?.type || '';
+    const alias = art?.alias || '';
+    // Azure DevOps release artifact structure may expose definition under ['definition'] or .definition
+    const def = art?.definitionReference?.['definition'] || art?.definitionReference?.definition;
+    const defId = def?.id;
+    const defName = def?.name;
+    if ((type === 'Git' || type === 'Build') && defId) {
+      return `${type}|${defId}|${alias}`;
+    }
+    // Fallback: type with alias or definition name
+    return `${type}|${alias || defName || ''}`;
+  }
+
+  private takeNewCommits(artifactKey: string, arr: any[]): any[] {
+    if (!Array.isArray(arr) || arr.length === 0) return [];
+    let set = this.includedCommitIdsByArtifact.get(artifactKey);
+    if (!set) {
+      set = new Set<string>();
+      this.includedCommitIdsByArtifact.set(artifactKey, set);
+    }
+    const out: any[] = [];
+    for (const item of arr) {
+      let id: string | undefined = undefined;
+      if (item?.commit?.commitId) id = item.commit.commitId;
+      else if (item?.commitId) id = item.commitId;
+      if (id) {
+        if (set.has(id)) continue;
+        set.add(id);
+      }
+      out.push(item);
+    }
+    return out;
   }
 
   /*arranging the test data for json skins package*/

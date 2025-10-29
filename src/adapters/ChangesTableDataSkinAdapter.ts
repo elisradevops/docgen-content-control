@@ -1,10 +1,11 @@
 import logger from '../services/logger';
 import HtmlUtils from '../services/htmlUtils';
-import { writeFileSync } from 'fs';
 import RichTextDataFactory from '../factories/RichTextDataFactory';
+import { ArtifactChangesGroup, ChangeEntry } from '../models/changeModels';
+import { buildReleaseRunChangeComparator } from '../services/adapterUtils';
 
 export default class ChangesTableDataSkinAdapter {
-  rawChangesArray: any = [];
+  rawChangesArray: ArtifactChangesGroup[] = [];
   adoptedData: any = [];
   includeChangeDescription: boolean = false;
   includeCommittedBy: boolean = false;
@@ -20,8 +21,22 @@ export default class ChangesTableDataSkinAdapter {
   hasAnyLinkedItems: boolean = false; // Track if any change has linked items
   formattingSettings: any;
 
+  /**
+   * Creates an adapter that builds Changes table rows from aggregated artifact changes.
+   * @param rawChangesArray Aggregated artifact groups to render
+   * @param includeChangeDescription Whether to include change description column
+   * @param includeCommittedBy Whether to include committer column
+   * @param teamProject Azure DevOps project name
+   * @param templatePath Path to rich-text template for descriptions
+   * @param attachmentsBucketName MinIO bucket for attachments
+   * @param minioEndPoint MinIO endpoint
+   * @param minioAccessKey MinIO access key
+   * @param minioSecretKey MinIO secret key
+   * @param PAT Personal access token for fetching resources
+   * @param formattingSettings Formatting toggles for trimming/spacing
+   */
   constructor(
-    rawChangesArray: any[],
+    rawChangesArray: ArtifactChangesGroup[],
     includeChangeDescription: boolean,
     includeCommittedBy: boolean,
     teamProject: string,
@@ -48,11 +63,19 @@ export default class ChangesTableDataSkinAdapter {
     this.formattingSettings = formattingSettings;
   }
 
+  /**
+   * Returns the last adopted data structure built by adoptSkinData().
+   */
   getAdoptedData() {
-    console.log('getAdoptedData: Returning adopted data', this.adoptedData);
+    logger.debug('getAdoptedData: Returning adopted data');
     return this.adoptedData;
   }
 
+  /**
+   * Converts a UTC date string to 'en-IL' localized date-time in Asia/Jerusalem time zone.
+   * @param utcDateString UTC date string to convert
+   * @returns Localized date-time string
+   */
   private convertDateToLocalTime(utcDateString: string): string {
     const date = new Date(utcDateString);
     return date.toLocaleString('en-IL', {
@@ -67,6 +90,9 @@ export default class ChangesTableDataSkinAdapter {
     });
   }
 
+  /**
+   * Builds the value/url for the Change # cell based on the change type.
+   */
   private applyChangeNumber = (change: any) => {
     if (change.build) {
       return { value: change.build, url: change.workItem.url };
@@ -81,6 +107,9 @@ export default class ChangesTableDataSkinAdapter {
     }
   };
 
+  /**
+   * Returns the appropriate date field for the Committed Date & Time column.
+   */
   private applyClosedDateData = (change: any) => {
     if (change.build) {
       return {
@@ -103,6 +132,9 @@ export default class ChangesTableDataSkinAdapter {
     }
   };
 
+  /**
+   * Returns the appropriate identity field for the Committed by column.
+   */
   private applyCommitterData = (change: any) => {
     if (change.build) {
       return {
@@ -125,8 +157,12 @@ export default class ChangesTableDataSkinAdapter {
     }
   };
 
+  /**
+   * Builds the adopted JSON structure for the Changes table skin.
+   * Sorts changes per artifact by Release Version, Release Run Date, and Change timestamp (desc).
+   */
   async adoptSkinData() {
-    console.log('adoptSkinData: Started adopting skin data');
+    logger.debug('adoptSkinData: Started adopting skin data');
     logger.info(`adoptSkinData: Processing ${this.rawChangesArray.length} artifacts`);
 
     this.adoptedData = [];
@@ -139,29 +175,54 @@ export default class ChangesTableDataSkinAdapter {
         rawChange.changes.some((change) => change.linkedItems && change.linkedItems.length > 0)
     );
 
-    for (const rawChange of this.rawChangesArray) {
-      logger.debug(`Processing artifact: "${rawChange.artifact?.name || 'N/A'}"`);
-      logger.debug(`  - Changes count: ${rawChange.changes?.length || 0}`);
-      logger.debug(`  - NonLinkedCommits count: ${rawChange.nonLinkedCommits?.length || 0}`);
+    for (const artifactGroup of this.rawChangesArray) {
+      try {
+        logger.debug(`Processing artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
+        logger.debug(`  - Changes count: ${artifactGroup.changes?.length || 0}`);
+        logger.debug(`  - NonLinkedCommits count: ${artifactGroup.nonLinkedCommits?.length || 0}`);
       // If no changes exist for this artifact, push an error message and move on.
-      if (!rawChange.changes || rawChange.changes.length === 0) {
-        logger.warn(`No changes found for artifact: "${rawChange.artifact?.name || 'N/A'}"`);
-        logger.warn(`  - rawChange.changes is ${rawChange.changes === undefined ? 'undefined' : rawChange.changes === null ? 'null' : 'empty array'}`);
-        this.adoptedData.push(this.buildNoChangesError(rawChange.artifact.name));
+      if (!artifactGroup.changes || artifactGroup.changes.length === 0) {
+        logger.warn(`No changes found for artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
+        logger.warn(
+          `  - rawChange.changes is ${
+            artifactGroup.changes === undefined
+              ? 'undefined'
+              : artifactGroup.changes === null
+              ? 'null'
+              : 'empty array'
+          }`
+        );
+        this.adoptedData.push(this.buildNoChangesError(artifactGroup.artifact.name));
         continue;
       }
-      
-      logger.info(`Processing ${rawChange.changes.length} changes for artifact: "${rawChange.artifact?.name}"`);
 
-      const artifactObject: any = {};
+      logger.info(
+        `Processing ${artifactGroup.changes.length} changes for artifact: "${artifactGroup.artifact?.name}"`
+      );
+
+      const artifactSection: any = {};
 
       // Include artifact title only if artifact name is not empty.
-      if (rawChange.artifact.name !== '') {
-        artifactObject.artifact = this.buildArtifactTitle(rawChange.artifact.name);
+      if (artifactGroup.artifact.name !== '') {
+        artifactSection.artifact = this.buildArtifactTitle(artifactGroup.artifact.name);
       }
 
-      const artifactChanges = [];
-      for (const change of rawChange.changes) {
+      const artifactChanges: any[] = [];
+      const sortedChanges: ChangeEntry[] = [...artifactGroup.changes].sort(
+        buildReleaseRunChangeComparator<ChangeEntry>(
+          (c) => c?.releaseVersion || '',
+          (c) => c?.releaseRunDate,
+          (c) =>
+            c?.commit
+              ? c.commit.committer?.date || c.commit.author?.date
+              : c?.pullrequest
+              ? c.pullrequest.closedDate || c.pullrequest.creationDate
+              : c?.workItem
+              ? c.workItem.fields?.['Microsoft.VSTS.Common.ClosedDate']
+              : undefined
+        )
+      );
+      for (const change of sortedChanges) {
         logger.debug(`  - Processing change #${changeCounter + 1}`);
         logger.debug(`    - Has workItem: ${!!change.workItem}`);
         logger.debug(`    - Has commit: ${!!change.commit}`);
@@ -184,9 +245,19 @@ export default class ChangesTableDataSkinAdapter {
         }
         changeCounter++;
       }
-      logger.info(`Built ${artifactChanges.length} artifact change rows for "${rawChange.artifact?.name}"`);
-      artifactObject.artifactChanges = artifactChanges;
-      this.adoptedData.push(artifactObject);
+      // non-linked commits are handled exclusively by NonAssociatedCommitsDataSkinAdapter
+        logger.info(
+          `Built ${artifactChanges.length} artifact change rows for "${artifactGroup.artifact?.name}"`
+        );
+        artifactSection.artifactChanges = artifactChanges;
+        this.adoptedData.push(artifactSection);
+      } catch (err) {
+        logger.error(
+          `adoptSkinData: Failed processing artifact "${artifactGroup.artifact?.name || 'N/A'}" - ${err}`
+        );
+        // Continue processing next artifacts without interruption
+        continue;
+      }
     }
 
     logger.info(`adoptSkinData: Completed. Total adopted artifacts: ${this.adoptedData.length}`);
@@ -197,10 +268,13 @@ export default class ChangesTableDataSkinAdapter {
         logger.info(`  Artifact #${index + 1}: ${item.artifactChanges?.length || 0} changes`);
       }
     });
-    console.log('adoptSkinData: Completed adopting skin data', this.adoptedData);
+    logger.debug('adoptSkinData: Completed adopting skin data');
   }
 
   // Helper function to build the error object when no changes are found
+  /**
+   * Builds an error block when an artifact has no changes to display.
+   */
   private buildNoChangesError(artifactName: string) {
     return {
       errorMessage: [
@@ -217,6 +291,9 @@ export default class ChangesTableDataSkinAdapter {
   }
 
   // Helper function to build the artifact title object
+  /**
+   * Builds the artifact section header row.
+   */
   private buildArtifactTitle(artifactName: string) {
     return [
       {
@@ -231,6 +308,11 @@ export default class ChangesTableDataSkinAdapter {
   }
 
   // Helper function to build a work item change row
+  /**
+   * Builds one or more rows for a work item change (expands linked items to multiple rows).
+   * @param change ChangeEntry with a work item
+   * @param index Row index used for numbering
+   */
   private async buildWorkItemChangeRow(change: any, index: number) {
     const description: string = change.workItem.fields['System.Description'];
     let hasLinkedItems = change.linkedItems && change.linkedItems.length > 0;
@@ -299,6 +381,7 @@ export default class ChangesTableDataSkinAdapter {
         value: descriptionRichText ?? '',
         width: '20.8%',
       },
+
       {
         name: 'Committed Date & Time',
         ...this.applyClosedDateData(change),
@@ -310,6 +393,20 @@ export default class ChangesTableDataSkinAdapter {
         width: '11.4%',
         condition: this.includeCommittedBy && !this.hasAnyLinkedItems,
       },
+      change.releaseVersion && change.releaseRunDate
+        ? {
+            name: 'Release Version',
+            value: change.releaseVersion || '',
+            width: '9.0%',
+          }
+        : null,
+      change.releaseVersion && change.releaseRunDate
+        ? {
+            name: 'Release Run Date',
+            value: this.convertDateToLocalTime(change.releaseRunDate),
+            width: `${this.hasAnyLinkedItems ? '9.0%' : '10.0%'}`,
+          }
+        : null,
     ].filter((field: any) => field !== null && (field.condition === undefined || field.condition === true));
 
     // Check if there are linked items
@@ -350,6 +447,9 @@ export default class ChangesTableDataSkinAdapter {
 
     return rows.length === 1 ? rows[0] : rows;
   }
+  /**
+   * Builds the linked WI columns set used when linked items exist.
+   */
   private buildLinkedItemFields(linkedItem: any) {
     return [
       {
@@ -374,7 +474,11 @@ export default class ChangesTableDataSkinAdapter {
       },
     ];
   }
-  // Helper function to build a pull request change row
+  /**
+   * Builds a single row for a pull request change.
+   * @param change ChangeEntry with pull request info
+   * @param index Row index used for numbering
+   */
   private buildPullRequestChangeRow(change: any, index: number) {
     const fields = [
       { name: '#', value: index + 1, width: '7.6%' },
@@ -388,6 +492,16 @@ export default class ChangesTableDataSkinAdapter {
         name: 'Creation date',
         value: this.convertDateToLocalTime(change.creationDate),
         width: '10%',
+      },
+      {
+        name: 'Release Version',
+        value: change.releaseVersion || '',
+        width: '10%',
+      },
+      {
+        name: 'Release Run Date',
+        value: change.releaseRunDate ? this.convertDateToLocalTime(change.releaseRunDate) : '',
+        width: '12%',
       },
       {
         name: 'Created by',
