@@ -97,7 +97,7 @@ class TraceAnalysisRequirementsAdapter {
           { name: 'Title', value: sourceTitle, color: currentSysColor },
           { name: 'State', value: sourceState, color: currentSysColor },
           { name: 'ID', value: '', width: '7%', color: currentSoftColor },
-          { name: 'WI Type', value: 'Software Requirement', width: '12%', color: currentSoftColor },
+          { name: 'WI Type', value: '', width: '12%', color: currentSoftColor },
           { name: 'Title', value: '', color: currentSoftColor },
           { name: 'State', value: '', color: currentSoftColor },
         ],
@@ -105,38 +105,46 @@ class TraceAnalysisRequirementsAdapter {
       });
       this.adoptedData.push({ fields });
     } else {
-      targets.forEach((target) => {
+      targets.forEach((target, idx) => {
         const targetId = target?.id || '';
         const targetTitle = this.getFieldValue(target, 'System.Title') || '';
         const targetWorkItemType =
           this.getFieldValue(target, 'System.WorkItemType') || 'Software Requirement';
         const targetState = this.getFieldValue(target, 'System.State') || '';
 
-        const fields = this.buildFields({
-          items: [
-            {
-              name: 'ID',
-              value: sourceId,
-              width: '7%',
-              color: currentSysColor,
-              url: source?._links?.html?.href,
-            },
-            { name: 'WI Type', value: sourceWorkItemType, width: '12%', color: currentSysColor },
-            { name: 'Title', value: sourceTitle, color: currentSysColor },
-            { name: 'State', value: sourceState, color: currentSysColor },
-            {
-              name: 'ID',
-              value: targetId,
-              width: '7%',
-              color: currentSoftColor,
-              url: target?._links?.html?.href,
-            },
-            { name: 'WI Type', value: targetWorkItemType, width: '12%', color: currentSoftColor },
-            { name: 'Title', value: targetTitle, color: currentSoftColor },
-            { name: 'State', value: targetState, color: currentSoftColor },
-          ],
-          baseShading,
-        });
+        // Build source and target items
+        const sourceItems = [
+          {
+            name: 'ID',
+            value: idx === 0 ? sourceId : '',
+            width: '7%',
+            color: currentSysColor,
+            url: idx === 0 ? source?._links?.html?.href : undefined,
+          },
+          {
+            name: 'WI Type',
+            value: idx === 0 ? sourceWorkItemType : '',
+            width: '12%',
+            color: currentSysColor,
+          },
+          { name: 'Title', value: idx === 0 ? sourceTitle : '', color: currentSysColor },
+          { name: 'State', value: idx === 0 ? sourceState : '', color: currentSysColor },
+        ];
+
+        const targetItems = [
+          {
+            name: 'ID',
+            value: targetId,
+            width: '7%',
+            color: currentSoftColor,
+            url: target?._links?.html?.href,
+          },
+          { name: 'WI Type', value: targetWorkItemType, width: '12%', color: currentSoftColor },
+          { name: 'Title', value: targetTitle, color: currentSoftColor },
+          { name: 'State', value: targetState, color: currentSoftColor },
+        ];
+
+        const fields = this.buildFields({ items: [...sourceItems, ...targetItems], baseShading });
         this.adoptedData.push({ fields });
       });
     }
@@ -170,7 +178,7 @@ class TraceAnalysisRequirementsAdapter {
           { name: 'Title', value: sourceTitle, color: currentSoftColor },
           { name: 'State', value: sourceState, color: currentSoftColor },
           { name: 'ID', value: '', width: '7%', color: currentSysColor },
-          { name: 'WI Type', value: 'System Requirement', width: '12%', color: currentSysColor },
+          { name: 'WI Type', value: '', width: '12%', color: currentSysColor },
           { name: 'Title', value: '', color: currentSysColor },
           { name: 'State', value: '', color: currentSysColor },
         ],
@@ -178,37 +186,45 @@ class TraceAnalysisRequirementsAdapter {
       });
       this.adoptedData.push({ fields });
     } else {
-      targets.forEach((target) => {
+      targets.forEach((target, idx) => {
         const targetId = target?.id || '';
         const targetTitle = this.getFieldValue(target, 'System.Title') || '';
         const targetWorkItemType = this.getFieldValue(target, 'System.WorkItemType') || 'System Requirement';
         const targetState = this.getFieldValue(target, 'System.State') || '';
 
-        const fields = this.buildFields({
-          items: [
-            {
-              name: 'ID',
-              value: sourceId,
-              width: '7%',
-              color: currentSoftColor,
-              url: source?._links?.html?.href,
-            },
-            { name: 'WI Type', value: sourceWorkItemType, width: '12%', color: currentSoftColor },
-            { name: 'Title', value: sourceTitle, color: currentSoftColor },
-            { name: 'State', value: sourceState, color: currentSoftColor },
-            {
-              name: 'ID',
-              value: targetId,
-              width: '7%',
-              color: currentSysColor,
-              url: target?._links?.html?.href,
-            },
-            { name: 'WI Type', value: targetWorkItemType, width: '12%', color: currentSysColor },
-            { name: 'Title', value: targetTitle, color: currentSysColor },
-            { name: 'State', value: targetState, color: currentSysColor },
-          ],
-          baseShading,
-        });
+        // Build source and target items
+        const sourceItems = [
+          {
+            name: 'ID',
+            value: idx === 0 ? sourceId : '',
+            width: '7%',
+            color: currentSoftColor,
+            url: idx === 0 ? source?._links?.html?.href : undefined,
+          },
+          {
+            name: 'WI Type',
+            value: idx === 0 ? sourceWorkItemType : '',
+            width: '12%',
+            color: currentSoftColor,
+          },
+          { name: 'Title', value: idx === 0 ? sourceTitle : '', color: currentSoftColor },
+          { name: 'State', value: idx === 0 ? sourceState : '', color: currentSoftColor },
+        ];
+
+        const targetItems = [
+          {
+            name: 'ID',
+            value: targetId,
+            width: '7%',
+            color: currentSysColor,
+            url: target?._links?.html?.href,
+          },
+          { name: 'WI Type', value: targetWorkItemType, width: '12%', color: currentSysColor },
+          { name: 'Title', value: targetTitle, color: currentSysColor },
+          { name: 'State', value: targetState, color: currentSysColor },
+        ];
+
+        const fields = this.buildFields({ items: [...sourceItems, ...targetItems], baseShading });
         this.adoptedData.push({ fields });
       });
     }
