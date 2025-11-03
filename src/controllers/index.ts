@@ -186,7 +186,8 @@ export default class DgContentControls {
             contentControlOptions.data.linkedWiOptions,
             contentControlOptions.data.workItemFilterOptions,
             contentControlOptions.data.requestedByBuild,
-            contentControlOptions.data.includeUnlinkedCommits
+            contentControlOptions.data.includeUnlinkedCommits,
+            contentControlOptions.data.compareMode
           );
           break;
         case 'pr-change-description-table':
@@ -977,7 +978,8 @@ export default class DgContentControls {
     linkedWiOptions: any = null,
     workItemFilterOptions: any = null,
     requestedByBuild: boolean = false,
-    includeUnlinkedCommits: boolean = false
+    includeUnlinkedCommits: boolean = false,
+    compareMode: 'consecutive' | 'allPairs' = 'consecutive'
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -1017,7 +1019,8 @@ export default class DgContentControls {
         requestedByBuild,
         includeUnlinkedCommits,
         this.formattingSettings,
-        workItemFilterOptions
+        workItemFilterOptions,
+        compareMode
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
