@@ -529,11 +529,11 @@ export default class ChangeDataFactory {
             const artifactPresence = this.buildArtifactPresence(releasesList);
             const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
 
-            // Edge pass: process only adjacent release pairs (j = i + 1)
+            // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
             for (let j = 1; j < releasesList.length; j++) {
               for (let i = j - 1; i >= 0; i--) {
                 try {
-                  if (i !== j - 1) {
+                  if (this.compareMode !== 'allPairs' && i !== j - 1) {
                     continue;
                   }
                   const fromRelease = releasesList[i];
@@ -901,20 +901,21 @@ export default class ChangeDataFactory {
               } // end inner from-loop for this target
             } // end all-pairs loop
 
-            // Long-hop fallbacks are processed below via this.processGap
-
-            for (const [k, arr] of artifactPresence.entries()) {
-              const sorted = [...arr].sort((a, b) => a.idx - b.idx);
-              for (let t = 0; t < sorted.length - 1; t++) {
-                const a = sorted[t].idx;
-                const b = sorted[t + 1].idx;
-                if (b > a + 1) {
-                  await this.processGap(a, b, k, releasesList, artifactGroupsByKey, artifactWiSets, gitDataProvider, jfrogDataProvider, pipelinesDataProvider);
+            // Long-hop fallbacks are only needed in optimized mode; skip when running full all-pairs
+            if (this.compareMode !== 'allPairs') {
+              for (const [k, arr] of artifactPresence.entries()) {
+                const sorted = [...arr].sort((a, b) => a.idx - b.idx);
+                for (let t = 0; t < sorted.length - 1; t++) {
+                  const a = sorted[t].idx;
+                  const b = sorted[t + 1].idx;
+                  if (b > a + 1) {
+                    await this.processGap(a, b, k, releasesList, artifactGroupsByKey, artifactWiSets, gitDataProvider, jfrogDataProvider, pipelinesDataProvider);
+                  }
                 }
               }
-            }
 
-            await this.processServicesGaps(servicesPresentIdx, releasesList, gitDataProvider);
+              await this.processServicesGaps(servicesPresentIdx, releasesList, gitDataProvider);
+            }
 
             // Persist aggregated results
             this.rawChangesArray.push(...Array.from(artifactGroupsByKey.values()));
