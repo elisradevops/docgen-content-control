@@ -50,6 +50,8 @@ export default class ChangeDataFactory {
   private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
+  private logSeq: number = 0;
+
   constructor(
     teamProjectName,
     repoId: string,
@@ -144,11 +146,11 @@ export default class ChangeDataFactory {
       await this.fetchChangesData();
       this.serviceGroupsByKey.clear();
       this.includedWorkItemByIdSet.clear();
-      logger.info(
+      logger.debug(
         `fetchSvdData: After fetchChangesData, rawChangesArray has ${this.rawChangesArray.length} artifacts`
       );
       if (this.rawChangesArray.length > 0) {
-        logger.info(`fetchSvdData: Calling jsonSkinDataAdapter for 'changes'`);
+        logger.debug(`fetchSvdData: Calling jsonSkinDataAdapter for 'changes'`);
         this.adoptedChangeData.push({
           contentControl: 'required-states-and-modes',
           data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
@@ -254,7 +256,7 @@ export default class ChangeDataFactory {
    */
   async fetchChangesData() {
     try {
-      logger.info(
+      logger.debug(
         `fetchChangesData: rangeType=${this.rangeType}, includeUnlinkedCommits=${this.includeUnlinkedCommits}`
       );
       let focusedArtifact;
@@ -435,7 +437,7 @@ export default class ChangeDataFactory {
 
             this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
 
-            logger.info(
+            logger.debug(
               `Pipeline case: Pushing artifact with ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
             );
 
@@ -463,7 +465,7 @@ export default class ChangeDataFactory {
               Number(this.to)
             );
 
-            logger.info(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
+            logger.debug(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
 
             // Determine release definition and fetch history
             const releaseDefinitionId =
@@ -523,6 +525,7 @@ export default class ChangeDataFactory {
 
             const artifactGroupsByKey = new Map<string, ArtifactChangesGroup>();
             const artifactWiSets = new Map<string, Set<number>>();
+            const sourceStatsByKey = new Map<string, any>();
 
             // Prefetch releases and build presence timelines
             const releasesList: any[] = await this.buildReleasesList(releasesBetween, pipelinesDataProvider);
@@ -542,7 +545,7 @@ export default class ChangeDataFactory {
                   const releaseVersion = toRelease?.name;
                   const releaseRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
 
-                  logger.debug(`Comparing releases: ${fromRelease.id} -> ${toRelease.id}`);
+                  logger.debug(`${this.nextSeq(`pair ${fromRelease.id}->${toRelease.id}`)} Comparing releases: ${fromRelease.id} -> ${toRelease.id}`);
 
                   // Map from-release artifacts by type+alias for quick match
                   const fromArtifactMap = new Map<string, Artifact>();
@@ -605,9 +608,7 @@ export default class ChangeDataFactory {
                         let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(
                           toRelArt.definitionReference['definition'].id
                         );
-                        logger.debug(
-                          `Release compare [Git ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                        );
+                        logger.debug(`${this.nextSeq(`Git ${artifactAlias}`)} Release compare [Git ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`);
                         const gitCacheKey = `${key}|Git|${gitRepo.url}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
                         let allExtendedCommits: any[];
                         let commitsWithNoRelations: any[];
@@ -647,8 +648,39 @@ export default class ChangeDataFactory {
                           key,
                           commitsWithNoRelations.map((c) => ({ ...c }))
                         );
+                        const originGit = `Git ${toRelArt.definitionReference['definition'].name} ${String(fromRelArt.definitionReference['version'].id).substring(0,7)}->${String(toRelArt.definitionReference['version'].id).substring(0,7)} pair ${fromRelease.id}->${toRelease.id}`;
+                        uniqueLinked.forEach((c: any) => (c._originStr = originGit));
+                        uniqueUnlinked.forEach((c: any) => (c._originStr = originGit));
+                        {
+                          let st = sourceStatsByKey.get(key) || {
+                            gitLinked: 0,
+                            gitUnlinked: 0,
+                            buildLinked: 0,
+                            buildUnlinked: 0,
+                            jfrogLinked: 0,
+                            jfrogUnlinked: 0,
+                            examples: [] as string[],
+                          };
+                          st.gitLinked += uniqueLinked.length;
+                          st.gitUnlinked += uniqueUnlinked.length;
+                          const pick = (arr: any[]) => {
+                            for (const c of arr) {
+                              if (st.examples.length >= 3) break;
+                              if (c?._originStr) {
+                                st.examples.push(c._originStr);
+                                continue;
+                              }
+                              const wi = c?.workItem?.id;
+                              const cid = c?.commit?.commitId || c?.commitId;
+                              if (wi) st.examples.push(`WI#${wi}`);
+                              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+                            }
+                          };
+                          pick(uniqueLinked);
+                          sourceStatsByKey.set(key, st);
+                        }
                         logger.debug(
-                          `Release compare [Git ${artifactAlias}]: linked=${uniqueLinked.length} (filtered from ${allExtendedCommits.length}), unlinked=${uniqueUnlinked.length} (filtered from ${commitsWithNoRelations.length})`
+                          `${this.nextSeq(`Git ${artifactAlias}`)} Release compare [Git ${artifactAlias}]: linked=${uniqueLinked.length} (filtered from ${allExtendedCommits.length}), unlinked=${uniqueUnlinked.length} (filtered from ${commitsWithNoRelations.length})`
                         );
 
                         // annotate with release metadata
@@ -672,9 +704,7 @@ export default class ChangeDataFactory {
                         agg.changes.push(...uniqueLinked);
                         agg.nonLinkedCommits.push(...uniqueUnlinked);
                       } else if (artifactType === 'Build') {
-                        logger.debug(
-                          `Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                        );
+                        logger.debug(`${this.nextSeq(`Build ${artifactAlias}`)} Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`);
                         const buildFactory = new ChangeDataFactory(
                           this.teamProject,
                           '',
@@ -726,7 +756,7 @@ export default class ChangeDataFactory {
                           });
                         }
                         logger.debug(
-                          `Release compare [Build ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                          `${this.nextSeq(`Build ${artifactAlias}`)} Release compare [Build ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
                         );
                         // Deduplicate by commitId keeping latest pair results; clone before annotation
                         const uniqueMergedChanges = this.takeNewCommits(
@@ -737,6 +767,37 @@ export default class ChangeDataFactory {
                           key,
                           mergedNoLink.map((c) => ({ ...c, releaseVersion, releaseRunDate }))
                         );
+                        const originBuild = `Build ${toRelArt.definitionReference['definition'].name} ${String(fromRelArt.definitionReference['version'].id)}->${String(toRelArt.definitionReference['version'].id)} pair ${fromRelease.id}->${toRelease.id}`;
+                        uniqueMergedChanges.forEach((c: any) => (c._originStr = originBuild));
+                        uniqueMergedNoLink.forEach((c: any) => (c._originStr = originBuild));
+                        {
+                          let st = sourceStatsByKey.get(key) || {
+                            gitLinked: 0,
+                            gitUnlinked: 0,
+                            buildLinked: 0,
+                            buildUnlinked: 0,
+                            jfrogLinked: 0,
+                            jfrogUnlinked: 0,
+                            examples: [] as string[],
+                          };
+                          st.buildLinked += uniqueMergedChanges.length;
+                          st.buildUnlinked += uniqueMergedNoLink.length;
+                          const pick = (arr: any[]) => {
+                            for (const c of arr) {
+                              if (st.examples.length >= 3) break;
+                              if (c?._originStr) {
+                                st.examples.push(c._originStr);
+                                continue;
+                              }
+                              const wi = c?.workItem?.id;
+                              const cid = c?.commit?.commitId || c?.commitId;
+                              if (wi) st.examples.push(`WI#${wi}`);
+                              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+                            }
+                          };
+                          pick(uniqueMergedChanges);
+                          sourceStatsByKey.set(key, st);
+                        }
                         if (!artifactGroupsByKey.has(key)) {
                           artifactGroupsByKey.set(key, {
                             artifact: { name: artifactDisplayName },
@@ -748,9 +809,7 @@ export default class ChangeDataFactory {
                         agg.changes.push(...uniqueMergedChanges);
                         agg.nonLinkedCommits.push(...uniqueMergedNoLink);
                       } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
-                        logger.debug(
-                          `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
-                        );
+                        logger.debug(`${this.nextSeq(`JFrog ${artifactAlias}`)} Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`);
                         let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
                           this.teamProject,
                           fromRelArt.definitionReference.connection.id
@@ -858,7 +917,7 @@ export default class ChangeDataFactory {
                           });
                         }
                         logger.debug(
-                          `Release compare [Artifactory ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
+                          `${this.nextSeq(`JFrog ${artifactAlias}`)} Release compare [Artifactory ${artifactAlias}]: merged linked=${mergedChanges.length}, merged unlinked=${mergedNoLink.length}`
                         );
 
                         if (!artifactGroupsByKey.has(key)) {
@@ -880,8 +939,41 @@ export default class ChangeDataFactory {
                           c.releaseVersion = releaseVersion;
                           c.releaseRunDate = releaseRunDate;
                         });
-                        agg.changes.push(...this.takeNewCommits(key, clonedLinked));
-                        agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+                        const jfLinked = this.takeNewCommits(key, clonedLinked);
+                        const jfUnlinked = this.takeNewCommits(key, clonedNoLink);
+                        const originJfrog = `JFrog ${toBuildName} ${String(fromBuildId)}->${String(toBuildId)} pair ${fromRelease.id}->${toRelease.id}`;
+                        jfLinked.forEach((c: any) => (c._originStr = originJfrog));
+                        jfUnlinked.forEach((c: any) => (c._originStr = originJfrog));
+                        agg.changes.push(...jfLinked);
+                        agg.nonLinkedCommits.push(...jfUnlinked);
+                        {
+                          let st = sourceStatsByKey.get(key) || {
+                            gitLinked: 0,
+                            gitUnlinked: 0,
+                            buildLinked: 0,
+                            buildUnlinked: 0,
+                            jfrogLinked: 0,
+                            jfrogUnlinked: 0,
+                            examples: [] as string[],
+                          };
+                          st.jfrogLinked += jfLinked.length;
+                          st.jfrogUnlinked += jfUnlinked.length;
+                          const pick = (arr: any[]) => {
+                            for (const c of arr) {
+                              if (st.examples.length >= 3) break;
+                              if (c?._originStr) {
+                                st.examples.push(c._originStr);
+                                continue;
+                              }
+                              const wi = c?.workItem?.id;
+                              const cid = c?.commit?.commitId || c?.commitId;
+                              if (wi) st.examples.push(`WI#${wi}`);
+                              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+                            }
+                          };
+                          pick(jfLinked);
+                          sourceStatsByKey.set(key, st);
+                        }
                       }
                     } catch (error: any) {
                       logger.error(
@@ -909,7 +1001,7 @@ export default class ChangeDataFactory {
                   const a = sorted[t].idx;
                   const b = sorted[t + 1].idx;
                   if (b > a + 1) {
-                    await this.processGap(a, b, k, releasesList, artifactGroupsByKey, artifactWiSets, gitDataProvider, jfrogDataProvider, pipelinesDataProvider);
+                    await this.processGap(a, b, k, releasesList, artifactGroupsByKey, artifactWiSets, sourceStatsByKey, gitDataProvider, jfrogDataProvider, pipelinesDataProvider);
                   }
                 }
               }
@@ -920,20 +1012,29 @@ export default class ChangeDataFactory {
             // Persist aggregated results
             this.rawChangesArray.push(...Array.from(artifactGroupsByKey.values()));
             this.rawChangesArray.push(...Array.from(this.serviceGroupsByKey.values()));
-            Array.from(artifactGroupsByKey.values()).forEach((grp) =>
-              logger.info(
-                `Aggregated group: ${grp.artifact?.name} -> linked=${grp.changes?.length || 0}, unlinked=${
-                  grp.nonLinkedCommits?.length || 0
-                }`
-              )
-            );
+            for (const [k, grp] of artifactGroupsByKey.entries()) {
+              const st = sourceStatsByKey.get(k) || {};
+              const parts: string[] = [];
+              if ((st.gitLinked || 0) + (st.gitUnlinked || 0) > 0)
+                parts.push(`Git=${st.gitLinked || 0}/${st.gitUnlinked || 0}`);
+              if ((st.buildLinked || 0) + (st.buildUnlinked || 0) > 0)
+                parts.push(`Build=${st.buildLinked || 0}/${st.buildUnlinked || 0}`);
+              if ((st.jfrogLinked || 0) + (st.jfrogUnlinked || 0) > 0)
+                parts.push(`JFrog=${st.jfrogLinked || 0}/${st.jfrogUnlinked || 0}`);
+              const sample = (st.examples || []).slice(0, 3).join(',');
+              logger.debug(
+                `${this.nextSeq('aggregate')} Aggregated group: ${grp.artifact?.name} -> linked=${
+                  grp.changes?.length || 0
+                }, unlinked=${grp.nonLinkedCommits?.length || 0} sources{${parts.join(' ')}} sample[${sample}]`
+              );
+            }
           }
           break;
         default:
           break;
       }
 
-      logger.info(`fetch ${this.rawChangesArray.length} changes for range`);
+      logger.debug(`fetch ${this.rawChangesArray.length} changes for range`);
       //Clear the set after finishing
     } catch (error: any) {
       if (error.message?.includes('The number of changes is too large')) {
@@ -947,6 +1048,7 @@ export default class ChangeDataFactory {
    * Checks if the number of artifact changes exceeds the maximum allowed limit.
    *
    * @param artifactChanges - An array of artifact changes to validate
+   *
    * @throws {Error} When the number of changes exceeds 500
    */
   private isChangesReachedMaxSize(rangeType: string = '', artifactsChangesLength?: number) {
@@ -1083,15 +1185,6 @@ export default class ChangeDataFactory {
           logger.debug(
             `getCommitRangeChanges returned: ${allExtendedCommits.length} commits with work items, ${commitsWithNoRelations.length} without`
           );
-          if (allExtendedCommits.length > 0) {
-            allExtendedCommits.forEach((commit, idx) => {
-              logger.debug(
-                `  Commit ${idx + 1}: workItem=${
-                  commit.workItem?.id
-                }, commit=${commit.commit?.commitId?.substring(0, 7)}`
-              );
-            });
-          }
 
           artifactChanges.push(...allExtendedCommits);
           artifactChangesNoLink.push(...commitsWithNoRelations);
@@ -1168,7 +1261,7 @@ export default class ChangeDataFactory {
           );
 
           if (!sourceResourcePipeline) {
-            logger.info(
+            logger.debug(
               `Could not find pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}, skipping`
             );
             break;
@@ -1184,8 +1277,9 @@ export default class ChangeDataFactory {
             );
 
           if (reportPartsForRepo) {
-            logger.debug(`reportPartsForRepo: ${JSON.stringify(reportPartsForRepo)}`);
-            logger.debug(`reportPartsForRepoNoLink: ${JSON.stringify(reportPartsForRepoNoLink)}`);
+            logger.debug(
+              `Nested GetPipelineChanges: linked=${reportPartsForRepo?.length || 0}, unlinked=${reportPartsForRepoNoLink?.length || 0}`
+            );
             artifactChanges.push(...reportPartsForRepo);
             artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
@@ -1195,7 +1289,7 @@ export default class ChangeDataFactory {
       logger.error(`could not handle pipeline ${error.message}`);
     }
 
-    logger.info(
+    logger.debug(
       `GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
     );
     if (artifactChanges.length > 0) {
@@ -1571,21 +1665,10 @@ export default class ChangeDataFactory {
 
       await buildChangeFactory.fetchChangesData();
       const rawData = buildChangeFactory.getRawData();
-
-      // Log artifact names and work item IDs
-      logger.info(`handleArtifactoryArtifact: Received ${rawData.length} artifacts from nested factory`);
-      rawData.forEach((item) => {
-        const workItemIds =
-          item.changes?.map((change: any) => change.workItem?.id).filter((id: any) => id !== undefined) || [];
-        logger.debug(
-          `  Artifact: "${item.artifact?.name || 'N/A'}" | Changes: ${
-            item.changes?.length || 0
-          } | Work Item IDs: [${workItemIds.join(', ')}]`
-        );
-      });
+      logger.debug(`handleArtifactoryArtifact: Received ${rawData.length} artifacts from nested factory`);
 
       this.rawChangesArray.push(...rawData);
-      logger.info(
+      logger.debug(
         `handleArtifactoryArtifact: After push, parent rawChangesArray has ${this.rawChangesArray.length} total artifacts`
       );
     } catch (error: any) {
@@ -1776,7 +1859,7 @@ export default class ChangeDataFactory {
         c.releaseVersion = relVersion;
         c.releaseRunDate = relRunDate;
       });
-      logger.info(
+      logger.debug(
         `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
           uniqueUnlinked?.length || 0
         } unlinked commits across ${itemPaths.length} path(s)`
@@ -1823,14 +1906,14 @@ export default class ChangeDataFactory {
     if (useTagMode) {
       const fromTag = `${tagPrefix}${fromRelease.name}`;
       const toTag = `${tagPrefix}${toRelease.name}`;
-      logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
+      logger.debug(`Using TAG mode: ${fromTag} → ${toTag}`);
       const fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
       if (!fromTagData || !fromTagData.value || fromTagData?.count == 0) {
         logger.warn(
           `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
         );
         if (hasBranches) {
-          logger.info(`Tag '${fromTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
+          logger.debug(`Tag '${fromTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
           const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
           if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
             logger.warn(
@@ -1865,7 +1948,7 @@ export default class ChangeDataFactory {
             `Service ${service.serviceName}: Target tag '${toTag}' does not exist in repository ${repoName}`
           );
           if (hasBranches) {
-            logger.info(`Tag '${toTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
+            logger.debug(`Tag '${toTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
             const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
             if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
               logger.warn(
@@ -1904,7 +1987,7 @@ export default class ChangeDataFactory {
         }
       }
     } else if (useBranchMode) {
-      logger.info(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
+      logger.debug(`Using BRANCH mode: ${fromBranch} → ${toBranch}`);
       const fromExists = await this.getCachedBranchExists(provider, serviceGitRepoApiUrl, fromBranch);
       if (!fromExists) {
         logger.warn(
@@ -1981,7 +2064,7 @@ export default class ChangeDataFactory {
       );
       return null;
     }
-    logger.info(
+    logger.debug(
       `Service ${serviceName}: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
     );
     const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
@@ -2146,6 +2229,11 @@ export default class ChangeDataFactory {
     return indices;
   }
 
+  private nextSeq(context: string): string {
+    this.logSeq = (this.logSeq + 1) % 1000000;
+    return `#${this.logSeq} [${context}]`;
+  }
+
   /**
    * Get stable artifact display name per type/alias.
    */
@@ -2167,6 +2255,7 @@ export default class ChangeDataFactory {
     releasesList: any[],
     artifactGroupsByKey: Map<string, any>,
     artifactWiSets: Map<string, Set<number>>,
+    sourceStatsByKey: Map<string, any>,
     gitDataProvider: any,
     jfrogDataProvider: any,
     _pipelinesDataProvider?: any
@@ -2217,6 +2306,33 @@ export default class ChangeDataFactory {
         }
         const uniqueLinked = this.takeNewCommits(key, allExtendedCommits.map((c) => ({ ...c })));
         const uniqueUnlinked = this.takeNewCommits(key, commitsWithNoRelations.map((c) => ({ ...c })));
+        const originGit = `Git ${toRelArt.definitionReference['definition'].name} ${String(fromRelArt.definitionReference['version'].id).substring(0,7)}->${String(toRelArt.definitionReference['version'].id).substring(0,7)} gap ${fromRelease.id}->${toRelease.id}`;
+        uniqueLinked.forEach((c: any) => (c._originStr = originGit));
+        uniqueUnlinked.forEach((c: any) => (c._originStr = originGit));
+        {
+          let st = sourceStatsByKey.get(key) || {
+            gitLinked: 0,
+            gitUnlinked: 0,
+            buildLinked: 0,
+            buildUnlinked: 0,
+            jfrogLinked: 0,
+            jfrogUnlinked: 0,
+            examples: [] as string[],
+          };
+          st.gitLinked += uniqueLinked.length;
+          st.gitUnlinked += uniqueUnlinked.length;
+          const pick = (arr: any[]) => {
+            for (const c of arr) {
+              if (st.examples.length >= 3) break;
+              const wi = c?.workItem?.id;
+              const cid = c?.commit?.commitId || c?.commitId;
+              if (wi) st.examples.push(`WI#${wi}`);
+              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+            }
+          };
+          pick(uniqueLinked);
+          sourceStatsByKey.set(key, st);
+        }
         uniqueLinked.forEach((c: any) => {
           c.releaseVersion = releaseVersion;
           c.releaseRunDate = releaseRunDate;
@@ -2277,6 +2393,33 @@ export default class ChangeDataFactory {
         }
         const uniqueMergedChanges = this.takeNewCommits(key, mergedChanges.map((c) => ({ ...c, releaseVersion, releaseRunDate })));
         const uniqueMergedNoLink = this.takeNewCommits(key, mergedNoLink.map((c) => ({ ...c, releaseVersion, releaseRunDate })));
+        const originBuild = `Build ${toRelArt.definitionReference['definition'].name} ${String(fromRelArt.definitionReference['version'].id)}->${String(toRelArt.definitionReference['version'].id)} gap ${fromRelease.id}->${toRelease.id}`;
+        uniqueMergedChanges.forEach((c: any) => (c._originStr = originBuild));
+        uniqueMergedNoLink.forEach((c: any) => (c._originStr = originBuild));
+        {
+          let st = sourceStatsByKey.get(key) || {
+            gitLinked: 0,
+            gitUnlinked: 0,
+            buildLinked: 0,
+            buildUnlinked: 0,
+            jfrogLinked: 0,
+            jfrogUnlinked: 0,
+            examples: [] as string[],
+          };
+          st.buildLinked += uniqueMergedChanges.length;
+          st.buildUnlinked += uniqueMergedNoLink.length;
+          const pick = (arr: any[]) => {
+            for (const c of arr) {
+              if (st.examples.length >= 3) break;
+              const wi = c?.workItem?.id;
+              const cid = c?.commit?.commitId || c?.commitId;
+              if (wi) st.examples.push(`WI#${wi}`);
+              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+            }
+          };
+          pick(uniqueMergedChanges);
+          sourceStatsByKey.set(key, st);
+        }
         if (!artifactGroupsByKey.has(key)) {
           artifactGroupsByKey.set(key, { artifact: { name: artifactDisplayName }, changes: [], nonLinkedCommits: [] });
         }
@@ -2375,8 +2518,37 @@ export default class ChangeDataFactory {
           c.releaseVersion = releaseVersion;
           c.releaseRunDate = releaseRunDate;
         });
-        agg.changes.push(...this.takeNewCommits(key, clonedLinked));
-        agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+        const jfLinked = this.takeNewCommits(key, clonedLinked);
+        const jfUnlinked = this.takeNewCommits(key, clonedNoLink);
+        const originJfrog = `JFrog ${toBuildName} ${String(fromBuildId)}->${String(toBuildId)} gap ${fromRelease.id}->${toRelease.id}`;
+        jfLinked.forEach((c: any) => (c._originStr = originJfrog));
+        jfUnlinked.forEach((c: any) => (c._originStr = originJfrog));
+        agg.changes.push(...jfLinked);
+        agg.nonLinkedCommits.push(...jfUnlinked);
+        {
+          let st = sourceStatsByKey.get(key) || {
+            gitLinked: 0,
+            gitUnlinked: 0,
+            buildLinked: 0,
+            buildUnlinked: 0,
+            jfrogLinked: 0,
+            jfrogUnlinked: 0,
+            examples: [] as string[],
+          };
+          st.jfrogLinked += jfLinked.length;
+          st.jfrogUnlinked += jfUnlinked.length;
+          const pick = (arr: any[]) => {
+            for (const c of arr) {
+              if (st.examples.length >= 3) break;
+              const wi = c?.workItem?.id;
+              const cid = c?.commit?.commitId || c?.commitId;
+              if (wi) st.examples.push(`WI#${wi}`);
+              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
+            }
+          };
+          pick(jfLinked);
+          sourceStatsByKey.set(key, st);
+        }
       }
     } catch (err: any) {
       logger.error(`Gap compare failed for ${artifactAlias} (${artifactType}) ${fromRelease.id}->${toRelease.id}: ${err.message}`);
@@ -2475,23 +2647,16 @@ export default class ChangeDataFactory {
           this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
-          logger.info(
+          logger.debug(
             `jsonSkinDataAdapter: Processing 'changes' - rawChangesArray has ${this.rawChangesArray.length} artifacts`
           );
-          this.rawChangesArray.forEach((item: any, index: number) => {
-            logger.debug(
-              `  Artifact #${index + 1}: "${item.artifact?.name || 'N/A'}" with ${
-                item.changes?.length || 0
-              } changes`
-            );
-          });
 
           const filteredChangesArray = this.rawChangesArray.map((item: any) => {
             const originalCount = item?.changes?.length || 0;
             const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
             const filteredCount = filteredChanges.length;
             if (originalCount !== filteredCount) {
-              logger.info(
+              logger.debug(
                 `  Filtered artifact "${item.artifact?.name}": ${originalCount} → ${filteredCount} changes`
               );
             }
@@ -2501,12 +2666,12 @@ export default class ChangeDataFactory {
             };
           });
 
-          logger.info(
+          logger.debug(
             `jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
           const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
-          logger.info(
+          logger.debug(
             `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
           );
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
