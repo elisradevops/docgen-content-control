@@ -223,12 +223,7 @@ export default class ChangesTableDataSkinAdapter {
           )
         );
         for (const change of sortedChanges) {
-          logger.debug(`  - Processing change #${changeCounter + 1}`);
-          logger.debug(`    - Has workItem: ${!!change.workItem}`);
-          logger.debug(`    - Has commit: ${!!change.commit}`);
-          logger.debug(`    - Has pullrequest: ${!!change.pullrequest}`);
           if (change.workItem) {
-            logger.debug(`    - Work Item ID: ${change.workItem.id}`);
             // Changes that have a work item
             const workItemRows = await this.buildWorkItemChangeRow(change, changeCounter);
             if (Array.isArray(workItemRows)) {

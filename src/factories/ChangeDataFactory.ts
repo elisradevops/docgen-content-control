@@ -50,6 +50,7 @@ export default class ChangeDataFactory {
   private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
+  private replaceTaskWithParent: boolean = false;
   constructor(
     teamProjectName,
     repoId: string,
@@ -76,7 +77,8 @@ export default class ChangeDataFactory {
     includeUnlinkedCommits: boolean = false,
     formattingSettings: any = {},
     workItemFilterOptions: any = undefined,
-    compareMode: 'consecutive' | 'allPairs' = 'consecutive'
+    compareMode: 'consecutive' | 'allPairs' = 'consecutive',
+    replaceTaskWithParent: boolean = false
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -110,6 +112,7 @@ export default class ChangeDataFactory {
     this.jfrogCiUrlCache = new Map();
     this.pairCompareCache = new Map();
     this.compareMode = compareMode || 'consecutive';
+    this.replaceTaskWithParent = !!replaceTaskWithParent;
   } //constructor
 
   async fetchSvdData() {
@@ -117,12 +120,20 @@ export default class ChangeDataFactory {
       if (this.serviceGroupsByKey === undefined) {
         this.serviceGroupsByKey = new Map<string, ArtifactChangesGroup>();
       }
+      
+      const svdId = Math.random().toString(36).slice(2, 8);
+      const svdStart = Date.now();
+      logger.info(
+        `[SVD ${svdId}] start teamProject=${this.teamProject}, rangeType=${this.rangeType}, from=${this.from}, to=${this.to}, compareMode=${this.compareMode}, includeUnlinkedCommits=${this.includeUnlinkedCommits}`
+      );
       // 1) Get release component adoptedData for release-components content control
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
       let recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
         this.teamProject
       );
-      if (recentReleaseArtifactInfo?.length > 0) {
+      const releaseComponentsCount = recentReleaseArtifactInfo?.length || 0;
+      logger.info(`[SVD ${svdId}] release-components: items=${releaseComponentsCount}${releaseComponentsCount > 0 ? '' : ' (skipped)'}`);
+      if (releaseComponentsCount > 0) {
         this.adoptedChangeData.push({
           contentControl: 'release-components-content-control',
           data: await this.jsonSkinDataAdapter('release-components', recentReleaseArtifactInfo),
@@ -132,7 +143,9 @@ export default class ChangeDataFactory {
 
       // 2) Fetch System Overview data (by WIQL) for system-overview content control
       const queryResultData = await this.fetchQueryResults();
-      if (queryResultData.systemOverviewQueryData?.length > 0) {
+      const sysOverviewCount = queryResultData.systemOverviewQueryData?.length || 0;
+      logger.info(`[SVD ${svdId}] system-overview: items=${sysOverviewCount}${sysOverviewCount > 0 ? '' : ' (skipped)'}`);
+      if (sysOverviewCount > 0) {
         this.adoptedChangeData.push({
           contentControl: 'system-overview-content-control',
           data: await this.jsonSkinDataAdapter('system-overview', queryResultData),
@@ -144,11 +157,17 @@ export default class ChangeDataFactory {
       await this.fetchChangesData();
       this.serviceGroupsByKey.clear();
       this.includedWorkItemByIdSet.clear();
-      logger.info(
-        `fetchSvdData: After fetchChangesData, rawChangesArray has ${this.rawChangesArray.length} artifacts`
+      const artifactsCount = this.rawChangesArray.length;
+      const linkedTotal = this.rawChangesArray.reduce(
+        (acc: number, a: any) => acc + ((a.changes?.length) || 0),
+        0
       );
+      const unlinkedTotal = this.rawChangesArray.reduce(
+        (acc: number, a: any) => acc + ((a.nonLinkedCommits?.length) || 0),
+        0
+      );
+      logger.info(`[SVD ${svdId}] changes fetched: artifacts=${artifactsCount}, linked=${linkedTotal}, unlinked=${unlinkedTotal}`);
       if (this.rawChangesArray.length > 0) {
-        logger.info(`fetchSvdData: Calling jsonSkinDataAdapter for 'changes'`);
         this.adoptedChangeData.push({
           contentControl: 'required-states-and-modes',
           data: await this.jsonSkinDataAdapter('changes', this.rawChangesArray),
@@ -159,6 +178,7 @@ export default class ChangeDataFactory {
       }
       // 4) Installation instructions (optional attachment)
       if (this.attachmentWikiUrl) {
+        logger.info(`[SVD ${svdId}] installation-instructions: included`);
         this.adoptedChangeData.push({
           contentControl: 'system-installation-content-control',
           data: await this.jsonSkinDataAdapter('installation-instructions', []), //TBD need to add a check box to either include new file or not
@@ -167,6 +187,10 @@ export default class ChangeDataFactory {
       }
       // 5) Possible problems / known errors
       if (queryResultData.knownBugsQueryData) {
+        const bugsCount = Array.isArray(queryResultData.knownBugsQueryData)
+          ? queryResultData.knownBugsQueryData.length
+          : 0;
+        logger.info(`[SVD ${svdId}] known-bugs: items=${bugsCount}${bugsCount > 0 ? '' : ' (skipped)'}`);
         this.adoptedChangeData.push({
           contentControl: 'possible-problems-known-errors-content-control',
           data: await this.jsonSkinDataAdapter(
@@ -181,6 +205,7 @@ export default class ChangeDataFactory {
       if (this.rawChangesArray.length > 0) {
         const adoptedData = await this.jsonSkinDataAdapter('non-associated-commits', this.rawChangesArray);
         if (adoptedData.length > 0) {
+          logger.info(`[SVD ${svdId}] non-associated-commits: groups=${adoptedData.length}`);
           this.adoptedChangeData.push({
             contentControl: 'non-associated-commits-content-control',
             data: adoptedData,
@@ -188,6 +213,7 @@ export default class ChangeDataFactory {
           });
         }
       }
+      logger.info(`[SVD ${svdId}] done in ${Date.now() - svdStart}ms, contentControls=${this.adoptedChangeData.length}`);
     } catch (error: any) {
       logger.error(`could not fetch svd data:
         ${error.message}`);
@@ -671,6 +697,9 @@ export default class ChangeDataFactory {
                         const agg = artifactGroupsByKey.get(key)!;
                         agg.changes.push(...uniqueLinked);
                         agg.nonLinkedCommits.push(...uniqueUnlinked);
+                        logger.info(
+                          `Aggregated add [Git ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${uniqueLinked.length}, +unlinked=${uniqueUnlinked.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+                        );
                       } else if (artifactType === 'Build') {
                         logger.debug(
                           `Release compare [Build ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
@@ -700,7 +729,9 @@ export default class ChangeDataFactory {
                           this.requestedByBuild,
                           this.includeUnlinkedCommits,
                           this.formattingSettings,
-                          this.workItemFilterOptions
+                          this.workItemFilterOptions,
+                          this.compareMode,
+                          this.replaceTaskWithParent
                         );
                         const buildCacheKey = `${key}|Build|${this.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
                         let mergedChanges: any[] = [];
@@ -747,6 +778,9 @@ export default class ChangeDataFactory {
                         const agg = artifactGroupsByKey.get(key)!;
                         agg.changes.push(...uniqueMergedChanges);
                         agg.nonLinkedCommits.push(...uniqueMergedNoLink);
+                        logger.info(
+                          `Aggregated add [Build ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${uniqueMergedChanges.length}, +unlinked=${uniqueMergedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+                        );
                       } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
                         logger.debug(
                           `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
@@ -832,7 +866,9 @@ export default class ChangeDataFactory {
                           this.requestedByBuild,
                           this.includeUnlinkedCommits,
                           this.formattingSettings,
-                          this.workItemFilterOptions
+                          this.workItemFilterOptions,
+                          this.compareMode,
+                          this.replaceTaskWithParent
                         );
                         const jfrogCacheKey = `${key}|JFrog|${toTeamProject}|${fromBuildId}->${toBuildId}`;
                         let mergedChanges: any[] = [];
@@ -882,6 +918,9 @@ export default class ChangeDataFactory {
                         });
                         agg.changes.push(...this.takeNewCommits(key, clonedLinked));
                         agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+                        logger.info(
+                          `Aggregated add [${artifactType} ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${clonedLinked.length}, +unlinked=${clonedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+                        );
                       }
                     } catch (error: any) {
                       logger.error(
@@ -1355,6 +1394,66 @@ export default class ChangeDataFactory {
     return { commitsWithRelatedWi, commitsWithNoRelations };
   }
 
+  /**
+   * When enabled, replaces change.workItem of type Task with its immediate Requirement parent (if any).
+   * Adds a marker field 'replacedFromTaskId' so UI can indicate the substitution.
+   */
+  private async applyTaskParentReplacement(rawGroups: any[]): Promise<any[]> {
+    try {
+      const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      const transform = async (change: any) => {
+        const wi = change?.workItem;
+        const wiType = wi?.fields?.['System.WorkItemType'];
+        // Non-Task items are passed through unchanged
+        if (!wi || wiType !== 'Task') return change;
+        // For Task: require a hierarchy parent that is a Requirement; otherwise drop the item
+        if (!Array.isArray(wi.relations)) return null;
+        try {
+          const parentRel = wi.relations.find(
+            (r: any) => typeof r?.rel === 'string' && r.rel.toLowerCase().includes('hierarchy-reverse')
+          );
+          if (!parentRel?.url) return null;
+          const parent = await ticketsDataProvider.GetWorkItemByUrl(parentRel.url);
+          const parentType = parent?.fields?.['System.WorkItemType'];
+          if (parent && parentType === 'Requirement') {
+            return { ...change, workItem: parent, replacedFromTaskId: wi.id };
+          }
+        } catch (e: any) {
+          logger.debug(`applyTaskParentReplacement: ${e.message}`);
+        }
+        return null;
+      };
+
+      const out: any[] = [];
+      for (const group of rawGroups || []) {
+        const changes = Array.isArray(group?.changes) ? group.changes : [];
+        const processed: any[] = (await Promise.all(changes.map(transform))).filter(Boolean);
+        // Deduplicate by resulting workItem.id; keep the item with the latest commit metadata
+        const others: any[] = [];
+        const bestByWid = new Map<number, any>();
+        for (const item of processed) {
+          const wid = item?.workItem?.id;
+          if (typeof wid !== 'number') {
+            others.push(item);
+            continue;
+          }
+          const prev = bestByWid.get(wid);
+          const ts = new Date(item?.commit?.committer?.date || item?.commitDate || 0).getTime() || -Infinity;
+          const prevTs = new Date(prev?.commit?.committer?.date || prev?.commitDate || 0).getTime() || -Infinity;
+          if (!prev || ts >= prevTs) {
+            bestByWid.set(wid, item);
+          }
+        }
+        const deduped: any[] = [...others, ...bestByWid.values()];
+        out.push({ ...group, changes: deduped });
+      }
+      return out;
+    } catch (e: any) {
+      logger.debug(`applyTaskParentReplacement failed: ${e.message}`);
+      return rawGroups;
+    }
+  }
+
   private filterChangesByWorkItemOptions(changes: any[] = []): any[] {
     if (!this.workItemFilterOptions?.isEnabled) {
       return changes;
@@ -1415,7 +1514,9 @@ export default class ChangeDataFactory {
       this.requestedByBuild,
       this.includeUnlinkedCommits,
       this.formattingSettings,
-      this.workItemFilterOptions
+      this.workItemFilterOptions,
+      this.compareMode,
+      this.replaceTaskWithParent
     );
     await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
@@ -1566,7 +1667,9 @@ export default class ChangeDataFactory {
         this.requestedByBuild,
         this.includeUnlinkedCommits,
         this.formattingSettings,
-        this.workItemFilterOptions
+        this.workItemFilterOptions,
+        this.compareMode,
+        this.replaceTaskWithParent
       );
 
       await buildChangeFactory.fetchChangesData();
@@ -2231,6 +2334,9 @@ export default class ChangeDataFactory {
         const agg = artifactGroupsByKey.get(key)!;
         agg.changes.push(...uniqueLinked);
         agg.nonLinkedCommits.push(...uniqueUnlinked);
+        logger.info(
+          `Aggregated add [Git ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${uniqueLinked.length}, +unlinked=${uniqueUnlinked.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+        );
       } else if (artifactType === 'Build') {
         const buildFactory = new ChangeDataFactory(
           this.teamProject,
@@ -2257,7 +2363,9 @@ export default class ChangeDataFactory {
           this.requestedByBuild,
           this.includeUnlinkedCommits,
           this.formattingSettings,
-          this.workItemFilterOptions
+          this.workItemFilterOptions,
+          this.compareMode,
+          this.replaceTaskWithParent
         );
         const buildCacheKey = `${key}|Build|${this.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
         let mergedChanges: any[] = [];
@@ -2283,6 +2391,9 @@ export default class ChangeDataFactory {
         const agg = artifactGroupsByKey.get(key)!;
         agg.changes.push(...uniqueMergedChanges);
         agg.nonLinkedCommits.push(...uniqueMergedNoLink);
+        logger.info(
+          `Aggregated add [Build ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${uniqueMergedChanges.length}, +unlinked=${uniqueMergedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+        );
       } else if (artifactType === 'Artifactory' || artifactType === 'JFrogArtifactory') {
         let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
           this.teamProject,
@@ -2377,6 +2488,9 @@ export default class ChangeDataFactory {
         });
         agg.changes.push(...this.takeNewCommits(key, clonedLinked));
         agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+        logger.info(
+          `Aggregated add [${artifactType} ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${clonedLinked.length}, +unlinked=${clonedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
+        );
       }
     } catch (err: any) {
       logger.error(`Gap compare failed for ${artifactAlias} (${artifactType}) ${fromRelease.id}->${toRelease.id}: ${err.message}`);
@@ -2475,25 +2589,38 @@ export default class ChangeDataFactory {
           this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
           break;
         case 'changes':
-          logger.info(
-            `jsonSkinDataAdapter: Processing 'changes' - rawChangesArray has ${this.rawChangesArray.length} artifacts`
+          const artifactsCount = this.rawChangesArray.length;
+          const totalChangesBefore = this.rawChangesArray.reduce(
+            (acc: number, item: any) => acc + ((item.changes?.length) || 0),
+            0
           );
-          this.rawChangesArray.forEach((item: any, index: number) => {
+          const sampleNames = this.rawChangesArray
+            .slice(0, 10)
+            .map((i: any) => `${i.artifact?.name || 'N/A'}(${i.changes?.length || 0})`)
+            .join(', ');
+          logger.info(
+            `jsonSkinDataAdapter: 'changes' input summary: artifacts=${artifactsCount}, totalChanges=${totalChangesBefore}`
+          );
+          if (artifactsCount <= 50) {
             logger.debug(
-              `  Artifact #${index + 1}: "${item.artifact?.name || 'N/A'}" with ${
-                item.changes?.length || 0
-              } changes`
+              `jsonSkinDataAdapter: 'changes' sample: ${sampleNames}${artifactsCount > 10 ? ', ...' : ''}`
             );
-          });
+          }
 
-          const filteredChangesArray = this.rawChangesArray.map((item: any) => {
+          let affectedArtifacts = 0;
+          let removedChangesTotal = 0;
+          // Optionally replace Task with parent Requirement (1 level) before filtering
+          const baseArray = this.replaceTaskWithParent
+            ? await this.applyTaskParentReplacement(this.rawChangesArray)
+            : this.rawChangesArray;
+
+          const filteredChangesArray = baseArray.map((item: any) => {
             const originalCount = item?.changes?.length || 0;
             const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
             const filteredCount = filteredChanges.length;
             if (originalCount !== filteredCount) {
-              logger.info(
-                `  Filtered artifact "${item.artifact?.name}": ${originalCount} → ${filteredCount} changes`
-              );
+              affectedArtifacts++;
+              removedChangesTotal += originalCount - filteredCount;
             }
             return {
               ...item,
@@ -2501,14 +2628,16 @@ export default class ChangeDataFactory {
             };
           });
 
+          const totalChangesAfter = filteredChangesArray.reduce(
+            (acc: number, i: any) => acc + ((i.changes?.length) || 0),
+            0
+          );
           logger.info(
-            `jsonSkinDataAdapter: After filtering, passing ${filteredChangesArray.length} artifacts to adapter`
+            `jsonSkinDataAdapter: 'changes' after filter: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, affectedArtifacts=${affectedArtifacts}, changesRemoved=${removedChangesTotal}`
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
           const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
-          logger.info(
-            `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
-          );
+          logger.info(`jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`);
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
             displayChangesArray,
             this.includeChangeDescription,
