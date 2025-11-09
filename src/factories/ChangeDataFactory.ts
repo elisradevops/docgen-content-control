@@ -666,11 +666,14 @@ export default class ChangeDataFactory {
                           const pick = (arr: any[]) => {
                             for (const c of arr) {
                               if (st.examples.length >= 3) break;
+                              if (c?._originStr) {
+                                st.examples.push(c._originStr);
+                                continue;
+                              }
                               const wi = c?.workItem?.id;
                               const cid = c?.commit?.commitId || c?.commitId;
-                              const idPart = wi ? `WI#${wi}` : cid ? `c:${String(cid).substring(0, 7)}` : '';
-                              if (c?._originStr) st.examples.push(idPart ? `${c._originStr} | ${idPart}` : c._originStr);
-                              else if (idPart) st.examples.push(idPart);
+                              if (wi) st.examples.push(`WI#${wi}`);
+                              else if (cid) st.examples.push(`c:${String(cid).substring(0, 7)}`);
                             }
                           };
                           pick(uniqueLinked);
@@ -1096,14 +1099,7 @@ export default class ChangeDataFactory {
       }
 
       let targetPipelineId = targetBuild.definition.id;
-      let sourceBuild: any = undefined;
-      try {
-        sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(from));
-      } catch (e: any) {
-        logger.debug(
-          `GetPipelineChanges: source build fetch failed for #${from}: ${e.message}. Will try previous pipeline`
-        );
-      }
+      let sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, Number(from));
 
       if (!sourceBuild) {
         sourceBuild = await pipelinesDataProvider.findPreviousPipeline(
@@ -1114,44 +1110,24 @@ export default class ChangeDataFactory {
           true
         );
         if (!sourceBuild) {
-          logger.warn(`Could not find a valid source pipeline for requested from=${from} before target #${to}`);
+          logger.warn(`Could not find a valid pipeline before build #${to}`);
           return { artifactChanges: [], artifactChangesNoLink: [] };
         }
       }
 
       let sourcePipelineId = sourceBuild.definition.id;
 
-      logger.debug(
-        `GetPipelineChanges pair: requested from=${from}, to=${to}; resolved from=${sourceBuild.id}, to=${targetBuild.id}; defs from=${sourcePipelineId}, to=${targetPipelineId}`
+      let sourcePipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+        teamProject,
+        sourcePipelineId,
+        Number(from)
       );
 
-      let sourcePipelineRun: any;
-      try {
-        sourcePipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
-          teamProject,
-          sourcePipelineId,
-          Number(sourceBuild.id)
-        );
-      } catch (e: any) {
-        logger.warn(
-          `GetPipelineChanges: could not read source run details for build #${sourceBuild.id} (requested from=${from}): ${e.message}`
-        );
-        return { artifactChanges: [], artifactChangesNoLink: [] };
-      }
-
-      let targetPipelineRun: any;
-      try {
-        targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
-          teamProject,
-          targetPipelineId,
-          Number(targetBuild.id)
-        );
-      } catch (e: any) {
-        logger.warn(
-          `GetPipelineChanges: could not read target run details for build #${targetBuild.id} (requested to=${to}): ${e.message}`
-        );
-        return { artifactChanges: [], artifactChangesNoLink: [] };
-      }
+      let targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+        teamProject,
+        targetPipelineId,
+        Number(to)
+      );
       const sourcePipelineResourcePipelines =
         await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(sourcePipelineRun);
       const targetPipelineResourcePipelines =
