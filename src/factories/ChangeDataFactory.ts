@@ -50,6 +50,7 @@ export default class ChangeDataFactory {
   private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
+  private replaceTaskWithParent: boolean = false;
   constructor(
     teamProjectName,
     repoId: string,
@@ -76,7 +77,8 @@ export default class ChangeDataFactory {
     includeUnlinkedCommits: boolean = false,
     formattingSettings: any = {},
     workItemFilterOptions: any = undefined,
-    compareMode: 'consecutive' | 'allPairs' = 'consecutive'
+    compareMode: 'consecutive' | 'allPairs' = 'consecutive',
+    replaceTaskWithParent: boolean = false
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -110,6 +112,7 @@ export default class ChangeDataFactory {
     this.jfrogCiUrlCache = new Map();
     this.pairCompareCache = new Map();
     this.compareMode = compareMode || 'consecutive';
+    this.replaceTaskWithParent = !!replaceTaskWithParent;
   } //constructor
 
   async fetchSvdData() {
@@ -117,6 +120,7 @@ export default class ChangeDataFactory {
       if (this.serviceGroupsByKey === undefined) {
         this.serviceGroupsByKey = new Map<string, ArtifactChangesGroup>();
       }
+      
       const svdId = Math.random().toString(36).slice(2, 8);
       const svdStart = Date.now();
       logger.info(
@@ -725,7 +729,9 @@ export default class ChangeDataFactory {
                           this.requestedByBuild,
                           this.includeUnlinkedCommits,
                           this.formattingSettings,
-                          this.workItemFilterOptions
+                          this.workItemFilterOptions,
+                          this.compareMode,
+                          this.replaceTaskWithParent
                         );
                         const buildCacheKey = `${key}|Build|${this.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
                         let mergedChanges: any[] = [];
@@ -860,7 +866,9 @@ export default class ChangeDataFactory {
                           this.requestedByBuild,
                           this.includeUnlinkedCommits,
                           this.formattingSettings,
-                          this.workItemFilterOptions
+                          this.workItemFilterOptions,
+                          this.compareMode,
+                          this.replaceTaskWithParent
                         );
                         const jfrogCacheKey = `${key}|JFrog|${toTeamProject}|${fromBuildId}->${toBuildId}`;
                         let mergedChanges: any[] = [];
@@ -1386,6 +1394,66 @@ export default class ChangeDataFactory {
     return { commitsWithRelatedWi, commitsWithNoRelations };
   }
 
+  /**
+   * When enabled, replaces change.workItem of type Task with its immediate Requirement parent (if any).
+   * Adds a marker field 'replacedFromTaskId' so UI can indicate the substitution.
+   */
+  private async applyTaskParentReplacement(rawGroups: any[]): Promise<any[]> {
+    try {
+      const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      const transform = async (change: any) => {
+        const wi = change?.workItem;
+        const wiType = wi?.fields?.['System.WorkItemType'];
+        // Non-Task items are passed through unchanged
+        if (!wi || wiType !== 'Task') return change;
+        // For Task: require a hierarchy parent that is a Requirement; otherwise drop the item
+        if (!Array.isArray(wi.relations)) return null;
+        try {
+          const parentRel = wi.relations.find(
+            (r: any) => typeof r?.rel === 'string' && r.rel.toLowerCase().includes('hierarchy-reverse')
+          );
+          if (!parentRel?.url) return null;
+          const parent = await ticketsDataProvider.GetWorkItemByUrl(parentRel.url);
+          const parentType = parent?.fields?.['System.WorkItemType'];
+          if (parent && parentType === 'Requirement') {
+            return { ...change, workItem: parent, replacedFromTaskId: wi.id };
+          }
+        } catch (e: any) {
+          logger.debug(`applyTaskParentReplacement: ${e.message}`);
+        }
+        return null;
+      };
+
+      const out: any[] = [];
+      for (const group of rawGroups || []) {
+        const changes = Array.isArray(group?.changes) ? group.changes : [];
+        const processed: any[] = (await Promise.all(changes.map(transform))).filter(Boolean);
+        // Deduplicate by resulting workItem.id; keep the item with the latest commit metadata
+        const others: any[] = [];
+        const bestByWid = new Map<number, any>();
+        for (const item of processed) {
+          const wid = item?.workItem?.id;
+          if (typeof wid !== 'number') {
+            others.push(item);
+            continue;
+          }
+          const prev = bestByWid.get(wid);
+          const ts = new Date(item?.commit?.committer?.date || item?.commitDate || 0).getTime() || -Infinity;
+          const prevTs = new Date(prev?.commit?.committer?.date || prev?.commitDate || 0).getTime() || -Infinity;
+          if (!prev || ts >= prevTs) {
+            bestByWid.set(wid, item);
+          }
+        }
+        const deduped: any[] = [...others, ...bestByWid.values()];
+        out.push({ ...group, changes: deduped });
+      }
+      return out;
+    } catch (e: any) {
+      logger.debug(`applyTaskParentReplacement failed: ${e.message}`);
+      return rawGroups;
+    }
+  }
+
   private filterChangesByWorkItemOptions(changes: any[] = []): any[] {
     if (!this.workItemFilterOptions?.isEnabled) {
       return changes;
@@ -1446,7 +1514,9 @@ export default class ChangeDataFactory {
       this.requestedByBuild,
       this.includeUnlinkedCommits,
       this.formattingSettings,
-      this.workItemFilterOptions
+      this.workItemFilterOptions,
+      this.compareMode,
+      this.replaceTaskWithParent
     );
     await buildChangeFactory.fetchChangesData();
     const rawData = buildChangeFactory.getRawData();
@@ -1597,7 +1667,9 @@ export default class ChangeDataFactory {
         this.requestedByBuild,
         this.includeUnlinkedCommits,
         this.formattingSettings,
-        this.workItemFilterOptions
+        this.workItemFilterOptions,
+        this.compareMode,
+        this.replaceTaskWithParent
       );
 
       await buildChangeFactory.fetchChangesData();
@@ -2291,7 +2363,9 @@ export default class ChangeDataFactory {
           this.requestedByBuild,
           this.includeUnlinkedCommits,
           this.formattingSettings,
-          this.workItemFilterOptions
+          this.workItemFilterOptions,
+          this.compareMode,
+          this.replaceTaskWithParent
         );
         const buildCacheKey = `${key}|Build|${this.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
         let mergedChanges: any[] = [];
@@ -2535,7 +2609,12 @@ export default class ChangeDataFactory {
 
           let affectedArtifacts = 0;
           let removedChangesTotal = 0;
-          const filteredChangesArray = this.rawChangesArray.map((item: any) => {
+          // Optionally replace Task with parent Requirement (1 level) before filtering
+          const baseArray = this.replaceTaskWithParent
+            ? await this.applyTaskParentReplacement(this.rawChangesArray)
+            : this.rawChangesArray;
+
+          const filteredChangesArray = baseArray.map((item: any) => {
             const originalCount = item?.changes?.length || 0;
             const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
             const filteredCount = filteredChanges.length;

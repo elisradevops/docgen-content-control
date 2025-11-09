@@ -187,6 +187,7 @@ export default class DgContentControls {
             contentControlOptions.data.workItemFilterOptions,
             contentControlOptions.data.requestedByBuild,
             contentControlOptions.data.includeUnlinkedCommits,
+            contentControlOptions.data.replaceTaskWithParent,
             contentControlOptions.data.compareMode
           );
           break;
@@ -979,6 +980,7 @@ export default class DgContentControls {
     workItemFilterOptions: any = null,
     requestedByBuild: boolean = false,
     includeUnlinkedCommits: boolean = false,
+    replaceTaskWithParent: boolean = false,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive'
   ) {
     let adoptedChangesData;
@@ -1020,7 +1022,8 @@ export default class DgContentControls {
         includeUnlinkedCommits,
         this.formattingSettings,
         workItemFilterOptions,
-        compareMode
+        compareMode,
+        replaceTaskWithParent
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
