@@ -1,4 +1,5 @@
 import logger from '../services/logger';
+import { COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
 
 export default class TraceByLinkedRequirementAdapter {
   rawMapping: any;
@@ -14,8 +15,8 @@ export default class TraceByLinkedRequirementAdapter {
   adoptSkinData() {
     try {
       this.adoptedData = [];
-      const reqColors = ['DBE5F1', 'FFFFFF'];
-      const testColors = ['DBE5F1', 'FFFFFF'];
+      const reqColors = [COLOR_REQ_SYS, 'FFFFFF'];
+      const testColors = [COLOR_TEST_SOFT, 'FFFFFF'];
       const baseShading = { color: 'auto' };
       let groupIdx = 0;
 

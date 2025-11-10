@@ -2,6 +2,7 @@ import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
 import RichTextDataFactory from './RichTextDataFactory';
 import AttachmentsDataFactory from './AttachmentsDataFactory';
 import logger from '../services/logger';
+import { COLOR_REQ_SYS, COLOR_TEST_SOFT, buildGroupedHeader } from '../utils/tablePresentation';
 import HtmlUtils from '../services/htmlUtils';
 import TraceQueryResultsSkinAdapter from '../adapters/TraceQueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
@@ -420,7 +421,11 @@ export default class TestDataFactory {
 
               linkedRequirementTraceSkinAdapter.adoptSkinData();
               const adoptedData = linkedRequirementTraceSkinAdapter.getAdoptedData();
-              adoptedTestData[adoptedDataKey] = { title, adoptedData };
+              const groupedHeader =
+                type === 'req-test'
+                  ? buildGroupedHeader('Requirement', 'Test Case', COLOR_REQ_SYS, COLOR_TEST_SOFT)
+                  : buildGroupedHeader('Test Case', 'Requirement', COLOR_TEST_SOFT, COLOR_REQ_SYS);
+              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
             }
@@ -466,7 +471,11 @@ export default class TestDataFactory {
 
               queryResultSkinAdapter.adoptSkinData();
               const adoptedData = queryResultSkinAdapter.getAdoptedData();
-              adoptedTestData[adoptedDataKey] = { title, adoptedData };
+              const groupedHeader =
+                type === 'req-test'
+                  ? buildGroupedHeader('Requirement', 'Test Case', COLOR_REQ_SYS, COLOR_TEST_SOFT)
+                  : buildGroupedHeader('Test Case', 'Requirement', COLOR_TEST_SOFT, COLOR_REQ_SYS);
+              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
             }
@@ -484,23 +493,28 @@ export default class TestDataFactory {
             this.testDataRaw.suites[0].temp.level === 1 &&
             (this.testDataRaw.suites.length === 1 || // Single suite case
               (this.testDataRaw.suites.length > 1 && // Multiple suites but only one at level 1
-                this.testDataRaw.suites.filter(suite => suite.temp.level === 1).length === 1));
+                this.testDataRaw.suites.filter((suite) => suite.temp.level === 1).length === 1));
 
           if (shouldFlattenSingleSuite) {
             const parentSuite = this.testDataRaw.suites[0];
             const hasTestCases = parentSuite.testCases && parentSuite.testCases.length > 0;
             const hasChildSuites = this.testDataRaw.suites.length > 1;
-            
+
             logger.debug(
               `[jsonSkinDataAdpater] Enhanced flattening enabled: Single level 1 suite detected (ID: ${parentSuite.temp.id}), ` +
-              `has ${hasTestCases ? parentSuite.testCases.length : 0} test cases and ${hasChildSuites ? this.testDataRaw.suites.length - 1 : 0} child suites. ` +
-              `Skipping parent suite header and promoting all child levels by 1.`
+                `has ${hasTestCases ? parentSuite.testCases.length : 0} test cases and ${
+                  hasChildSuites ? this.testDataRaw.suites.length - 1 : 0
+                } child suites. ` +
+                `Skipping parent suite header and promoting all child levels by 1.`
             );
 
             // Promote all child suite levels by 1 (reduce level by 1)
             if (hasChildSuites) {
               for (let i = 1; i < this.testDataRaw.suites.length; i++) {
-                this.testDataRaw.suites[i].temp.level = Math.max(1, this.testDataRaw.suites[i].temp.level - 1);
+                this.testDataRaw.suites[i].temp.level = Math.max(
+                  1,
+                  this.testDataRaw.suites[i].temp.level - 1
+                );
               }
             }
           }
@@ -568,7 +582,10 @@ export default class TestDataFactory {
                           value: descriptionRichText || 'No description',
                         },
                       ],
-                      level: shouldFlattenSingleSuite && suiteIndex === 0 ? suite.temp.level : suite.temp.level + 1,
+                      level:
+                        shouldFlattenSingleSuite && suiteIndex === 0
+                          ? suite.temp.level
+                          : suite.temp.level + 1,
                     };
 
                     // Helper function to check if all the values in the array are among the target values
@@ -835,7 +852,11 @@ export default class TestDataFactory {
                 );
               } else if (shouldFlattenSingleSuite && suiteIndex > 0) {
                 logger.debug(
-                  `[jsonSkinDataAdpater] Child suite processing complete: Suite ${suite.temp.id} level promoted to ${suite.temp.level}, ${testCases.length} test cases at level ${suite.temp.level + 1}`
+                  `[jsonSkinDataAdpater] Child suite processing complete: Suite ${
+                    suite.temp.id
+                  } level promoted to ${suite.temp.level}, ${testCases.length} test cases at level ${
+                    suite.temp.level + 1
+                  }`
                 );
               }
 

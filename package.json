@@ -20,7 +20,7 @@
   "dependencies": {
     "-": "0.0.1",
     "@elisra-devops/docgen-data-provider": "^1.63.2",
-    "@elisra-devops/docgen-skins": "^0.21.0",
+    "@elisra-devops/docgen-skins": "^0.22.0",
     "@types/html-minifier-terser": "^7.0.2",
     "axios": "^1.7.2",
     "cheerio": "^1.0.0",
