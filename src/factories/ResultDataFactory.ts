@@ -1,5 +1,6 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
 import logger from '../services/logger';
+import { COLOR_TEST_SOFT, COLOR_PCR, buildGroupedHeader } from '../utils/tablePresentation';
 import TestResultGroupSummaryDataSkinAdapter from '../adapters/TestResultGroupSummaryDataSkinAdapter';
 import TestResultsSummaryDataSkinAdapter from '../adapters/TestResultsSummaryDataSkinAdapter';
 import DetailedResultsSummaryDataSkinAdapter from '../adapters/DetailedResultsSummaryDataSkinAdapter';
@@ -254,7 +255,11 @@ export default class ResultDataFactory {
 
               linkedPcrSkinAdapter.adoptSkinData();
               const adoptedData = linkedPcrSkinAdapter.getAdoptedData();
-              adoptedTestResultData[adoptedDataKey] = { title, adoptedData };
+              const groupedHeader =
+                type === 'test-to-open-pcr'
+                  ? buildGroupedHeader('Test Case', 'Open PCR', COLOR_TEST_SOFT, COLOR_PCR)
+                  : buildGroupedHeader('Open PCR', 'Test Case', COLOR_PCR, COLOR_TEST_SOFT);
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestResultData[adoptedDataKey] = { title, adoptedData: null };
             }
@@ -296,7 +301,21 @@ export default class ResultDataFactory {
 
               queryResultSkinAdapter.adoptSkinData();
               const adoptedData = queryResultSkinAdapter.getAdoptedData();
-              adoptedTestResultData[adoptedDataKey] = { title, adoptedData };
+              const groupedHeader =
+                type === 'test-to-open-pcr'
+                  ? {
+                      leftLabel: 'Test Case',
+                      rightLabel: 'Open PCR',
+                      leftShading: { color: 'auto', fill: 'E4DFEC' },
+                      rightShading: { color: 'auto', fill: 'DBE5F1' },
+                    }
+                  : {
+                      leftLabel: 'Open PCR',
+                      rightLabel: 'Test Case',
+                      leftShading: { color: 'auto', fill: 'DBE5F1' },
+                      rightShading: { color: 'auto', fill: 'E4DFEC' },
+                    };
+              adoptedTestResultData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestResultData[adoptedDataKey] = { title, adoptedData: null };
             }

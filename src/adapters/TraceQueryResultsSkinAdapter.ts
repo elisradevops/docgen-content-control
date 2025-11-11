@@ -1,4 +1,5 @@
 import logger from '../services/logger';
+import { COLOR_REQ_SYS, COLOR_TEST_SOFT, normalizeFieldName } from '../utils/tablePresentation';
 
 export default class TraceQueryResultsSkinAdapter {
   rawQueryMapping: any;
@@ -27,8 +28,8 @@ export default class TraceQueryResultsSkinAdapter {
   adoptSkinData() {
     try {
       this.adoptedData = [];
-      const reqColors = ['DBE5F1', 'FFFFFF'];
-      const testColors = ['DBE5F1', 'FFFFFF'];
+      const reqColors = [COLOR_REQ_SYS, 'FFFFFF'];
+      const testColors = [COLOR_TEST_SOFT, 'FFFFFF'];
       const baseShading = { color: 'auto' };
       let groupIdx = 0;
 
@@ -83,13 +84,9 @@ export default class TraceQueryResultsSkinAdapter {
 
     // Process other fields
     for (const [referenceName, fieldName] of mapToUse.entries()) {
-      // Skip 'Title' and 'Work Item Type' as per original logic
-      if (
-        fieldName === 'Title' ||
-        fieldName === 'Work Item Type' ||
-        fieldName === 'System.WorkItemType' ||
-        fieldName === 'ID'
-      ) {
+      const displayName = normalizeFieldName(fieldName);
+      // Skip 'Title' and 'Work Item Type'; never include ID as a regular column
+      if (displayName === 'Title' || displayName === 'Work Item Type' || displayName === 'ID') {
         continue;
       }
       // Skip common columns if only one instance is allowed
@@ -102,10 +99,10 @@ export default class TraceQueryResultsSkinAdapter {
         continue;
       }
 
-      switch (fieldName) {
+      switch (displayName) {
         case 'Priority': {
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value: item?.fields[referenceName] || '',
             width: '6.5%',
             color: color,
@@ -114,14 +111,14 @@ export default class TraceQueryResultsSkinAdapter {
         }
         case 'Assigned To':
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value: item?.fields[referenceName]?.displayName || '',
             color: color,
           });
           break;
         case 'Customer ID':
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value: item?.fields[referenceName] || '',
             color: color,
             width: '9.7%',
@@ -138,7 +135,7 @@ export default class TraceQueryResultsSkinAdapter {
           break;
         default:
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value:
               typeof item?.fields[referenceName] === 'object'
                 ? item?.fields[referenceName]?.displayName || ''

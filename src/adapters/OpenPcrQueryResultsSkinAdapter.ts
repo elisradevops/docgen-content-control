@@ -1,4 +1,5 @@
 import logger from '../services/logger';
+import { COLOR_PCR, COLOR_TEST_SOFT, normalizeFieldName } from '../utils/tablePresentation';
 
 export default class OpenPcrQueryResultsSkinAdapter {
   rawQueryMapping: any;
@@ -20,8 +21,8 @@ export default class OpenPcrQueryResultsSkinAdapter {
   adoptSkinData() {
     try {
       this.adoptedData = [];
-      const reqColors = ['DBE5F1', 'FFFFFF'];
-      const testColors = ['DBE5F1', 'FFFFFF'];
+      const reqColors = [COLOR_PCR, 'FFFFFF'];
+      const testColors = [COLOR_TEST_SOFT, 'FFFFFF'];
       const baseShading = { color: 'auto' };
       let groupIdx = 0;
 
@@ -92,11 +93,14 @@ export default class OpenPcrQueryResultsSkinAdapter {
 
     // Process other fields
     for (const [referenceName, fieldName] of mapToUse.entries()) {
-      // Skip 'Title' and 'Work Item Type' as per original logic
+      // Normalize field display name
+      const displayName = normalizeFieldName(fieldName);
+
+      // Skip 'Title' and, for Test Case only, 'Work Item Type'; never include ID as a regular column
       if (
-        fieldName === 'Title' ||
-        (type === 'Test Case' && fieldName === 'Work Item Type') ||
-        fieldName === 'ID'
+        displayName === 'Title' ||
+        (type === 'Test Case' && displayName === 'Work Item Type') ||
+        displayName === 'ID'
       ) {
         continue;
       }
@@ -106,10 +110,10 @@ export default class OpenPcrQueryResultsSkinAdapter {
         continue;
       }
 
-      switch (fieldName) {
+      switch (displayName) {
         case 'Priority': {
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value: item?.fields[referenceName] || '',
             width: '6.5%',
             color: color,
@@ -118,7 +122,7 @@ export default class OpenPcrQueryResultsSkinAdapter {
         }
         case 'Assigned To':
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value: item?.fields[referenceName]?.displayName || '',
             color: color,
           });
@@ -133,7 +137,7 @@ export default class OpenPcrQueryResultsSkinAdapter {
           break;
         default:
           adaptedFields.push({
-            name: fieldName,
+            name: displayName,
             value:
               typeof item?.fields[referenceName] === 'object'
                 ? item?.fields[referenceName]?.displayName || ''

@@ -1,4 +1,5 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import { COLOR_REQ_SYS, COLOR_TEST_SOFT, buildGroupedHeader } from '../utils/tablePresentation';
 import logger from '../services/logger';
 import RequirementDataSkinAdapter from '../adapters/RequirementDataSkinAdapter';
 import TraceAnalysisRequirementsAdapter from '../adapters/TraceAnalysisRequirementsAdapter';
@@ -216,6 +217,7 @@ export default class RequirementsDataFactory {
           const traceAdoptedData = traceAdapter.getAdoptedData();
           adoptedRequirementsData['sysReqToSoftReqAdoptedData'] = {
             adoptedData: traceAdoptedData,
+            groupedHeader: buildGroupedHeader('System', 'Software', COLOR_REQ_SYS, COLOR_TEST_SOFT),
           };
         } else {
           adoptedRequirementsData['sysReqToSoftReqAdoptedData'] = {
@@ -243,6 +245,7 @@ export default class RequirementsDataFactory {
           const traceAdoptedData = traceAdapter.getAdoptedData();
           adoptedRequirementsData['softReqToSysReqAdoptedData'] = {
             adoptedData: traceAdoptedData,
+            groupedHeader: buildGroupedHeader('Software', 'System', COLOR_TEST_SOFT, COLOR_REQ_SYS),
           };
         } else {
           adoptedRequirementsData['softReqToSysReqAdoptedData'] = {
