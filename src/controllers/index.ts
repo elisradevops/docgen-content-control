@@ -1100,6 +1100,31 @@ export default class DgContentControls {
             );
             contentControls.push({ title: element.contentControl, wordObjects: installationSkin });
             break;
+          case 'release-range-content-control': {
+            const wiData = [
+              {
+                fields: element.data,
+                Source: 0,
+                level: 0,
+              },
+            ];
+            const inheritedStyles = {
+              ...styles,
+              Font: null,
+              Size: 0,
+            };
+            const rangeSkins = await this.skins.addNewContentToDocumentSkin(
+              element.contentControl,
+              this.skins.SKIN_TYPE_COVER_PAGE,
+              wiData,
+              headerStyles,
+              inheritedStyles,
+              headingLevel
+            );
+            const flatRangeSkins = ([] as any[]).concat(...rangeSkins);
+            contentControls.push({ title: element.contentControl, wordObjects: flatRangeSkins });
+            break;
+          }
           default:
             const skin = await this.skins.addNewContentToDocumentSkin(
               element.contentControl,
