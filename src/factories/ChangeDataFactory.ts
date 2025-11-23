@@ -120,7 +120,7 @@ export default class ChangeDataFactory {
       if (this.serviceGroupsByKey === undefined) {
         this.serviceGroupsByKey = new Map<string, ArtifactChangesGroup>();
       }
-      
+
       const svdId = Math.random().toString(36).slice(2, 8);
       const svdStart = Date.now();
       logger.info(
@@ -132,7 +132,21 @@ export default class ChangeDataFactory {
         this.teamProject
       );
       const releaseComponentsCount = recentReleaseArtifactInfo?.length || 0;
-      logger.info(`[SVD ${svdId}] release-components: items=${releaseComponentsCount}${releaseComponentsCount > 0 ? '' : ' (skipped)'}`);
+      logger.info(
+        `[SVD ${svdId}] release-components: items=${releaseComponentsCount}${
+          releaseComponentsCount > 0 ? '' : ' (skipped)'
+        }`
+      );
+      const releaseRangeData = await this.jsonSkinDataAdapter('release-range', {
+        pipelinesDataProvider,
+      });
+      if (releaseRangeData && releaseRangeData.length > 0) {
+        this.adoptedChangeData.push({
+          contentControl: 'release-range-content-control',
+          data: releaseRangeData,
+          skin: 'release-range-skin',
+        });
+      }
       if (releaseComponentsCount > 0) {
         this.adoptedChangeData.push({
           contentControl: 'release-components-content-control',
@@ -144,7 +158,9 @@ export default class ChangeDataFactory {
       // 2) Fetch System Overview data (by WIQL) for system-overview content control
       const queryResultData = await this.fetchQueryResults();
       const sysOverviewCount = queryResultData.systemOverviewQueryData?.length || 0;
-      logger.info(`[SVD ${svdId}] system-overview: items=${sysOverviewCount}${sysOverviewCount > 0 ? '' : ' (skipped)'}`);
+      logger.info(
+        `[SVD ${svdId}] system-overview: items=${sysOverviewCount}${sysOverviewCount > 0 ? '' : ' (skipped)'}`
+      );
       if (sysOverviewCount > 0) {
         this.adoptedChangeData.push({
           contentControl: 'system-overview-content-control',
@@ -159,14 +175,16 @@ export default class ChangeDataFactory {
       this.includedWorkItemByIdSet.clear();
       const artifactsCount = this.rawChangesArray.length;
       const linkedTotal = this.rawChangesArray.reduce(
-        (acc: number, a: any) => acc + ((a.changes?.length) || 0),
+        (acc: number, a: any) => acc + (a.changes?.length || 0),
         0
       );
       const unlinkedTotal = this.rawChangesArray.reduce(
-        (acc: number, a: any) => acc + ((a.nonLinkedCommits?.length) || 0),
+        (acc: number, a: any) => acc + (a.nonLinkedCommits?.length || 0),
         0
       );
-      logger.info(`[SVD ${svdId}] changes fetched: artifacts=${artifactsCount}, linked=${linkedTotal}, unlinked=${unlinkedTotal}`);
+      logger.info(
+        `[SVD ${svdId}] changes fetched: artifacts=${artifactsCount}, linked=${linkedTotal}, unlinked=${unlinkedTotal}`
+      );
       if (this.rawChangesArray.length > 0) {
         this.adoptedChangeData.push({
           contentControl: 'required-states-and-modes',
@@ -213,7 +231,9 @@ export default class ChangeDataFactory {
           });
         }
       }
-      logger.info(`[SVD ${svdId}] done in ${Date.now() - svdStart}ms, contentControls=${this.adoptedChangeData.length}`);
+      logger.info(
+        `[SVD ${svdId}] done in ${Date.now() - svdStart}ms, contentControls=${this.adoptedChangeData.length}`
+      );
     } catch (error: any) {
       logger.error(`could not fetch svd data:
         ${error.message}`);
@@ -948,7 +968,17 @@ export default class ChangeDataFactory {
                   const a = sorted[t].idx;
                   const b = sorted[t + 1].idx;
                   if (b > a + 1) {
-                    await this.processGap(a, b, k, releasesList, artifactGroupsByKey, artifactWiSets, gitDataProvider, jfrogDataProvider, pipelinesDataProvider);
+                    await this.processGap(
+                      a,
+                      b,
+                      k,
+                      releasesList,
+                      artifactGroupsByKey,
+                      artifactWiSets,
+                      gitDataProvider,
+                      jfrogDataProvider,
+                      pipelinesDataProvider
+                    );
                   }
                 }
               }
@@ -1439,7 +1469,8 @@ export default class ChangeDataFactory {
           }
           const prev = bestByWid.get(wid);
           const ts = new Date(item?.commit?.committer?.date || item?.commitDate || 0).getTime() || -Infinity;
-          const prevTs = new Date(prev?.commit?.committer?.date || prev?.commitDate || 0).getTime() || -Infinity;
+          const prevTs =
+            new Date(prev?.commit?.committer?.date || prev?.commitDate || 0).getTime() || -Infinity;
           if (!prev || ts >= prevTs) {
             bestByWid.set(wid, item);
           }
@@ -1799,9 +1830,7 @@ export default class ChangeDataFactory {
         servicesJsonFileGitPath
       );
       if (serviceJsonFile) {
-        logger.debug(
-          `services.json fetched successfully using ${cand.versionType} '${cand.version}'`
-        );
+        logger.debug(`services.json fetched successfully using ${cand.versionType} '${cand.version}'`);
         break;
       }
     }
@@ -2286,12 +2315,15 @@ export default class ChangeDataFactory {
     const artifactAlias = toRelArt.alias;
     let fromRelArt = fromArtifactMap.get(key);
     if (!fromRelArt) return;
-    if (fromRelArt.definitionReference['version'].name === toRelArt.definitionReference['version'].name) return;
+    if (fromRelArt.definitionReference['version'].name === toRelArt.definitionReference['version'].name)
+      return;
     const artifactDisplayName = this.getArtifactDisplayName(artifactType, toRelArt);
     try {
       if (artifactType === 'Git') {
         if (!artifactWiSets.has(key)) artifactWiSets.set(key, new Set<number>());
-        let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(toRelArt.definitionReference['definition'].id);
+        let gitRepo = await gitDataProvider.GetGitRepoFromRepoId(
+          toRelArt.definitionReference['definition'].id
+        );
         const gitCacheKey = `${key}|Git|${gitRepo.url}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
         let allExtendedCommits: any[] = [];
         let commitsWithNoRelations: any[] = [];
@@ -2316,10 +2348,19 @@ export default class ChangeDataFactory {
           );
           allExtendedCommits = res.allExtendedCommits || [];
           commitsWithNoRelations = res.commitsWithNoRelations || [];
-          this.pairCompareCache.set(gitCacheKey, { linked: allExtendedCommits, unlinked: commitsWithNoRelations });
+          this.pairCompareCache.set(gitCacheKey, {
+            linked: allExtendedCommits,
+            unlinked: commitsWithNoRelations,
+          });
         }
-        const uniqueLinked = this.takeNewCommits(key, allExtendedCommits.map((c) => ({ ...c })));
-        const uniqueUnlinked = this.takeNewCommits(key, commitsWithNoRelations.map((c) => ({ ...c })));
+        const uniqueLinked = this.takeNewCommits(
+          key,
+          allExtendedCommits.map((c) => ({ ...c }))
+        );
+        const uniqueUnlinked = this.takeNewCommits(
+          key,
+          commitsWithNoRelations.map((c) => ({ ...c }))
+        );
         uniqueLinked.forEach((c: any) => {
           c.releaseVersion = releaseVersion;
           c.releaseRunDate = releaseRunDate;
@@ -2329,7 +2370,11 @@ export default class ChangeDataFactory {
           c.releaseRunDate = releaseRunDate;
         });
         if (!artifactGroupsByKey.has(key)) {
-          artifactGroupsByKey.set(key, { artifact: { name: artifactDisplayName }, changes: [], nonLinkedCommits: [] });
+          artifactGroupsByKey.set(key, {
+            artifact: { name: artifactDisplayName },
+            changes: [],
+            nonLinkedCommits: [],
+          });
         }
         const agg = artifactGroupsByKey.get(key)!;
         agg.changes.push(...uniqueLinked);
@@ -2383,10 +2428,20 @@ export default class ChangeDataFactory {
           });
           this.pairCompareCache.set(buildCacheKey, { linked: mergedChanges, unlinked: mergedNoLink });
         }
-        const uniqueMergedChanges = this.takeNewCommits(key, mergedChanges.map((c) => ({ ...c, releaseVersion, releaseRunDate })));
-        const uniqueMergedNoLink = this.takeNewCommits(key, mergedNoLink.map((c) => ({ ...c, releaseVersion, releaseRunDate })));
+        const uniqueMergedChanges = this.takeNewCommits(
+          key,
+          mergedChanges.map((c) => ({ ...c, releaseVersion, releaseRunDate }))
+        );
+        const uniqueMergedNoLink = this.takeNewCommits(
+          key,
+          mergedNoLink.map((c) => ({ ...c, releaseVersion, releaseRunDate }))
+        );
         if (!artifactGroupsByKey.has(key)) {
-          artifactGroupsByKey.set(key, { artifact: { name: artifactDisplayName }, changes: [], nonLinkedCommits: [] });
+          artifactGroupsByKey.set(key, {
+            artifact: { name: artifactDisplayName },
+            changes: [],
+            nonLinkedCommits: [],
+          });
         }
         const agg = artifactGroupsByKey.get(key)!;
         agg.changes.push(...uniqueMergedChanges);
@@ -2412,7 +2467,12 @@ export default class ChangeDataFactory {
           return;
         }
         try {
-          fromCiUrl = await this.getCachedJfrogCiUrl(jfrogDataProvider, jFrogUrl, fromBuildName, fromBuildVersion);
+          fromCiUrl = await this.getCachedJfrogCiUrl(
+            jfrogDataProvider,
+            jFrogUrl,
+            fromBuildName,
+            fromBuildVersion
+          );
           if (fromCiUrl === '') return;
         } catch (e: any) {
           return;
@@ -2473,7 +2533,11 @@ export default class ChangeDataFactory {
           this.pairCompareCache.set(jfrogCacheKey, { linked: mergedChanges, unlinked: mergedNoLink });
         }
         if (!artifactGroupsByKey.has(key)) {
-          artifactGroupsByKey.set(key, { artifact: { name: artifactDisplayName }, changes: [], nonLinkedCommits: [] });
+          artifactGroupsByKey.set(key, {
+            artifact: { name: artifactDisplayName },
+            changes: [],
+            nonLinkedCommits: [],
+          });
         }
         const agg = artifactGroupsByKey.get(key)!;
         const clonedLinked = mergedChanges.map((c) => ({ ...c }));
@@ -2493,7 +2557,9 @@ export default class ChangeDataFactory {
         );
       }
     } catch (err: any) {
-      logger.error(`Gap compare failed for ${artifactAlias} (${artifactType}) ${fromRelease.id}->${toRelease.id}: ${err.message}`);
+      logger.error(
+        `Gap compare failed for ${artifactAlias} (${artifactType}) ${fromRelease.id}->${toRelease.id}: ${err.message}`
+      );
     }
   }
 
@@ -2510,7 +2576,12 @@ export default class ChangeDataFactory {
         const a = servicesPresentIdx[s];
         const b = servicesPresentIdx[s + 1];
         if (b > a + 1) {
-          await this.handleServiceJsonFile(releasesList[a], releasesList[b], this.teamProject, gitDataProvider);
+          await this.handleServiceJsonFile(
+            releasesList[a],
+            releasesList[b],
+            this.teamProject,
+            gitDataProvider
+          );
         }
       }
     }
@@ -2565,6 +2636,59 @@ export default class ChangeDataFactory {
     let adoptedData = undefined;
     try {
       switch (adapterType) {
+        case 'release-range':
+          {
+            let fromReleaseName = '';
+            let toReleaseName = '';
+
+            if (this.rangeType === 'release') {
+              try {
+                const pipelinesDataProvider =
+                  rawData?.pipelinesDataProvider ||
+                  (await this.dgDataProviderAzureDevOps.getPipelinesDataProvider());
+                const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+                  this.teamProject,
+                  Number(this.from)
+                );
+                const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+                  this.teamProject,
+                  Number(this.to)
+                );
+                fromReleaseName = fromRelease?.name || '';
+                toReleaseName = toRelease?.name || '';
+              } catch (e: any) {
+                logger.warn(
+                  `jsonSkinDataAdapter: 'release-range' failed to resolve release names: ${e.message}`
+                );
+              }
+            }
+
+            // For release-based ranges, show the Version range text.
+            if (this.rangeType === 'release' && (fromReleaseName || toReleaseName)) {
+              const value = `Version\nv${fromReleaseName} to v${toReleaseName}`;
+              adoptedData = [
+                {
+                  // Use an empty name so this field is treated as a regular paragraph
+                  // (JSONParagraph) rather than a rich-text Description field.
+                  // This prevents it from being filtered out and lets the
+                  // Version range text render as normal runs.
+                  name: '',
+                  value,
+                },
+              ];
+            } else {
+              // For non-release range types (or if names could not be resolved),
+              // emit a single empty field so the content control is still
+              // processed and effectively removed from the document.
+              adoptedData = [
+                {
+                  name: '',
+                  value: '',
+                },
+              ];
+            }
+          }
+          break;
         case 'release-components':
           const releaseComponentDataRawAdapter = new ReleaseComponentDataSkinAdapter();
           adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
@@ -2591,7 +2715,7 @@ export default class ChangeDataFactory {
         case 'changes':
           const artifactsCount = this.rawChangesArray.length;
           const totalChangesBefore = this.rawChangesArray.reduce(
-            (acc: number, item: any) => acc + ((item.changes?.length) || 0),
+            (acc: number, item: any) => acc + (item.changes?.length || 0),
             0
           );
           const sampleNames = this.rawChangesArray
@@ -2629,7 +2753,7 @@ export default class ChangeDataFactory {
           });
 
           const totalChangesAfter = filteredChangesArray.reduce(
-            (acc: number, i: any) => acc + ((i.changes?.length) || 0),
+            (acc: number, i: any) => acc + (i.changes?.length || 0),
             0
           );
           logger.info(
@@ -2637,7 +2761,9 @@ export default class ChangeDataFactory {
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
           const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
-          logger.info(`jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`);
+          logger.info(
+            `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
+          );
           let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
             displayChangesArray,
             this.includeChangeDescription,
