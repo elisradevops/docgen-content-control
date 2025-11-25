@@ -22,8 +22,26 @@ jest.mock('@elisra-devops/docgen-data-provider');
 jest.mock('../../services/htmlUtils');
 jest.mock('../../factories/RichTextDataFactory');
 jest.mock('../../factories/AttachmentsDataFactory');
-jest.mock('../../adapters/TraceQueryResultsSkinAdapter');
-jest.mock('../../adapters/TraceByLinkedRequirementAdapter');
+jest.mock('../../adapters/TraceQueryResultsSkinAdapter', () => {
+  return jest.fn().mockImplementation((queryResults, type, includeCustomerId, includeCommonColumnsMode) => ({
+    adoptSkinData: jest.fn(),
+    getAdoptedData: jest.fn().mockReturnValue([
+      {
+        type,
+        includeCustomerId,
+        mode: includeCommonColumnsMode,
+        items: queryResults || [],
+      },
+    ]),
+  }));
+});
+
+jest.mock('../../adapters/TraceByLinkedRequirementAdapter', () => {
+  return jest.fn().mockImplementation((mapData, type) => ({
+    adoptSkinData: jest.fn(),
+    getAdoptedData: jest.fn().mockReturnValue([{ type, count: mapData ? mapData.size || 0 : 0 }]),
+  }));
+});
 jest.mock('../../services/logger');
 
 describe('TestDataFactory', () => {
@@ -103,6 +121,11 @@ describe('TestDataFactory', () => {
     minioSecretKey: 'minio-secret-key',
     PAT: 'personal-access-token',
     stepResultDetailsMap: new Map(),
+    formattingSettings: {
+      trimAdditionalSpacingInDescriptions: false,
+      trimAdditionalSpacingInTables: false,
+    },
+    flatSuiteTestCases: false,
   });
 
   const createTestDataFactory = (params) =>
@@ -127,14 +150,16 @@ describe('TestDataFactory', () => {
       params.minioAccessKey,
       params.minioSecretKey,
       params.PAT,
-      params.stepResultDetailsMap
+      params.stepResultDetailsMap,
+      params.formattingSettings,
+      params.flatSuiteTestCases
     );
 
   beforeEach(() => {
     // Always recreate providers to ensure fresh mocks with proper implementations
     mockProviders = setupMockProviders();
     defaultParams = setupDefaultParams(mockProviders);
-    
+
     // Create test instance with fresh providers
     testDataFactory = createTestDataFactory(defaultParams);
 
@@ -224,6 +249,528 @@ describe('TestDataFactory', () => {
 
       expect(factory.isSuiteSpecific).toBe(true);
       expect(factory.testSuiteArray).toEqual([456]);
+    });
+  });
+
+  describe('jsonSkinDataAdpater and helper behaviors', () => {
+    test('jsonSkinDataAdpater should build linked-requirements-trace data for both directions', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      const reqMap = new Map<string, string[]>([['req1', ['tc1', 'tc2']]]);
+      const testMap = new Map<string, string[]>([['tc1', ['req1']]]);
+
+      (factory as any).requirementToTestCaseTraceMap = reqMap;
+      (factory as any).testCaseToRequirementsTraceMap = testMap;
+
+      const result = await (factory as any).jsonSkinDataAdpater('linked-requirements-trace');
+
+      expect(result.reqTestAdoptedData).toBeDefined();
+      expect(result.reqTestAdoptedData.adoptedData[0]).toEqual({ type: 'req-test', count: 1 });
+      expect(result.reqTestAdoptedData.title.fields[0].value).toContain('Requirements to Test cases');
+
+      expect(result.testReqAdoptedData).toBeDefined();
+      expect(result.testReqAdoptedData.adoptedData[0]).toEqual({ type: 'test-req', count: 1 });
+      expect(result.testReqAdoptedData.title.fields[0].value).toContain('Test cases to Requirement');
+    });
+
+    test('jsonSkinDataAdpater should return null adoptedData when linked-requirements-trace maps are missing', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      // Leave requirementToTestCaseTraceMap and testCaseToRequirementsTraceMap undefined
+      (factory as any).requirementToTestCaseTraceMap = undefined;
+      (factory as any).testCaseToRequirementsTraceMap = undefined;
+
+      const result = await (factory as any).jsonSkinDataAdpater('linked-requirements-trace');
+
+      expect(result.reqTestAdoptedData).toBeDefined();
+      expect(result.reqTestAdoptedData.adoptedData).toBeNull();
+
+      expect(result.testReqAdoptedData).toBeDefined();
+      expect(result.testReqAdoptedData.adoptedData).toBeNull();
+    });
+
+    test('jsonSkinDataAdpater should build query-results data and grouped headers for both directions', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      (factory as any).reqTestQueryResults = [{ id: 'req1' }];
+      (factory as any).testReqQueryResults = [{ id: 'tc1' }];
+
+      const result = await (factory as any).jsonSkinDataAdpater('query-results', false, 'leftOnly');
+
+      const left = result.reqTestAdoptedData;
+      const right = result.testReqAdoptedData;
+
+      expect(left.title.fields[0].value).toContain('Requirements to Test cases');
+      expect(left.adoptedData[0].type).toBe('req-test');
+      expect(left.adoptedData[0].mode).toBe('leftOnly');
+
+      expect(right.title.fields[0].value).toContain('Test cases to Requirement');
+      expect(right.adoptedData[0].type).toBe('test-req');
+      expect(right.adoptedData[0].mode).toBe('leftOnly');
+    });
+
+    test('jsonSkinDataAdpater should return null adoptedData when query-results are missing', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      // Leave reqTestQueryResults and testReqQueryResults undefined
+      (factory as any).reqTestQueryResults = undefined;
+      (factory as any).testReqQueryResults = undefined;
+
+      const result = await (factory as any).jsonSkinDataAdpater('query-results', false, 'both');
+
+      expect(result.reqTestAdoptedData).toBeDefined();
+      expect(result.reqTestAdoptedData.adoptedData).toBeNull();
+
+      expect(result.testReqAdoptedData).toBeDefined();
+      expect(result.testReqAdoptedData.adoptedData).toBeNull();
+    });
+
+    test('jsonSkinDataAdpater default branch should honor flatSuiteTestCases and skip parent header', async () => {
+      const factory = createTestDataFactory({ ...defaultParams, flatSuiteTestCases: true } as any);
+
+      (factory as any).testDataRaw = {
+        suites: [
+          {
+            temp: { id: 1, name: 'Parent Suite', level: 1, url: 'url-1' },
+            testCases: [
+              {
+                id: 10,
+                title: 'TC 10',
+                url: 'tc-url',
+                description: 'desc',
+                steps: [],
+                attachmentsData: [],
+                relations: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      // Keep rich text factories simple
+      const result = await (factory as any).jsonSkinDataAdpater(null, false);
+
+      expect(Array.isArray(result)).toBe(true);
+      expect(result[0].suiteSkinData).toBeNull();
+      expect(result[0].testCases).toHaveLength(1);
+    });
+
+    test('jsonSkinDataAdpater default branch should flatten child suites and keep child headers', async () => {
+      const factory = createTestDataFactory({ ...defaultParams, flatSuiteTestCases: true } as any);
+
+      (factory as any).testDataRaw = {
+        suites: [
+          {
+            temp: { id: 1, name: 'Parent Suite', level: 1, url: 'url-1' },
+            testCases: [
+              {
+                id: 10,
+                title: 'TC 10',
+                url: 'tc-url',
+                description: 'parent-desc',
+                steps: [],
+                attachmentsData: [],
+                relations: [],
+              },
+            ],
+          },
+          {
+            temp: { id: 2, name: 'Child Suite', level: 2, url: 'url-2' },
+            testCases: [
+              {
+                id: 20,
+                title: 'TC 20',
+                url: 'tc20-url',
+                description: 'child-desc',
+                steps: [],
+                attachmentsData: [],
+                relations: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await (factory as any).jsonSkinDataAdpater(null, false);
+
+      expect(result).toHaveLength(2);
+
+      // Parent suite header is skipped but its test case is present
+      expect(result[0].suiteSkinData).toBeNull();
+      expect(result[0].testCases).toHaveLength(1);
+
+      // Child suite header is kept, and its level was promoted to 1
+      expect(result[1].suiteSkinData).toBeDefined();
+      expect(result[1].suiteSkinData.level).toBe(1);
+      expect(result[1].testCases).toHaveLength(1);
+    });
+
+    test('AdaptTestCaseRequirements should dispatch to query-based implementation when isByQuery=true', () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      const requirement = {
+        id: 1,
+        fields: {
+          'System.Title': 'Req1',
+          'Custom.CustomerId': 'C123',
+        },
+        _links: { html: { href: 'req-url' } },
+      };
+
+      (factory as any).includeCustomerId = true;
+      (factory as any).testCaseToRequirementsLookup = new Map([[789, new Set([requirement])]]);
+
+      const testCase = { id: 789 };
+      const items = (factory as any).AdaptTestCaseRequirements(testCase, true);
+
+      expect(items).toHaveLength(1);
+      const fields = items[0].fields;
+      expect(fields[1].name).toBe('Req ID');
+      expect(fields[2].name).toBe('Customer ID');
+      expect(fields[2].value).toBe('C123');
+      expect(fields[3].name).toBe('Req Title');
+    });
+
+    test('AdaptTestCaseRequirements should dispatch to relation-based implementation when isByQuery=false', () => {
+      const factory = createTestDataFactory(defaultParams);
+      (factory as any).includeCustomerId = true;
+
+      const testCase = {
+        relations: [
+          { type: 'requirement', id: 1, title: 'Req1', customerId: 'C999' },
+          { type: 'other', id: 2, title: 'Other' },
+        ],
+      };
+
+      const items = (factory as any).AdaptTestCaseRequirements(testCase, false);
+
+      expect(items).toHaveLength(1);
+      const fields = items[0].fields;
+      expect(fields[1].name).toBe('Req ID');
+      expect(fields[2].name).toBe('Customer ID');
+      expect(fields[2].value).toBe('C999');
+    });
+
+    test('adaptTestCaseMomRelation should filter and map supported relation types', () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      const testCase = {
+        relations: [
+          { type: 'Task', id: 1, title: 'Task1', url: 'u1', status: 'Active' },
+          { type: 'Bug', id: 2, title: 'Bug1', url: 'u2', status: 'New' },
+          { type: 'Unknown', id: 3, title: 'X', url: 'u3', status: 'Closed' },
+        ],
+      };
+
+      const items = (factory as any).adaptTestCaseMomRelation(testCase);
+
+      expect(items).toHaveLength(2);
+      expect(items[0].fields[2].value).toBe('Task');
+      expect(items[1].fields[2].value).toBe('Bug');
+    });
+
+    test('jsonSkinDataAdpater default branch should include MOM relations and test-level attachments with content', async () => {
+      const factory = createTestDataFactory({
+        ...defaultParams,
+        includeAttachmentContent: true,
+        linkedMomRequest: { linkedMomMode: 'relation' },
+      } as any);
+
+      (factory as any).testDataRaw = {
+        suites: [
+          {
+            temp: { id: 1, name: 'Suite with MOM', level: 2, url: 'url-1' },
+            testCases: [
+              {
+                id: 10,
+                title: 'TC with MOM and attachments',
+                url: 'tc-url',
+                description: 'desc',
+                steps: [],
+                attachmentsData: [
+                  {
+                    attachmentStepNo: '',
+                    attachmentComment: 'general',
+                    attachmentFileName: 'Spec.docx',
+                    attachmentLink: 'doc-link',
+                  },
+                  {
+                    attachmentStepNo: '',
+                    attachmentComment: '',
+                    attachmentFileName: 'Image.png',
+                    attachmentLink: 'img-link',
+                  },
+                ],
+                relations: [{ type: 'Task', id: 1, title: 'Task1', url: 'u1', status: 'Active' }],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await (factory as any).jsonSkinDataAdpater(null, false);
+
+      expect(Array.isArray(result)).toBe(true);
+      const testCaseData = result[0].testCases[0];
+
+      // Only non-doc attachments should appear in testCaseAttachments
+      expect(testCaseData.testCaseAttachments).toHaveLength(1);
+      expect(testCaseData.testCaseAttachments[0].fields[1]).toEqual(
+        expect.objectContaining({
+          name: 'Attachments',
+          attachmentType: defaultParams.attachmentType,
+        })
+      );
+
+      // Docx attachment content should be adapted at test-case level
+      expect(testCaseData.testCaseDocAttachmentsAdoptedData.testCaseLevel.length).toBeGreaterThan(0);
+
+      // MOM relations should be present via adaptTestCaseMomRelation
+      expect(testCaseData.testCaseLinkedMom).toBeDefined();
+      expect(testCaseData.testCaseLinkedMom.length).toBe(1);
+      expect(testCaseData.testCaseLinkedMom[0].fields[2].value).toBe('Task');
+    });
+
+    test('jsonSkinDataAdpater default branch should log and rethrow when per-test-case mapping fails', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      // Single suite and test case; force htmlUtils.cleanHtml to throw inside mapping
+      factory.testDataRaw = {
+        suites: [
+          {
+            temp: { id: 1, name: 'Suite', level: 2, url: 'url-1' },
+            testCases: [
+              {
+                id: 10,
+                title: 'TC 10',
+                url: 'tc-url',
+                description: 'desc',
+                steps: [],
+                attachmentsData: [],
+                relations: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      // Override htmlUtils on this factory instance to throw
+      factory.htmlUtils = {
+        cleanHtml: jest.fn().mockRejectedValue(new Error('boom-clean')),
+      } as any;
+
+      await expect(factory.jsonSkinDataAdpater(null, false)).rejects.toBeDefined();
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Error occurred while mapping test suite 1 test case 10 - boom-clean')
+      );
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('error stack '));
+    });
+
+    test('jsonSkinDataAdpater should handle test-result-group-summary case as no-op', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const result = await (factory as any).jsonSkinDataAdpater('test-result-group-summary');
+
+      expect(result).toEqual({});
+    });
+
+    test('findCustomerValue should locate customer field case-insensitively', () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const fieldsObj = {
+        'System.Title': 'Req1',
+        'Custom.CUSTOMER_ID': 'C777',
+      };
+
+      const value = factory.findCustomerValue(fieldsObj);
+      expect(value).toBe('C777');
+    });
+
+    test('insertCustomerField should insert Customer ID before Req Title', () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const fields = factory.buildRequirementFields({
+        index: 0,
+        requirementId: 1,
+        requirementTitle: 'Req1',
+        requirementUrl: 'url',
+      });
+
+      factory.insertCustomerField(fields, 'C555');
+
+      expect(fields[2]).toEqual({ name: 'Customer ID', value: 'C555', width: '18%' });
+      expect(fields[3].name).toBe('Req Title');
+    });
+
+    test('generateAttachmentData should log error and return undefined on failure', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      (AttachmentsDataFactory as jest.Mock).mockImplementationOnce(() => ({
+        fetchWiAttachments: jest.fn().mockRejectedValue(new Error('fail')),
+      }));
+
+      const result = await factory.generateAttachmentData(123);
+
+      expect(result).toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith('error fetching attachments data for test case 123');
+    });
+
+    test('generateAttachmentData should return attachments when fetchWiAttachments succeeds', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      (AttachmentsDataFactory as jest.Mock).mockImplementationOnce(() => ({
+        fetchWiAttachments: jest.fn().mockResolvedValue(['att1']),
+      }));
+
+      const result = await factory.generateAttachmentData(123, [{ id: 'run-att' }]);
+
+      expect(result).toEqual(['att1']);
+    });
+
+    test('jsonSkinDataAdpater default branch should log and rethrow when adaptation fails', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      await expect(factory.jsonSkinDataAdpater(null, false)).rejects.toBeDefined();
+
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Cannot adapt data of Test Data -'));
+    });
+
+    test('adaptTestCaseAttachmentContent should append subheader and file items for each doc attachment', () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const docAttachments = [
+        {
+          attachmentFileName: 'Spec One.DOCX',
+          attachmentLink: 'link1',
+        },
+        {
+          attachmentFileName: 'Design.doc',
+          attachmentLink: 'link2',
+        },
+      ];
+
+      const items: any[] = [];
+
+      (factory as any).adaptTestCaseAttachmentContent(docAttachments, items);
+
+      expect(items).toHaveLength(4);
+
+      expect(items[0]).toEqual(
+        expect.objectContaining({
+          type: 'SubHeader',
+          field: expect.objectContaining({
+            name: 'Title',
+            type: 'SubHeader',
+            value: expect.stringContaining('Attachment #1 Content - Spec One'),
+          }),
+        })
+      );
+
+      expect(items[1]).toEqual(
+        expect.objectContaining({
+          type: 'File',
+          attachmentLink: 'link1',
+          attachmentFileName: 'Spec One.DOCX',
+          attachmentType: defaultParams.attachmentType,
+        })
+      );
+
+      expect(items[2]).toEqual(
+        expect.objectContaining({
+          type: 'SubHeader',
+          field: expect.objectContaining({
+            value: expect.stringContaining('Attachment #2 Content - Design'),
+          }),
+        })
+      );
+
+      expect(items[3]).toEqual(
+        expect.objectContaining({
+          type: 'File',
+          attachmentLink: 'link2',
+          attachmentFileName: 'Design.doc',
+        })
+      );
+    });
+
+    test('adaptStepAttachmentContent should append step subheader and file items for each doc attachment', () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const step = { stepPosition: 3 };
+      const docAttachments = [
+        {
+          attachmentFileName: 'StepDoc.docx',
+          attachmentLink: 'step-link',
+        },
+      ];
+
+      const items: any[] = [];
+
+      (factory as any).adaptStepAttachmentContent(items, step, docAttachments);
+
+      expect(items).toHaveLength(3);
+
+      expect(items[0]).toEqual(
+        expect.objectContaining({
+          type: 'SubHeader',
+          field: expect.objectContaining({
+            value: 'Step #3 Attachments:',
+          }),
+        })
+      );
+
+      // Subheader for the specific attachment name
+      expect(items[1]).toEqual(
+        expect.objectContaining({
+          type: 'SubHeader',
+          field: expect.objectContaining({
+            name: 'Title',
+            type: 'SubHeader',
+            value: 'StepDoc',
+          }),
+        })
+      );
+
+      // File entry for the attachment content
+      expect(items[2]).toEqual(
+        expect.objectContaining({
+          type: 'File',
+          attachmentLink: 'step-link',
+          attachmentFileName: 'StepDoc.docx',
+          attachmentType: defaultParams.attachmentType,
+        })
+      );
+    });
+
+    test('fetchAttachmentData should use generateAttachmentData results to populate attachmentMinioData', async () => {
+      const factory = createTestDataFactory(defaultParams) as any;
+
+      const attachments = [
+        {
+          attachmentMinioPath: 'minio/path1',
+          minioFileName: 'file1.png',
+          ThumbMinioPath: 'thumb/path1',
+          minioThumbName: 'thumb1.png',
+        },
+      ];
+
+      factory.generateAttachmentData = jest.fn().mockResolvedValue(attachments);
+
+      const testCase = { id: 123 };
+      const result = await factory.fetchAttachmentData(testCase, []);
+
+      expect(result).toEqual(attachments);
+      expect(factory.attachmentMinioData).toEqual([
+        {
+          attachmentMinioPath: 'minio/path1',
+          minioFileName: 'file1.png',
+        },
+        {
+          attachmentMinioPath: 'thumb/path1',
+          minioFileName: 'thumb1.png',
+        },
+      ]);
     });
   });
 
@@ -414,6 +961,37 @@ describe('TestDataFactory', () => {
           expect.any(Array)
         );
       });
+
+      test('should handle suites where generateSuiteObject returns undefined by pushing empty testCases', async () => {
+        // Arrange: generateSuiteObject resolves to undefined for a suite
+        const factory = createTestDataFactory(defaultParams) as any;
+
+        // Basic plan/suite mocks
+        mockProviders.testDataProvider.GetTestPlans.mockResolvedValue({
+          count: 1,
+          value: [fixtures.testPlan],
+        });
+
+        mockProviders.testDataProvider.GetTestSuitesByPlan.mockResolvedValue([
+          { id: 456, name: 'Suite 456' },
+        ]);
+
+        mockProviders.testDataProvider.GetTestCasesBySuites.mockResolvedValue({
+          testCasesList: [fixtures.testCase],
+          requirementToTestCaseTraceMap: null,
+          testCaseToRequirementsTraceMap: null,
+        });
+
+        factory.generateSuiteObject = jest.fn().mockResolvedValue(undefined);
+
+        // Act
+        await factory.fetchTestData();
+
+        // Assert: suite entry exists but with empty testCases array
+        expect(factory.testDataRaw).toBeDefined();
+        expect(factory.testDataRaw.suites).toHaveLength(1);
+        expect(factory.testDataRaw.suites[0].testCases).toEqual([]);
+      });
     });
 
     describe('generateSuiteObject', () => {
@@ -456,6 +1034,35 @@ describe('TestDataFactory', () => {
         );
 
         expect(result).toBeUndefined();
+      });
+
+      test('should fetch run-level attachments when caseEvidenceAttachments are present', async () => {
+        const factory = createTestDataFactory(defaultParams) as any;
+
+        // Stub fetchAttachmentData so we can observe how it's called
+        factory.fetchAttachmentData = jest.fn().mockResolvedValue([{ name: 'att' }]);
+
+        const suite = { id: 456, name: 'Suite 456' };
+        const testCases = [
+          {
+            id: 789,
+            suit: 456,
+            title: 'TC with run attachments',
+            caseEvidenceAttachments: [{ id: 'ra1' }],
+          },
+        ];
+
+        const result = await factory.generateSuiteObject(suite, testCases);
+
+        expect(result).toHaveLength(1);
+        expect(result[0].attachmentsData).toHaveLength(2); // plan + run attachments
+
+        // We only really care that run-level attachments are requested once with the right args
+        expect(factory.fetchAttachmentData).toHaveBeenCalledTimes(2);
+        expect(factory.fetchAttachmentData).toHaveBeenCalledWith(
+          testCases[0],
+          testCases[0].caseEvidenceAttachments
+        );
       });
     });
   });
@@ -528,6 +1135,31 @@ describe('TestDataFactory', () => {
         expect(logger.error).toHaveBeenCalledWith(
           expect.stringContaining('Could not fetch linked requirements trace')
         );
+      });
+    });
+
+    describe('fetchLinkedMomResults', () => {
+      test('should fetch linked MOM results and populate lookup map', async () => {
+        // Configure linkedMomRequest to include a linkedMomQuery
+        testDataFactory.linkedMomRequest = {
+          linkedMomQuery: { wiql: { href: 'linked-mom-query-url' } },
+        } as any;
+
+        mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockImplementation(
+          async (_url, _includeLinks, map: Map<number, Set<any>>) => {
+            map.set(789, new Set([{ id: 1 }]));
+          }
+        );
+
+        await testDataFactory.fetchLinkedMomResults();
+
+        expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledWith(
+          'linked-mom-query-url',
+          true,
+          expect.any(Map)
+        );
+        expect(testDataFactory.testCaseToLinkedMomLookup).toBeInstanceOf(Map);
+        expect(testDataFactory.testCaseToLinkedMomLookup.size).toBe(1);
       });
     });
   });
