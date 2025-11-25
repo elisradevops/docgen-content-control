@@ -11,6 +11,7 @@ import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
 import NonAssociatedCommitsDataSkinAdapter from '../adapters/NonAssociatedCommitsDataSkinAdapter';
 
 export default class ChangeDataFactory {
+  //#region properties
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   teamProject: string;
   templatePath: string;
@@ -32,9 +33,9 @@ export default class ChangeDataFactory {
   tocTitle?: string;
   queriesRequest: any;
   includedWorkItemByIdSet: Set<number>;
-  private includedCommitIdsByArtifact: Map<string, Set<string>> = new Map();
   linkedWiOptions: any;
   requestedByBuild: boolean;
+  private includedCommitIdsByArtifact: Map<string, Set<string>> = new Map();
   private attachmentMinioData: any[]; //attachment data
   private attachmentsBucketName: string;
   private minioEndPoint: string;
@@ -51,6 +52,9 @@ export default class ChangeDataFactory {
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
   private replaceTaskWithParent: boolean = false;
+  //#endregion properties
+
+  //#region constructor
   constructor(
     teamProjectName,
     repoId: string,
@@ -114,8 +118,21 @@ export default class ChangeDataFactory {
     this.compareMode = compareMode || 'consecutive';
     this.replaceTaskWithParent = !!replaceTaskWithParent;
   } //constructor
+  // #endregion constructor
 
-  async fetchSvdData() {
+  // #region public methods
+
+  /**
+   * High-level orchestrator for building SVD (System Version Description) content.
+   *
+   * Workflow:
+   * 1. Fetch recent release artifacts and add release range / release components sections.
+   * 2. Fetch system overview / known bugs query results and adapt them into skins.
+   * 3. Fetch core change data (commits, PRs, builds, JFrog artifacts) into `rawChangesArray`.
+   * 4. Adapt the raw changes into the main changes table, installation instructions, bugs table,
+   *    and non-associated commits appendix, populating `adoptedChangeData`.
+   */
+  public async fetchSvdData() {
     try {
       if (this.serviceGroupsByKey === undefined) {
         this.serviceGroupsByKey = new Map<string, ArtifactChangesGroup>();
@@ -245,7 +262,7 @@ export default class ChangeDataFactory {
    * Fetch query results used by SVD (System Overview, Known Bugs).
    * Returns an object with optional properties: systemOverviewQueryData, systemOverviewLinksDebug, knownBugsQueryData.
    */
-  async fetchQueryResults(): Promise<any> {
+  public async fetchQueryResults(): Promise<any> {
     try {
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
       let queryResults = {};
@@ -287,6 +304,249 @@ export default class ChangeDataFactory {
     return [];
   }
 
+  /*arranging the test data for json skins package*/
+  public async jsonSkinDataAdapter(adapterType: string, rawData: any, allowBiggerThan500: boolean = false) {
+    logger.info(`adapting ${adapterType} data`);
+    let adoptedData = undefined;
+    try {
+      switch (adapterType) {
+        case 'release-range':
+          {
+            let fromReleaseName = '';
+            let toReleaseName = '';
+
+            if (this.rangeType === 'release') {
+              try {
+                const pipelinesDataProvider =
+                  rawData?.pipelinesDataProvider ||
+                  (await this.dgDataProviderAzureDevOps.getPipelinesDataProvider());
+                const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+                  this.teamProject,
+                  Number(this.from)
+                );
+                const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
+                  this.teamProject,
+                  Number(this.to)
+                );
+                fromReleaseName = fromRelease?.name || '';
+                toReleaseName = toRelease?.name || '';
+              } catch (e: any) {
+                logger.warn(
+                  `jsonSkinDataAdapter: 'release-range' failed to resolve release names: ${e.message}`
+                );
+              }
+            }
+
+            // For release-based ranges, show the Version range text.
+            if (this.rangeType === 'release' && (fromReleaseName || toReleaseName)) {
+              const value = `Version\nv${fromReleaseName} to v${toReleaseName}`;
+              adoptedData = [
+                {
+                  // Use an empty name so this field is treated as a regular paragraph
+                  // (JSONParagraph) rather than a rich-text Description field.
+                  // This prevents it from being filtered out and lets the
+                  // Version range text render as normal runs.
+                  name: '',
+                  value,
+                },
+              ];
+            } else {
+              // For non-release range types (or if names could not be resolved),
+              // emit a single empty field so the content control is still
+              // processed and effectively removed from the document.
+              adoptedData = [
+                {
+                  name: '',
+                  value: '',
+                },
+              ];
+            }
+          }
+          break;
+        case 'release-components':
+          const releaseComponentDataRawAdapter = new ReleaseComponentDataSkinAdapter();
+          adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
+          break;
+        case 'system-overview':
+          logger.info('adapting system overview data');
+          const systemOverviewDataAdapter = new SystemOverviewDataSkinAdapter(
+            this.teamProject,
+            this.templatePath,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT,
+            this.formattingSettings,
+            allowBiggerThan500
+          );
+          adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
+          logger.debug(
+            `attachment data ${JSON.stringify(systemOverviewDataAdapter.getAttachmentMinioData())}`
+          );
+          this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
+          break;
+        case 'changes':
+          const artifactsCount = this.rawChangesArray.length;
+          const totalChangesBefore = this.rawChangesArray.reduce(
+            (acc: number, item: any) => acc + (item.changes?.length || 0),
+            0
+          );
+          const sampleNames = this.rawChangesArray
+            .slice(0, 10)
+            .map((i: any) => `${i.artifact?.name || 'N/A'}(${i.changes?.length || 0})`)
+            .join(', ');
+          logger.info(
+            `jsonSkinDataAdapter: 'changes' input summary: artifacts=${artifactsCount}, totalChanges=${totalChangesBefore}`
+          );
+          if (artifactsCount <= 50) {
+            logger.debug(
+              `jsonSkinDataAdapter: 'changes' sample: ${sampleNames}${artifactsCount > 10 ? ', ...' : ''}`
+            );
+          }
+
+          let affectedArtifacts = 0;
+          let removedChangesTotal = 0;
+          // Optionally replace Task with parent Requirement (1 level) before filtering
+          const baseArray = this.replaceTaskWithParent
+            ? await this.applyTaskParentReplacement(this.rawChangesArray)
+            : this.rawChangesArray;
+
+          const filteredChangesArray = baseArray.map((item: any) => {
+            const originalCount = item?.changes?.length || 0;
+            const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
+            const filteredCount = filteredChanges.length;
+            if (originalCount !== filteredCount) {
+              affectedArtifacts++;
+              removedChangesTotal += originalCount - filteredCount;
+            }
+            return {
+              ...item,
+              changes: filteredChanges,
+            };
+          });
+
+          const totalChangesAfter = filteredChangesArray.reduce(
+            (acc: number, i: any) => acc + (i.changes?.length || 0),
+            0
+          );
+          logger.info(
+            `jsonSkinDataAdapter: 'changes' after filter: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, affectedArtifacts=${affectedArtifacts}, changesRemoved=${removedChangesTotal}`
+          );
+          // Exclude artifacts that have zero linked changes from the 'changes' table display
+          const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
+          logger.info(
+            `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
+          );
+          let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
+            displayChangesArray,
+            this.includeChangeDescription,
+            this.includeCommittedBy,
+            this.teamProject,
+            this.templatePath,
+            this.attachmentsBucketName,
+            this.minioEndPoint,
+            this.minioAccessKey,
+            this.minioSecretKey,
+            this.PAT,
+            this.formattingSettings
+          );
+          await changesTableDataSkinAdapter.adoptSkinData();
+          this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);
+          adoptedData = changesTableDataSkinAdapter.getAdoptedData();
+          break;
+        case 'non-associated-commits':
+          let notAssociatedCommits = this.rawChangesArray.filter(
+            (change) => change.nonLinkedCommits?.length > 0
+          );
+          let nonAssociatedCommitsSkinAdapter = new NonAssociatedCommitsDataSkinAdapter(
+            notAssociatedCommits,
+            this.includeCommittedBy
+          );
+          await nonAssociatedCommitsSkinAdapter.adoptSkinData();
+          adoptedData = nonAssociatedCommitsSkinAdapter.getAdoptedData();
+          break;
+        case 'installation-instructions':
+          try {
+            logger.debug(`Processing installation instructions from ${this.attachmentWikiUrl}`);
+
+            if (!this.attachmentWikiUrl) {
+              logger.warn('No attachment wiki URL provided for installation instructions');
+              break;
+            }
+            logger.debug(`Attachment wiki URL: ${this.attachmentWikiUrl}`);
+            // Extract file name from URL
+            const encodedFileName = this.attachmentWikiUrl.substring(
+              this.attachmentWikiUrl.lastIndexOf('/') + 1,
+              this.attachmentWikiUrl.length
+            );
+            const fileName = decodeURIComponent(encodedFileName);
+            logger.debug(`File name extracted: ${fileName}`);
+
+            // Add to attachment tracking
+            this.attachmentMinioData.push({
+              attachmentMinioPath: this.attachmentWikiUrl,
+              minioFileName: fileName,
+            });
+
+            // Format data for the skin adapter
+            const localPath = `TempFiles/${fileName}`;
+
+            adoptedData = [
+              {
+                title: 'Installation Instructions',
+                attachment: {
+                  attachmentFileName: fileName,
+                  attachmentLink: localPath,
+                  relativeAttachmentLink: localPath,
+                  attachmentMinioPath: this.attachmentWikiUrl,
+                  minioFileName: fileName,
+                },
+              },
+            ];
+
+            logger.debug(`Installation instructions processed successfully`);
+          } catch (error) {
+            logger.error(`Error processing installation instructions: ${error.message}`);
+            logger.error(error.stack);
+          }
+          break;
+        case 'possible-problems-known-errors':
+          let bugsDataSkinAdapter = new BugsTableSkinAdapter(rawData);
+          bugsDataSkinAdapter.adoptSkinData();
+          adoptedData = bugsDataSkinAdapter.getAdoptedData();
+          break;
+        default:
+          break;
+      }
+    } catch (err: any) {
+      logger.error(`Failed adapting data for type ${adapterType}: ${err.message}`);
+      throw err;
+    }
+    return adoptedData;
+  } //jsonSkinDataAdpater
+
+  public getRawData() {
+    return this.rawChangesArray;
+  } //getRawData
+
+  public getAdoptedData() {
+    return this.adoptedChangeData;
+  } //getAdoptedData
+
+  public getAttachmentMinioData(): any[] {
+    return this.attachmentMinioData;
+  }
+
+  //#endregion public methods
+
+  //#region private methods
+  /**
+   * Fetches changes for a specific commit range (by SHA) and pushes the result into `rawChangesArray`.
+   *
+   * @param gitDataProvider Git data provider instance used to query commits and linked work items.
+   * @param focusedArtifact Artifact metadata describing the target (used as the group key in `rawChangesArray`).
+   */
   private async fetchCommitShaChanges(gitDataProvider: GitDataProvider, focusedArtifact: any): Promise<void> {
     let commitsInCommitRange = await gitDataProvider.GetCommitsInCommitRange(
       this.teamProject,
@@ -310,6 +570,14 @@ export default class ChangeDataFactory {
     });
   }
 
+  /**
+   * Fetches changes within a date range from Git and augments them with submodule changes when applicable.
+   *
+   * The method normalizes `from`/`to` to cover whole minutes, queries commits in the date range, and then builds
+   * artifact-level change groups with both linked and non-linked commits.
+   *
+   * @param gitDataProvider Git data provider instance used to query commits and linked work items.
+   */
   private async fetchDateChanges(gitDataProvider: GitDataProvider): Promise<void> {
     let artifactChanges: any[] = [];
     let artifactChangesNoLink: any[] = [];
@@ -396,6 +664,15 @@ export default class ChangeDataFactory {
     });
   }
 
+  /**
+   * Fetches changes between two Git objects (branches/tags/commits) and stores them in `rawChangesArray`.
+   *
+   * The method normalizes Git refs, resolves the repository, computes the commit range (including submodules),
+   * and pushes a grouped artifact with linked and non-linked commits.
+   *
+   * @param gitDataProvider Git data provider instance used to query commits and linked work items.
+   * @param focusedArtifact Artifact metadata describing the target (used as the group key in `rawChangesArray`).
+   */
   private async fetchRangeChanges(gitDataProvider: GitDataProvider, focusedArtifact: any): Promise<void> {
     let artifactChanges: any[] = [];
     let artifactChangesNoLink: any[] = [];
@@ -433,6 +710,15 @@ export default class ChangeDataFactory {
     });
   }
 
+  /**
+   * Fetches changes associated with a pipeline run range and appends a grouped artifact entry to `rawChangesArray`.
+   *
+   * This uses the pipelines data provider to resolve the pipeline context and `GetPipelineChanges` to
+   * retrieve both linked and non-linked commits.
+   *
+   * @param pipelinesDataProvider Pipelines data provider instance for release/pipeline metadata.
+   * @param gitDataProvider Git data provider instance for commit-level information.
+   */
   private async fetchPipelineChanges(
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider
@@ -464,6 +750,19 @@ export default class ChangeDataFactory {
     );
   }
 
+  /**
+   * Resolves the ordered list of releases between two release IDs for a given definition.
+   *
+   * If full history is available, this returns all releases from `fromId` to `toId` (inclusive), sorted by time.
+   * If not, it falls back to using only the provided `fromRelease` and `toRelease`.
+   *
+   * @param pipelinesDataProvider Pipelines data provider used to query release history.
+   * @param fromId                ID of the starting release.
+   * @param toId                  ID of the ending release.
+   * @param releaseDefinitionId   Release definition identifier (may be undefined).
+   * @param fromRelease           Fallback release object for the `from` side.
+   * @param toRelease             Fallback release object for the `to` side.
+   */
   private async getReleasesBetween(
     pipelinesDataProvider: PipelinesDataProvider,
     fromId: number,
@@ -510,6 +809,19 @@ export default class ChangeDataFactory {
     return releasesBetween;
   }
 
+  /**
+   * Fetches and aggregates changes between two releases, including Git, Build, and JFrog artifacts.
+   *
+   * This method:
+   * - Loads the `from` and `to` releases.
+   * - Builds an ordered list of releases between them.
+   * - Iterates over release artifacts and, depending on type, delegates to Git/build/JFrog comparison helpers.
+   * - Populates `rawChangesArray` and `serviceGroupsByKey` with aggregated change groups.
+   *
+   * @param pipelinesDataProvider Pipelines data provider for release metadata.
+   * @param gitDataProvider       Git data provider for commit/branch details.
+   * @param jfrogDataProvider     JFrog/Artifactory data provider used for build artifact comparisons.
+   */
   private async fetchReleaseChanges(
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider,
@@ -606,6 +918,7 @@ export default class ChangeDataFactory {
     artifactGroupsByKey: Map<string, ArtifactChangesGroup>,
     artifactWiSets: Map<string, Set<number>>
   ): Promise<void> {
+    // In 'consecutive' mode, compares only adjacent release pairs; in 'allPairs', compares every i<j pair.
     for (let j = 1; j < releasesList.length; j++) {
       for (let i = j - 1; i >= 0; i--) {
         try {
@@ -2411,238 +2724,5 @@ export default class ChangeDataFactory {
     }
     return out;
   }
-
-  /*arranging the test data for json skins package*/
-  async jsonSkinDataAdapter(adapterType: string, rawData: any, allowBiggerThan500: boolean = false) {
-    logger.info(`adapting ${adapterType} data`);
-    let adoptedData = undefined;
-    try {
-      switch (adapterType) {
-        case 'release-range':
-          {
-            let fromReleaseName = '';
-            let toReleaseName = '';
-
-            if (this.rangeType === 'release') {
-              try {
-                const pipelinesDataProvider =
-                  rawData?.pipelinesDataProvider ||
-                  (await this.dgDataProviderAzureDevOps.getPipelinesDataProvider());
-                const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-                  this.teamProject,
-                  Number(this.from)
-                );
-                const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-                  this.teamProject,
-                  Number(this.to)
-                );
-                fromReleaseName = fromRelease?.name || '';
-                toReleaseName = toRelease?.name || '';
-              } catch (e: any) {
-                logger.warn(
-                  `jsonSkinDataAdapter: 'release-range' failed to resolve release names: ${e.message}`
-                );
-              }
-            }
-
-            // For release-based ranges, show the Version range text.
-            if (this.rangeType === 'release' && (fromReleaseName || toReleaseName)) {
-              const value = `Version\nv${fromReleaseName} to v${toReleaseName}`;
-              adoptedData = [
-                {
-                  // Use an empty name so this field is treated as a regular paragraph
-                  // (JSONParagraph) rather than a rich-text Description field.
-                  // This prevents it from being filtered out and lets the
-                  // Version range text render as normal runs.
-                  name: '',
-                  value,
-                },
-              ];
-            } else {
-              // For non-release range types (or if names could not be resolved),
-              // emit a single empty field so the content control is still
-              // processed and effectively removed from the document.
-              adoptedData = [
-                {
-                  name: '',
-                  value: '',
-                },
-              ];
-            }
-          }
-          break;
-        case 'release-components':
-          const releaseComponentDataRawAdapter = new ReleaseComponentDataSkinAdapter();
-          adoptedData = releaseComponentDataRawAdapter.jsonSkinAdapter(rawData);
-          break;
-        case 'system-overview':
-          logger.info('adapting system overview data');
-          const systemOverviewDataAdapter = new SystemOverviewDataSkinAdapter(
-            this.teamProject,
-            this.templatePath,
-            this.attachmentsBucketName,
-            this.minioEndPoint,
-            this.minioAccessKey,
-            this.minioSecretKey,
-            this.PAT,
-            this.formattingSettings,
-            allowBiggerThan500
-          );
-          adoptedData = await systemOverviewDataAdapter.jsonSkinAdapter(rawData);
-          logger.debug(
-            `attachment data ${JSON.stringify(systemOverviewDataAdapter.getAttachmentMinioData())}`
-          );
-          this.attachmentMinioData.push(...systemOverviewDataAdapter.getAttachmentMinioData());
-          break;
-        case 'changes':
-          const artifactsCount = this.rawChangesArray.length;
-          const totalChangesBefore = this.rawChangesArray.reduce(
-            (acc: number, item: any) => acc + (item.changes?.length || 0),
-            0
-          );
-          const sampleNames = this.rawChangesArray
-            .slice(0, 10)
-            .map((i: any) => `${i.artifact?.name || 'N/A'}(${i.changes?.length || 0})`)
-            .join(', ');
-          logger.info(
-            `jsonSkinDataAdapter: 'changes' input summary: artifacts=${artifactsCount}, totalChanges=${totalChangesBefore}`
-          );
-          if (artifactsCount <= 50) {
-            logger.debug(
-              `jsonSkinDataAdapter: 'changes' sample: ${sampleNames}${artifactsCount > 10 ? ', ...' : ''}`
-            );
-          }
-
-          let affectedArtifacts = 0;
-          let removedChangesTotal = 0;
-          // Optionally replace Task with parent Requirement (1 level) before filtering
-          const baseArray = this.replaceTaskWithParent
-            ? await this.applyTaskParentReplacement(this.rawChangesArray)
-            : this.rawChangesArray;
-
-          const filteredChangesArray = baseArray.map((item: any) => {
-            const originalCount = item?.changes?.length || 0;
-            const filteredChanges = this.filterChangesByWorkItemOptions(item?.changes || []);
-            const filteredCount = filteredChanges.length;
-            if (originalCount !== filteredCount) {
-              affectedArtifacts++;
-              removedChangesTotal += originalCount - filteredCount;
-            }
-            return {
-              ...item,
-              changes: filteredChanges,
-            };
-          });
-
-          const totalChangesAfter = filteredChangesArray.reduce(
-            (acc: number, i: any) => acc + (i.changes?.length || 0),
-            0
-          );
-          logger.info(
-            `jsonSkinDataAdapter: 'changes' after filter: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, affectedArtifacts=${affectedArtifacts}, changesRemoved=${removedChangesTotal}`
-          );
-          // Exclude artifacts that have zero linked changes from the 'changes' table display
-          const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
-          logger.info(
-            `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
-          );
-          let changesTableDataSkinAdapter = new ChangesTableDataSkinAdapter(
-            displayChangesArray,
-            this.includeChangeDescription,
-            this.includeCommittedBy,
-            this.teamProject,
-            this.templatePath,
-            this.attachmentsBucketName,
-            this.minioEndPoint,
-            this.minioAccessKey,
-            this.minioSecretKey,
-            this.PAT,
-            this.formattingSettings
-          );
-          await changesTableDataSkinAdapter.adoptSkinData();
-          this.attachmentMinioData.push(...changesTableDataSkinAdapter.attachmentMinioData);
-          adoptedData = changesTableDataSkinAdapter.getAdoptedData();
-          break;
-        case 'non-associated-commits':
-          let notAssociatedCommits = this.rawChangesArray.filter(
-            (change) => change.nonLinkedCommits?.length > 0
-          );
-          let nonAssociatedCommitsSkinAdapter = new NonAssociatedCommitsDataSkinAdapter(
-            notAssociatedCommits,
-            this.includeCommittedBy
-          );
-          await nonAssociatedCommitsSkinAdapter.adoptSkinData();
-          adoptedData = nonAssociatedCommitsSkinAdapter.getAdoptedData();
-          break;
-        case 'installation-instructions':
-          try {
-            logger.debug(`Processing installation instructions from ${this.attachmentWikiUrl}`);
-
-            if (!this.attachmentWikiUrl) {
-              logger.warn('No attachment wiki URL provided for installation instructions');
-              break;
-            }
-            logger.debug(`Attachment wiki URL: ${this.attachmentWikiUrl}`);
-            // Extract file name from URL
-            const encodedFileName = this.attachmentWikiUrl.substring(
-              this.attachmentWikiUrl.lastIndexOf('/') + 1,
-              this.attachmentWikiUrl.length
-            );
-            const fileName = decodeURIComponent(encodedFileName);
-            logger.debug(`File name extracted: ${fileName}`);
-
-            // Add to attachment tracking
-            this.attachmentMinioData.push({
-              attachmentMinioPath: this.attachmentWikiUrl,
-              minioFileName: fileName,
-            });
-
-            // Format data for the skin adapter
-            const localPath = `TempFiles/${fileName}`;
-
-            adoptedData = [
-              {
-                title: 'Installation Instructions',
-                attachment: {
-                  attachmentFileName: fileName,
-                  attachmentLink: localPath,
-                  relativeAttachmentLink: localPath,
-                  attachmentMinioPath: this.attachmentWikiUrl,
-                  minioFileName: fileName,
-                },
-              },
-            ];
-
-            logger.debug(`Installation instructions processed successfully`);
-          } catch (error) {
-            logger.error(`Error processing installation instructions: ${error.message}`);
-            logger.error(error.stack);
-          }
-          break;
-        case 'possible-problems-known-errors':
-          let bugsDataSkinAdapter = new BugsTableSkinAdapter(rawData);
-          bugsDataSkinAdapter.adoptSkinData();
-          adoptedData = bugsDataSkinAdapter.getAdoptedData();
-          break;
-        default:
-          break;
-      }
-    } catch (err: any) {
-      logger.error(`Failed adapting data for type ${adapterType}: ${err.message}`);
-      throw err;
-    }
-    return adoptedData;
-  } //jsonSkinDataAdpater
-
-  getRawData() {
-    return this.rawChangesArray;
-  } //getRawData
-
-  getAdoptedData() {
-    return this.adoptedChangeData;
-  } //getAdoptedData
-
-  getAttachmentMinioData(): any[] {
-    return this.attachmentMinioData;
-  }
+  //#endregion
 }
