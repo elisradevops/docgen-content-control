@@ -440,5 +440,157 @@ describe('HtmlUtils', () => {
       // Implementation doesn't convert align attribute to style
       // expect(table.attr('style')).toContain('text-align: center');
     });
+
+    it('parseWidth should handle pt, px, %, and invalid values', () => {
+      const anyUtils: any = htmlUtils;
+      expect(anyUtils.parseWidth('10pt')).toBeCloseTo(13.3, 1);
+      expect(anyUtils.parseWidth('50%')).toBe(50);
+      expect(anyUtils.parseWidth('30px')).toBe(30);
+      expect(anyUtils.parseWidth('not-a-width')).toBe(100);
+    });
+
+    it('extractWidthFromStyle should extract width from style string or return null', () => {
+      const anyUtils: any = htmlUtils;
+      expect(anyUtils.extractWidthFromStyle('color:red;width:10px;')).toBe('10px');
+      expect(anyUtils.extractWidthFromStyle('color:red;')).toBeNull();
+    });
+
+    it('preserveListSpacing should normalize bullet spacing', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<ul><li>• item</li><li>2. foo</li></ul>');
+      anyUtils.preserveListSpacing();
+      const html = anyUtils.$.html();
+      expect(html).toContain('•   item');
+      expect(html).toContain('2.   foo');
+    });
+
+    it('trimTextNodes should trim leading and trailing whitespace in block elements', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div>  Text  </div>');
+      anyUtils.trimTextNodes();
+      expect(anyUtils.$('div').text()).toBe('Text');
+    });
+
+    it('trimWhitespaceAroundBr should trim whitespace around br nodes', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<p>Text \n<br>\n more</p>');
+      anyUtils.trimWhitespaceAroundBr();
+      const html = anyUtils.$.html();
+      expect(html).not.toContain(' \n<br>');
+      expect(html).not.toContain('<br>\n ');
+    });
+
+    it('normalizeListStyleAttributes should convert list-style to list-style-type', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<ul style="list-style: disc inside;"><li>Item</li></ul>');
+      anyUtils.normalizeListStyleAttributes();
+      const ul = anyUtils.$('ul');
+      const style = ul.attr('style') || '';
+      expect(style).toContain('list-style-type: disc');
+      expect(style).not.toContain('list-style:');
+    });
+
+    it('removeRedundantElements should preserve Wingdings span and clean its style', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<span style="font-family:Wingdings; color:red">x</span>');
+      anyUtils.removeRedundantElements();
+      const span = anyUtils.$('span');
+      expect(span.attr('style')).toBe('font-family:Wingdings');
+      expect(span.text()).toBe('x');
+    });
+
+    it('cleanTableStyle should extract margin as cellspacing and drop width from style when width attribute exists', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load(
+        '<table style="margin:10px; width:50px; text-align:center;"><tr><td>Cell</td></tr></table>'
+      );
+      const $table = anyUtils.$('table');
+
+      // Pre-set width attribute so width removal branch is exercised
+      $table.attr('width', '100%');
+
+      anyUtils.cleanTableStyle($table);
+
+      expect($table.attr('cellspacing')).toBe('10');
+      expect($table.attr('align')).toBe('center');
+      expect($table.attr('width')).toBe('100%');
+      const finalStyle = $table.attr('style') || '';
+      expect(finalStyle).not.toMatch(/margin:/i);
+      expect(finalStyle).not.toMatch(/width:/i);
+    });
+
+    it('cleanCellStyle should remove width/height styles and deprecated attributes', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load(
+        '<table><tr><td style="width:50px;height:20px;;" align="center" valign="top" height="20">X</td></tr></table>'
+      );
+      const $cell = anyUtils.$('td');
+
+      anyUtils.cleanCellStyle($cell);
+
+      expect($cell.attr('style')).toBeUndefined();
+      expect($cell.attr('align')).toBeUndefined();
+      expect($cell.attr('valign')).toBeUndefined();
+      expect($cell.attr('height')).toBeUndefined();
+    });
+
+    it('removeRedundantElements should unwrap non-Wingdings spans and remove empty inline elements', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<p><span style="color:red">text</span><b> </b><i></i></p>');
+      anyUtils.removeRedundantElements();
+      const $ = anyUtils.$;
+      expect($('p').text()).toBe('text');
+      expect($('span').length).toBe(0);
+      expect($('b').length).toBe(0);
+      expect($('i').length).toBe(0);
+    });
+
+    it('parseWidth should treat plain numeric strings as pixels', () => {
+      const anyUtils: any = htmlUtils;
+      expect(anyUtils.parseWidth('42')).toBe(42);
+    });
+
+    it('splitParagraphsIntoSeparateElements should split paragraph content by br and newlines', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<p>Line 1<br>Line 2\nLine 3&nbsp;</p>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('<p>Line 1</p>');
+      expect(html).toContain('<p>Line 2</p>');
+      expect(html).toContain('<p>Line 3</p>');
+    });
+
+    it('splitParagraphsIntoSeparateElements should wrap split parts in paragraphs for non-paragraph containers', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div>First<br>Second</div>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const innerHtml = anyUtils.$('div').html() || '';
+      expect(innerHtml).toContain('<p>First</p>');
+      expect(innerHtml).toContain('<p>Second</p>');
+    });
+
+    it('splitParagraphsIntoSeparateElements should remove empty paragraphs and divs', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div><p>&nbsp;</p><p>Content</p></div>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('Content');
+      expect(html).not.toMatch(/<p>\s*<\/p>/);
+    });
+
+    it('cleanHtml should split content into separate paragraphs when splitParagraphsIntoSeparateElements is true', async () => {
+      const input = '<p>First<br>Second</p>';
+
+      const result = await htmlUtils.cleanHtml(input, false, true);
+
+      expect(result).toContain('<p>First</p>');
+      expect(result).toContain('<p>Second</p>');
+    });
   });
 });
