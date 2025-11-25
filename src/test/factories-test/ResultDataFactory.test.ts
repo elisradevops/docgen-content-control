@@ -49,9 +49,37 @@ jest.mock('../../adapters/TestReporterDataSkinAdapter', () => {
   }));
 });
 
+jest.mock('../../adapters/OpenPcrQueryResultsSkinAdapter', () => {
+  return jest.fn().mockImplementation((queryResults, type, includeCommonColumnsMode) => ({
+    adoptSkinData: jest.fn(),
+    getAdoptedData: jest
+      .fn()
+      .mockReturnValue([{ type, mode: includeCommonColumnsMode, items: queryResults || [] }]),
+  }));
+});
+
+jest.mock('../../adapters/TraceByLinkedPCRAdapter', () => {
+  return jest.fn().mockImplementation((mapData, type) => ({
+    adoptSkinData: jest.fn(),
+    getAdoptedData: jest.fn().mockReturnValue([{ type, count: mapData ? mapData.size || 0 : 0 }]),
+  }));
+});
+
+jest.mock('../../utils/tablePresentation', () => ({
+  COLOR_TEST_SOFT: 'soft-color',
+  COLOR_PCR: 'pcr-color',
+  buildGroupedHeader: jest.fn((leftLabel: string, rightLabel: string) => ({
+    leftLabel,
+    rightLabel,
+    leftShading: { color: 'auto', fill: 'LEFT' },
+    rightShading: { color: 'auto', fill: 'RIGHT' },
+  })),
+}));
+
 describe('ResultDataFactory', () => {
   let mockResultDataProvider;
   let mockDgDataProvider;
+  let mockTicketsDataProvider;
 
   // Default test values for all required parameters
   const defaultParams = {
@@ -83,9 +111,14 @@ describe('ResultDataFactory', () => {
       getTestReporterResults: jest.fn(),
     };
 
+    mockTicketsDataProvider = {
+      GetQueryResultsFromWiql: jest.fn(),
+    };
+
     // Setup mock data provider
     mockDgDataProvider = {
       getResultDataProvider: jest.fn().mockResolvedValue(mockResultDataProvider),
+      getTicketsDataProvider: jest.fn().mockResolvedValue(mockTicketsDataProvider),
     };
 
     // Update default params with fresh mock
@@ -460,6 +493,163 @@ describe('ResultDataFactory', () => {
         expect.stringContaining('Error occurred during build json Skin data adapter')
       );
     });
+
+    test('should build linked-pcr-trace data for both directions with and without maps', async () => {
+      // Arrange maps: one filled, one empty
+      const filledMap = new Map<any, any[]>([[1, ['x']]]);
+      const emptyMap = null as any;
+
+      factory.testCaseToOpenPcrTraceMap = filledMap;
+      factory.openPcrToTestCaseTraceMap = emptyMap;
+
+      const result = await factory.jsonSkinDataAdapter('linked-pcr-trace', []);
+
+      expect(result.testToOpenPcrAdoptedData).toBeDefined();
+      expect(result.testToOpenPcrAdoptedData.adoptedData[0]).toEqual({ type: 'test-to-open-pcr', count: 1 });
+      expect(result.testToOpenPcrAdoptedData.title.fields[0].value).toBe('Test Case to Open PCR Table');
+
+      expect(result.OpenPcrToTestAdoptedData).toBeDefined();
+      expect(result.OpenPcrToTestAdoptedData.adoptedData).toBeNull();
+      expect(result.OpenPcrToTestAdoptedData.title.fields[0].value).toBe('Open PCR To Test Case');
+    });
+
+    test('should build query-results data and grouped headers for both directions', async () => {
+      // Pre-populate query results maps used by adapter
+      factory.testToOpenPcrQuery = [{ id: 1 }];
+      factory.OpenPcrToTestQuery = [{ id: 2 }];
+
+      const result = await factory.jsonSkinDataAdapter('query-results', [], 'leftOnly');
+
+      const left = result.testToOpenPcrAdoptedData;
+      const right = result.OpenPcrToTestAdoptedData;
+
+      expect(left.title.fields[0].value).toBe('Test Case to Open PCR Table');
+      expect(left.adoptedData[0].type).toBe('test-to-open-pcr');
+      expect(left.adoptedData[0].mode).toBe('leftOnly');
+      expect(left.groupedHeader.leftLabel).toBe('Test Case');
+      expect(left.groupedHeader.rightLabel).toBe('Open PCR');
+
+      expect(right.title.fields[0].value).toBe('Open PCR To Test Case');
+      expect(right.adoptedData[0].type).toBe('open-pcr-to-test');
+      expect(right.adoptedData[0].mode).toBe('leftOnly');
+      expect(right.groupedHeader.leftLabel).toBe('Open PCR');
+      expect(right.groupedHeader.rightLabel).toBe('Test Case');
+    });
+  });
+
+  describe('fetchQueryResultsForOpenPCR and fetchLinkedOpenPcrTrace', () => {
+    test('fetchQueryResultsForOpenPCR should call tickets data provider for both queries and adapt results', async () => {
+      const openPCRsSelectionRequest = {
+        testToOpenPcrQuery: {
+          title: 'TestToOpenPcr',
+          wiql: { href: 'wiql-test-to-open' },
+        },
+        OpenPcrToTestQuery: {
+          title: 'OpenPcrToTest',
+          wiql: { href: 'wiql-open-to-test' },
+        },
+        includeCommonColumnsMode: 'both',
+      };
+
+      const factory = new ResultDataFactory(
+        defaultParams.attachmentsBucketName,
+        defaultParams.teamProject,
+        defaultParams.testPlanId,
+        defaultParams.testSuiteArray,
+        defaultParams.stepExecution,
+        defaultParams.stepAnalysis,
+        defaultParams.includeConfigurations,
+        defaultParams.includeHierarchy,
+        openPCRsSelectionRequest,
+        defaultParams.includeTestLog,
+        defaultParams.dgDataProvider,
+        defaultParams.templatePath,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        defaultParams.includeHardCopyRun
+      );
+
+      // Make the WIQL calls return some dummy results so the factory stores them
+      mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce([{ id: 't1' }]);
+      mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce([{ id: 'o1' }]);
+
+      await factory.fetchQueryResultsForOpenPCR();
+
+      expect(mockDgDataProvider.getTicketsDataProvider).toHaveBeenCalled();
+      expect(mockTicketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledTimes(2);
+      const calls = mockTicketsDataProvider.GetQueryResultsFromWiql.mock.calls;
+      expect(calls[0][0]).toBe('wiql-test-to-open');
+      expect(calls[1][0]).toBe('wiql-open-to-test');
+
+      expect(factory.testToOpenPcrQuery).toBeDefined();
+      expect(factory.OpenPcrToTestQuery).toBeDefined();
+      expect(factory.testCaseToOpenPcrLookup instanceof Map).toBe(true);
+
+      const adopted = factory.adoptedQueryResults;
+      expect(adopted.testToOpenPcrAdoptedData).toBeDefined();
+      expect(adopted.OpenPcrToTestAdoptedData).toBeDefined();
+    });
+
+    test('fetchLinkedOpenPcrTrace should set adoptedQueryResults using linked-pcr-trace', async () => {
+      const factory = new ResultDataFactory(
+        defaultParams.attachmentsBucketName,
+        defaultParams.teamProject,
+        defaultParams.testPlanId,
+        defaultParams.testSuiteArray,
+        defaultParams.stepExecution,
+        defaultParams.stepAnalysis,
+        defaultParams.includeConfigurations,
+        defaultParams.includeHierarchy,
+        defaultParams.openPCRsSelectionRequest,
+        defaultParams.includeTestLog,
+        defaultParams.dgDataProvider,
+        defaultParams.templatePath,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        defaultParams.includeHardCopyRun
+      );
+
+      const spy = jest
+        .spyOn(factory, 'jsonSkinDataAdapter')
+        .mockResolvedValueOnce({ marker: 'linked-trace-result' } as any);
+
+      await factory.fetchLinkedOpenPcrTrace();
+
+      expect(spy).toHaveBeenCalledWith('linked-pcr-trace', []);
+      expect(factory.adoptedQueryResults).toEqual({ marker: 'linked-trace-result' });
+    });
+
+    test('fetchLinkedOpenPcrTrace should log error when adapter throws', async () => {
+      const factory = new ResultDataFactory(
+        defaultParams.attachmentsBucketName,
+        defaultParams.teamProject,
+        defaultParams.testPlanId,
+        defaultParams.testSuiteArray,
+        defaultParams.stepExecution,
+        defaultParams.stepAnalysis,
+        defaultParams.includeConfigurations,
+        defaultParams.includeHierarchy,
+        defaultParams.openPCRsSelectionRequest,
+        defaultParams.includeTestLog,
+        defaultParams.dgDataProvider,
+        defaultParams.templatePath,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        defaultParams.includeHardCopyRun
+      );
+
+      jest.spyOn(factory, 'jsonSkinDataAdapter').mockRejectedValueOnce(new Error('linked trace failed'));
+
+      await factory.fetchLinkedOpenPcrTrace();
+
+      expect(logger.error).toHaveBeenCalledWith('Could not fetch linked open pcr trace: linked trace failed');
+    });
   });
 
   describe('getter methods', () => {
@@ -655,9 +845,7 @@ describe('ResultDataFactory', () => {
     test('should handle large test suite arrays', async () => {
       const largeTestSuiteArray = Array.from({ length: 1000 }, (_, i) => i + 1);
       mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
-        combinedResults: [
-          { skin: 'test-result-table', data: [{ id: 'result1' }] },
-        ],
+        combinedResults: [{ skin: 'test-result-table', data: [{ id: 'result1' }] }],
         openPcrToTestCaseTraceMap: null,
         testCaseToOpenPcrTraceMap: null,
       });
@@ -729,9 +917,7 @@ describe('ResultDataFactory', () => {
 
       // Now make it succeed on second try
       mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
-        combinedResults: [
-          { skin: 'test-result-table', data: [{ id: 'recovered' }] },
-        ],
+        combinedResults: [{ skin: 'test-result-table', data: [{ id: 'recovered' }] }],
         openPcrToTestCaseTraceMap: null,
         testCaseToOpenPcrTraceMap: null,
       });
@@ -747,9 +933,7 @@ describe('ResultDataFactory', () => {
     test('calling methods in sequence should work as expected', async () => {
       // Setup mocks with different responses
       mockResultDataProvider.getCombinedResultsSummary.mockResolvedValue({
-        combinedResults: [
-          { skin: 'test-result-table', data: [{ id: 'combined-result' }] },
-        ],
+        combinedResults: [{ skin: 'test-result-table', data: [{ id: 'combined-result' }] }],
         openPcrToTestCaseTraceMap: null,
         testCaseToOpenPcrTraceMap: null,
       });

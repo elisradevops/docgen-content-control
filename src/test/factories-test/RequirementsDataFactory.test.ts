@@ -215,8 +215,9 @@ describe('RequirementsDataFactory', () => {
     });
 
     test('should fetch system to software requirements traceability data', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      })
         .mockResolvedValueOnce({
           sourceTargetsMap: fixtures.sourceTargetsMap,
           sortingSourceColumnsMap: new Map(),
@@ -240,8 +241,9 @@ describe('RequirementsDataFactory', () => {
     });
 
     test('should fetch software to system requirements traceability data', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      })
         .mockResolvedValueOnce({
           sourceTargetsMap: fixtures.sourceTargetsMap,
           sortingSourceColumnsMap: new Map(),
@@ -280,6 +282,21 @@ describe('RequirementsDataFactory', () => {
       await requirementsDataFactory.fetchRequirementsData();
 
       expect(requirementsDataFactory.adoptedData).toBeDefined();
+    });
+
+    test('should log and return original roots when sanitizeHierarchy fails', () => {
+      const roots = [{ id: 1, title: 'Root' }];
+      const factoryAny: any = requirementsDataFactory as any;
+      const sanitizeNodeSpy = jest.spyOn(factoryAny, 'sanitizeNode').mockImplementation(() => {
+        throw new Error('boom');
+      });
+
+      const result = factoryAny.sanitizeHierarchy(roots as any);
+
+      expect(result).toBe(roots);
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('sanitizeHierarchy failed'));
+
+      sanitizeNodeSpy.mockRestore();
     });
   });
 
@@ -360,9 +377,7 @@ describe('RequirementsDataFactory', () => {
           {
             id: 1002,
             title: 'Child',
-            children: [
-              { id: 1003, title: 'Grandchild', children: [] },
-            ],
+            children: [{ id: 1003, title: 'Grandchild', children: [] }],
           },
         ],
       };
@@ -418,15 +433,69 @@ describe('RequirementsDataFactory', () => {
     });
   });
 
+  describe('Categorized Mode', () => {
+    test('should fetch and adapt categorized system requirements data', async () => {
+      const categorizedPayload = {
+        categories: {
+          'Safety Requirements': [
+            {
+              id: 1,
+              title: 'Safety Req 1',
+              description: '<p>desc</p>',
+              htmlUrl: 'http://example/1',
+            },
+          ],
+        },
+      };
+
+      (mockProviders.ticketsDataProvider as any).GetCategorizedRequirementsByType = jest
+        .fn()
+        .mockResolvedValue(categorizedPayload);
+
+      (mockProviders.dgDataProvider.getTicketsDataProvider as jest.Mock).mockResolvedValue(
+        mockProviders.ticketsDataProvider
+      );
+
+      const categorizedFactory = new RequirementsDataFactory(
+        defaultParams.teamProjectName,
+        defaultParams.templatePath,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        mockProviders.dgDataProvider,
+        {
+          systemRequirements: {
+            wiql: { href: 'system-requirements-query-url' },
+          },
+        },
+        defaultParams.formattingSettings,
+        false,
+        'categorized'
+      );
+
+      await categorizedFactory.fetchRequirementsData();
+
+      const adopted: any = categorizedFactory.getAdoptedData();
+      expect(adopted).toBeDefined();
+      expect(Array.isArray(adopted.systemRequirementsData)).toBe(true);
+      expect(adopted.systemRequirementsData.length).toBeGreaterThan(0);
+      expect(
+        (mockProviders.ticketsDataProvider as any).GetCategorizedRequirementsByType
+      ).toHaveBeenCalledWith('system-requirements-query-url');
+    });
+  });
+
   describe('Traceability Adapters', () => {
     test('should use TraceAnalysisRequirementsAdapter for system to software requirements', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
-        .mockResolvedValueOnce({
-          sourceTargetsMap: fixtures.sourceTargetsMap,
-          sortingSourceColumnsMap: new Map(),
-          sortingTargetsColumnsMap: new Map(),
-        });
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      }).mockResolvedValueOnce({
+        sourceTargetsMap: fixtures.sourceTargetsMap,
+        sortingSourceColumnsMap: new Map(),
+        sortingTargetsColumnsMap: new Map(),
+      });
 
       await requirementsDataFactory.fetchRequirementsData();
 
@@ -439,8 +508,9 @@ describe('RequirementsDataFactory', () => {
     });
 
     test('should use TraceAnalysisRequirementsAdapter for software to system requirements', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      })
         .mockResolvedValueOnce({
           sourceTargetsMap: fixtures.sourceTargetsMap,
           sortingSourceColumnsMap: new Map(),
@@ -463,13 +533,13 @@ describe('RequirementsDataFactory', () => {
     });
 
     test('should handle empty traceability data', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
-        .mockResolvedValueOnce({
-          sourceTargetsMap: new Map(),
-          sortingSourceColumnsMap: new Map(),
-          sortingTargetsColumnsMap: new Map(),
-        });
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      }).mockResolvedValueOnce({
+        sourceTargetsMap: new Map(),
+        sortingSourceColumnsMap: new Map(),
+        sortingTargetsColumnsMap: new Map(),
+      });
 
       await requirementsDataFactory.fetchRequirementsData();
 
@@ -478,13 +548,13 @@ describe('RequirementsDataFactory', () => {
     });
 
     test('should handle traceability data with workItemRelations fallback', async () => {
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
-        .mockResolvedValueOnce({
-          workItemRelations: fixtures.workItemRelations,
-          sortingSourceColumnsMap: new Map(),
-          sortingTargetsColumnsMap: new Map(),
-        });
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      }).mockResolvedValueOnce({
+        workItemRelations: fixtures.workItemRelations,
+        sortingSourceColumnsMap: new Map(),
+        sortingTargetsColumnsMap: new Map(),
+      });
 
       await requirementsDataFactory.fetchRequirementsData();
 
@@ -535,7 +605,8 @@ describe('RequirementsDataFactory', () => {
         'secret-key',
         'pat',
         {},
-        true // allowBiggerThan500 passed to adapter
+        true, // allowBiggerThan500 passed to adapter
+        true // includeTFSLinks
       );
     });
 
@@ -595,13 +666,13 @@ describe('RequirementsDataFactory', () => {
         ]);
       }
 
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: [fixtures.systemRequirement] })
-        .mockResolvedValueOnce({
-          sourceTargetsMap: largeTraceMap,
-          sortingSourceColumnsMap: new Map(),
-          sortingTargetsColumnsMap: new Map(),
-        });
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      }).mockResolvedValueOnce({
+        sourceTargetsMap: largeTraceMap,
+        sortingSourceColumnsMap: new Map(),
+        sortingTargetsColumnsMap: new Map(),
+      });
 
       await requirementsDataFactory.fetchRequirementsData();
 
@@ -644,8 +715,9 @@ describe('RequirementsDataFactory', () => {
         largeTraceMap.set(i, [{ id: i + 1000, title: `Software Req ${i + 1000}` }]);
       }
 
-      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql
-        .mockResolvedValueOnce({ roots: largeSystemReqs })
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: largeSystemReqs,
+      })
         .mockResolvedValueOnce({
           sourceTargetsMap: largeTraceMap,
           sortingSourceColumnsMap: new Map(),
@@ -700,7 +772,8 @@ describe('RequirementsDataFactory', () => {
         'secret-key',
         'pat',
         {},
-        false // allowBiggerThan500 passed to adapter
+        false, // allowBiggerThan500 passed to adapter
+        true // includeTFSLinks
       );
     });
   });
@@ -775,7 +848,6 @@ describe('RequirementsDataFactory', () => {
         workItemLinksDebug: { workItemRelations: fixtures.workItemRelations },
       });
     });
-
     test('should use sanitized tree when no workItemRelations are provided', async () => {
       const queryResults = {
         roots: [fixtures.systemRequirement],
