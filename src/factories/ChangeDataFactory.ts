@@ -1193,6 +1193,8 @@ export default class ChangeDataFactory {
       logger.info(
         `fetchChangesData: rangeType=${this.rangeType}, includeUnlinkedCommits=${this.includeUnlinkedCommits}`
       );
+      // Reset commit ID tracking to avoid carryover between runs
+      this.includedCommitIdsByArtifact?.clear();
       let focusedArtifact;
       let gitDataProvider = await this.dgDataProviderAzureDevOps.getGitDataProvider();
       let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDataProvider();
@@ -1874,7 +1876,10 @@ export default class ChangeDataFactory {
 
       const { fromVersion, toVersion, fromVersionType, toVersionType } = range;
 
-      let itemPaths = service.serviceLocation.pathInGit.split(',');
+      let itemPaths = service.serviceLocation.pathInGit
+        .split(',')
+        .map((p: string) => p.trim())
+        .filter((p: string) => p.length > 0);
       logger.debug(`Service ${service.serviceName}: evaluating paths: ${itemPaths.join(',')}`);
       const artifactKey = `Service|${repoName}|${service.serviceName}`;
       const aggLinked: any[] = [];
@@ -1927,6 +1932,10 @@ export default class ChangeDataFactory {
       grp.changes.push(...uniqueLinked);
       grp.nonLinkedCommits.push(...uniqueUnlinked);
     }
+
+    // Clear caches to avoid stale data in subsequent runs
+    this.pathExistenceCache.clear();
+
     return true;
   }
 
@@ -1959,21 +1968,21 @@ export default class ChangeDataFactory {
       const toTag = `${tagPrefix}${toRelease.name}`;
       logger.info(`Using TAG mode: ${fromTag} → ${toTag}`);
       const fromTagData = await provider.GetTag(serviceGitRepoApiUrl, fromTag);
-      if (!fromTagData || !fromTagData.value || fromTagData?.count == 0) {
+      if (!fromTagData) {
         logger.warn(
           `Service ${service.serviceName}: Source tag '${fromTag}' does not exist in repository ${repoName}`
         );
         if (hasBranches) {
           logger.info(`Tag '${fromTag}' missing; falling back to BRANCH mode: ${fromBranch} → ${toBranch}`);
           const fromBranchData = await provider.GetBranch(serviceGitRepoApiUrl, fromBranch);
-          if (!fromBranchData || !fromBranchData.value || fromBranchData?.count == 0) {
+          if (!fromBranchData) {
             logger.warn(
               `Service ${service.serviceName}: Source branch '${fromBranch}' does not exist in repository ${repoName}`
             );
             return null;
           }
           const toBranchData = await provider.GetBranch(serviceGitRepoApiUrl, toBranch);
-          if (!toBranchData || !toBranchData.value || toBranchData?.count == 0) {
+          if (!toBranchData) {
             logger.warn(
               `Service ${service.serviceName}: Target branch '${toBranch}' does not exist in repository ${repoName}`
             );
@@ -1994,7 +2003,7 @@ export default class ChangeDataFactory {
         }
       } else {
         const toTagData = await provider.GetTag(serviceGitRepoApiUrl, toTag);
-        if (!toTagData || !toTagData.value || toTagData?.count == 0) {
+        if (!toTagData) {
           logger.warn(
             `Service ${service.serviceName}: Target tag '${toTag}' does not exist in repository ${repoName}`
           );
@@ -2157,8 +2166,7 @@ export default class ChangeDataFactory {
    */
   private parseServicesJsonLocation(servicesJsonVar: string) {
     const servicesJsonFileGitPath = servicesJsonVar;
-    let servicesJsonFileName: any = servicesJsonFileGitPath.split(`?`).pop();
-    servicesJsonFileName = servicesJsonFileName.replace('path=', '');
+    let servicesJsonFileName: any = servicesJsonFileGitPath.split(`?`).pop()?.replace('path=', '');
     const servicesJsonFileGitRepo = servicesJsonFileGitPath.split(`?`)[0];
     const servicesJsonFileGitRepoName = servicesJsonFileGitRepo.split('/').pop();
     const servicesJsonFileGitRepoApiUrl = servicesJsonFileGitRepo.replace(
@@ -2714,8 +2722,15 @@ export default class ChangeDataFactory {
     const out: any[] = [];
     for (const item of arr) {
       let id: string | undefined = undefined;
-      if (item?.commit?.commitId) id = item.commit.commitId;
-      else if (item?.commitId) id = item.commitId;
+      // For linked changes (with a workItem), dedupe by commitId+workItem.id so that
+      // multiple work items on the same commit are preserved as separate rows.
+      // For unlinked commits (no workItem), dedupe by commitId only.
+      if (item?.commit?.commitId) {
+        const wid = item?.workItem?.id;
+        id = typeof wid === 'number' ? `${item.commit.commitId}|wi:${wid}` : item.commit.commitId;
+      } else if (item?.commitId) {
+        id = item.commitId;
+      }
       if (id) {
         if (set.has(id)) continue;
         set.add(id);
