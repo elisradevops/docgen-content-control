@@ -1539,8 +1539,8 @@ export default class ChangeDataFactory {
       logger.debug(`fetching commits for ${gitRepoName} from ${fromVersion} to ${toVersion}`);
       let extendedCommits = await gitDataProvider.GetCommitBatch(
         gitApisUrl,
-        { version: fromVersion, versionType: fromVersionType },
-        { version: toVersion, versionType: toVersionType },
+        { version: fromVersion, versionType: fromVersionType.toLowerCase() },
+        { version: toVersion, versionType: toVersionType.toLowerCase() },
         specificItemPath
       );
 
@@ -2037,25 +2037,6 @@ export default class ChangeDataFactory {
             return null;
           }
         } else {
-          // TAG mode: compare commit IDs to determine if we should proceed
-          const fromId = fromTagData.peeledObjectId || fromTagData.objectId;
-          const toId = toTagData.peeledObjectId || toTagData.objectId;
-          if (fromId === toId) {
-            logger.warn(
-              `Service ${service.serviceName}: from and to tag resolve to the same object ID: ${fromId}`
-            );
-            return null;
-          }
-
-          // Check if the target commit is a descendant of the source commit
-          const isCommitDescendant = await provider.isCommitDescendant(serviceGitRepoApiUrl, toId, fromId);
-          if (!isCommitDescendant) {
-            logger.warn(
-              `Service ${service.serviceName}: Target tag ${toTag} is older than or not descendant of source tag ${fromTag} in repository ${repoName}; skipping`
-            );
-            return null;
-          }
-
           fromVersion = fromTag;
           toVersion = toTag;
           fromVersionType = 'Tag';
