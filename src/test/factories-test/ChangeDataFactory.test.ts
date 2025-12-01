@@ -2539,8 +2539,8 @@ describe('ChangeDataFactory', () => {
             ],
           })
         ),
-        // Tags missing for both from/to
-        GetTag: jest.fn().mockResolvedValue({ value: [], count: 0 }),
+        // Tags missing for both from/to -> real GitDataProvider.GetTag returns null when not found
+        GetTag: jest.fn().mockResolvedValue(null),
         // Branches will not be used for fallback because no branch variables are present
         GetBranch: jest.fn(),
       };
