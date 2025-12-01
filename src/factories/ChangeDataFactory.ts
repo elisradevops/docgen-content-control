@@ -864,6 +864,19 @@ export default class ChangeDataFactory {
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
 
+    // For services.json, compare only the globally selected from/to releases once,
+    // regardless of compareMode or intermediate releases. This ensures that a user
+    // range like R4->R8 produces a direct tag-to-tag diff for services, without
+    // accumulating commits from all intermediate edges (R4->R5, R5->R6, ...).
+    try {
+      await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
+    } catch (e: any) {
+      logger.error(
+        `Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`
+      );
+      logger.debug(`Services.json error stack: ${e.stack}`);
+    }
+
     // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
     await this.compareConsecutiveReleases(
       releasesList,
@@ -1154,33 +1167,10 @@ export default class ChangeDataFactory {
                 });
                 agg.changes.push(...this.takeNewCommits(key, clonedLinked));
                 agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
-                logger.info(
-                  `Aggregated add [${artifactType} ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${clonedLinked.length}, +unlinked=${clonedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
-                );
-              }
-            } catch (error: any) {
-              logger.error(
-                `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${fromRelease.id} -> ${toRelease.id}: ${error.message}`
-              );
-              logger.debug(`Error stack: ${error.stack}`);
-            }
-          } // end for each artifact
-
-          // Handle services.json directly for this pair
-          await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
-        } catch (e: any) {
-          logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
-          logger.debug(`Pair error stack: ${e.stack}`);
-          continue;
-        }
-      } // end inner from-loop for this target
-    } // end all-pairs loop
-  }
-
   /**
    * Fetches change data for the configured range and aggregates it into `rawChangesArray`.
    *
-   * Modes
+   * Modes:
    * - 'consecutive': process only adjacent edges (O(R)).
    * - 'allPairs': optimized to O(R) by processing adjacent edges and scheduling minimal long‑hop
    *   comparisons for presence gaps where an artifact exists at two releases but not in between.
