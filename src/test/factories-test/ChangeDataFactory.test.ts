@@ -2424,7 +2424,13 @@ describe('ChangeDataFactory', () => {
       const factory = changeDataFactory as any;
 
       const provider: any = {
-        GetTag: jest.fn().mockResolvedValue({ value: [{}], count: 1 }),
+        // Simulate two existing tags that point to different commits
+        GetTag: jest
+          .fn()
+          .mockResolvedValueOnce({ objectId: 'from-sha' })
+          .mockResolvedValueOnce({ objectId: 'to-sha' }),
+        // Target commit is a descendant of source commit
+        isCommitDescendant: jest.fn().mockResolvedValue(true),
       };
 
       const service = {
@@ -2462,6 +2468,11 @@ describe('ChangeDataFactory', () => {
         toVersionType: 'Tag',
       });
       expect(provider.GetTag).toHaveBeenCalledTimes(2);
+      expect(provider.isCommitDescendant).toHaveBeenCalledWith(
+        'https://server/org/project/_apis/git/repositories/repo',
+        'to-sha',
+        'from-sha'
+      );
     });
 
     it('resolveServiceRange should use BRANCH mode and return null when from-branch does not exist', async () => {
@@ -2501,6 +2512,233 @@ describe('ChangeDataFactory', () => {
 
       expect(result).toBeNull();
       expect(provider.GetBranch).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolveServiceRange should respect tag commit order using isCommitDescendant (releases 1->2, 1->3, 1->4)', async () => {
+      const factory = changeDataFactory as any;
+
+      const service = {
+        serviceName: 'Svc',
+        serviceLocation: {
+          gitRepoUrl: 'https://server/org/project/_git/repo',
+          pathInGit: 'services.json',
+        },
+      };
+
+      const serviceGitRepoApiUrl = 'https://server/org/project/_apis/git/repositories/repo';
+      const repoName = 'repo';
+      const tagPrefix = 'test-Release-';
+
+      const makeReleases = (fromName: string, toName: string) => ({
+        from: { name: fromName },
+        to: { name: toName },
+      });
+
+      // Commit graph (conceptual):
+      // C1 -> C2(tag1) -> C3 -> C4(tag3) -> C5 -> C6(tag2) -> C7 -> C8(tag4)
+      // Tags test-Release-1,3,2,4 point to C2, C4, C6, C8 respectively.
+
+      // 1) Range: release 1 -> release 2 (tag1=C2, tag2=C6)
+      {
+        const { from, to } = makeReleases('1', '2');
+        const provider: any = {
+          GetTag: jest
+            .fn()
+            .mockResolvedValueOnce({ objectId: 'C2' })
+            .mockResolvedValueOnce({ objectId: 'C6' }),
+          isCommitDescendant: jest.fn().mockResolvedValue(true),
+        };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          tagPrefix,
+          from,
+          to,
+          'branches/source',
+          'branches/target',
+          true,
+          serviceGitRepoApiUrl,
+          repoName,
+          true,
+          false,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toEqual({
+          fromVersion: 'test-Release-1',
+          toVersion: 'test-Release-2',
+          fromVersionType: 'Tag',
+          toVersionType: 'Tag',
+        });
+        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C6', 'C2');
+      }
+
+      // 2) Range: release 1 -> release 3 (tag1=C2, tag3=C4)
+      {
+        const { from, to } = makeReleases('1', '3');
+        const provider: any = {
+          GetTag: jest
+            .fn()
+            .mockResolvedValueOnce({ objectId: 'C2' })
+            .mockResolvedValueOnce({ objectId: 'C4' }),
+          isCommitDescendant: jest.fn().mockResolvedValue(true),
+        };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          tagPrefix,
+          from,
+          to,
+          'branches/source',
+          'branches/target',
+          true,
+          serviceGitRepoApiUrl,
+          repoName,
+          true,
+          false,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toEqual({
+          fromVersion: 'test-Release-1',
+          toVersion: 'test-Release-3',
+          fromVersionType: 'Tag',
+          toVersionType: 'Tag',
+        });
+        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C4', 'C2');
+      }
+
+      // 3) Range: release 1 -> release 4 (tag1=C2, tag4=C8)
+      {
+        const { from, to } = makeReleases('1', '4');
+        const provider: any = {
+          GetTag: jest
+            .fn()
+            .mockResolvedValueOnce({ objectId: 'C2' })
+            .mockResolvedValueOnce({ objectId: 'C8' }),
+          isCommitDescendant: jest.fn().mockResolvedValue(true),
+        };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          tagPrefix,
+          from,
+          to,
+          'branches/source',
+          'branches/target',
+          true,
+          serviceGitRepoApiUrl,
+          repoName,
+          true,
+          false,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toEqual({
+          fromVersion: 'test-Release-1',
+          toVersion: 'test-Release-4',
+          fromVersionType: 'Tag',
+          toVersionType: 'Tag',
+        });
+        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C8', 'C2');
+      }
+    });
+
+    it('resolveServiceRange should return null when from/to tags resolve to the same commit', async () => {
+      const factory = changeDataFactory as any;
+
+      const service = {
+        serviceName: 'Svc',
+        serviceLocation: {
+          gitRepoUrl: 'https://server/org/project/_git/repo',
+          pathInGit: 'services.json',
+        },
+      };
+
+      const fromRelease = { name: '1.0.0' };
+      const toRelease = { name: '2.0.0' };
+
+      const provider: any = {
+        GetTag: jest.fn().mockResolvedValue({ objectId: 'same-sha' }),
+        isCommitDescendant: jest.fn(),
+      };
+
+      const result = await factory.resolveServiceRange(
+        provider,
+        service,
+        'ARG-',
+        fromRelease,
+        toRelease,
+        'branches/source',
+        'branches/target',
+        true,
+        'https://server/org/project/_apis/git/repositories/repo',
+        'repo',
+        true,
+        false,
+        'branches/source',
+        'branches/target'
+      );
+
+      expect(result).toBeNull();
+      expect(provider.isCommitDescendant).not.toHaveBeenCalled();
+      expect((logger as any).warn).toHaveBeenCalledWith(
+        expect.stringContaining('from and to tag resolve to the same object ID')
+      );
+    });
+
+    it('resolveServiceRange should return null when target tag is older or not descendant of source tag', async () => {
+      const factory = changeDataFactory as any;
+
+      const service = {
+        serviceName: 'Svc',
+        serviceLocation: {
+          gitRepoUrl: 'https://server/org/project/_git/repo',
+          pathInGit: 'services.json',
+        },
+      };
+
+      const fromRelease = { name: '1.0.0' };
+      const toRelease = { name: '2.0.0' };
+
+      const provider: any = {
+        GetTag: jest
+          .fn()
+          .mockResolvedValueOnce({ objectId: 'C10' })
+          .mockResolvedValueOnce({ objectId: 'C5' }),
+        isCommitDescendant: jest.fn().mockResolvedValue(false),
+      };
+
+      const result = await factory.resolveServiceRange(
+        provider,
+        service,
+        'ARG-',
+        fromRelease,
+        toRelease,
+        'branches/source',
+        'branches/target',
+        true,
+        'https://server/org/project/_apis/git/repositories/repo',
+        'repo',
+        true,
+        false,
+        'branches/source',
+        'branches/target'
+      );
+
+      expect(result).toBeNull();
+      expect(provider.isCommitDescendant).toHaveBeenCalledWith(
+        'https://server/org/project/_apis/git/repositories/repo',
+        'C5',
+        'C10'
+      );
+      expect((logger as any).warn).toHaveBeenCalledWith(expect.stringContaining('Target tag'));
     });
 
     it('handleServiceJsonFile should skip service when tags and branches all fail (no fallback)', async () => {
