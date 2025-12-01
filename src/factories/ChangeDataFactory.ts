@@ -871,9 +871,7 @@ export default class ChangeDataFactory {
     try {
       await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
     } catch (e: any) {
-      logger.error(
-        `Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`
-      );
+      logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
       logger.debug(`Services.json error stack: ${e.stack}`);
     }
 
@@ -1167,6 +1165,23 @@ export default class ChangeDataFactory {
                 });
                 agg.changes.push(...this.takeNewCommits(key, clonedLinked));
                 agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
+              }
+            } catch (error: any) {
+              logger.error(
+                `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${fromRelease.id} -> ${toRelease.id}: ${error.message}`
+              );
+              logger.debug(`Error stack: ${error.stack}`);
+            }
+          } // end for each artifact
+        } catch (e: any) {
+          logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
+          logger.debug(`Pair error stack: ${e.stack}`);
+          continue;
+        }
+      } // end inner from-loop for this target
+    } // end all-pairs loop
+  }
+
   /**
    * Fetches change data for the configured range and aggregates it into `rawChangesArray`.
    *

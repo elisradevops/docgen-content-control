@@ -1206,7 +1206,7 @@ describe('ChangeDataFactory', () => {
 
       factory.compareMode = 'consecutive';
 
-      const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
+      const debugMock = (logger as any).debug as jest.Mock;
 
       await factory.compareConsecutiveReleases(
         releasesList,
@@ -1216,12 +1216,12 @@ describe('ChangeDataFactory', () => {
         new Map()
       );
 
-      expect(spy).toHaveBeenCalledTimes(2);
-      const pairs = spy.mock.calls.map(([from, to]) => [(from as any).id, (to as any).id]);
-      expect(pairs).toEqual([
-        [1, 2],
-        [2, 3],
-      ]);
+      const compareCalls = debugMock.mock.calls
+        .map((args) => String(args[0]))
+        .filter((msg) => msg.startsWith('Comparing releases:'));
+
+      expect(compareCalls).toHaveLength(2);
+      expect(compareCalls).toEqual(['Comparing releases: 1 -> 2', 'Comparing releases: 2 -> 3']);
     });
 
     it('compareConsecutiveReleases should process all i<j pairs in allPairs mode', async () => {
@@ -1235,7 +1235,7 @@ describe('ChangeDataFactory', () => {
 
       factory.compareMode = 'allPairs';
 
-      const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
+      const debugMock = (logger as any).debug as jest.Mock;
 
       await factory.compareConsecutiveReleases(
         releasesList,
@@ -1245,9 +1245,14 @@ describe('ChangeDataFactory', () => {
         new Map()
       );
 
-      expect(spy).toHaveBeenCalledTimes(3);
-      const pairSet = new Set(spy.mock.calls.map(([from, to]) => `${(from as any).id}->${(to as any).id}`));
-      expect(pairSet).toEqual(new Set(['1->2', '1->3', '2->3']));
+      const pairSet = new Set(
+        debugMock.mock.calls
+          .map((args) => String(args[0]))
+          .filter((msg) => msg.startsWith('Comparing releases:'))
+          .map((msg) => msg.replace('Comparing releases: ', ''))
+      );
+
+      expect(pairSet).toEqual(new Set(['1 -> 2', '1 -> 3', '2 -> 3']));
     });
 
     it('compareConsecutiveReleases should aggregate Git artifacts into a single group with annotated commits', async () => {
