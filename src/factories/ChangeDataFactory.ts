@@ -1539,8 +1539,8 @@ export default class ChangeDataFactory {
       logger.debug(`fetching commits for ${gitRepoName} from ${fromVersion} to ${toVersion}`);
       let extendedCommits = await gitDataProvider.GetCommitBatch(
         gitApisUrl,
-        { version: fromVersion, versionType: fromVersionType.toLowerCase() },
-        { version: toVersion, versionType: toVersionType.toLowerCase() },
+        { version: fromVersion, versionType: fromVersionType },
+        { version: toVersion, versionType: toVersionType },
         specificItemPath
       );
 
