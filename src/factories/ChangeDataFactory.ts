@@ -51,6 +51,7 @@ export default class ChangeDataFactory {
   private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
+  private serviceReleaseByCommitId: Map<string, { version: string; date: any }> = new Map();
   private replaceTaskWithParent: boolean = false;
   //#endregion properties
 
@@ -864,10 +865,17 @@ export default class ChangeDataFactory {
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
 
-    // For services.json, compare only the globally selected from/to releases once,
-    // regardless of compareMode or intermediate releases. This ensures that a user
-    // range like R4->R8 produces a direct tag-to-tag diff for services, without
-    // accumulating commits from all intermediate edges (R4->R5, R5->R6, ...).
+    this.serviceReleaseByCommitId.clear();
+    for (let j = 1; j < releasesList.length; j++) {
+      const fromRel = releasesList[j - 1];
+      const toRel = releasesList[j];
+      try {
+        await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
+      } catch (e: any) {
+        logger.debug(`services.json attribution pair ${fromRel.id}->${toRel.id} failed: ${e.message}`);
+      }
+    }
+
     try {
       await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
     } catch (e: any) {
@@ -1742,9 +1750,16 @@ export default class ChangeDataFactory {
   /**
    * Handle Services JSON comparison for a release pair. Determines mode (tag/branch),
    * fetches and parses the services.json, evaluates per-path existence, collects path deltas,
-   * annotates with release metadata, and aggregates into `serviceGroupsByKey` for one table per service.
+   * and either (a) records per-commit first-introducing release (attributionOnly=true) or
+   * (b) annotates commits with release metadata and aggregates into `serviceGroupsByKey`.
    */
-  private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider): Promise<boolean> {
+  private async handleServiceJsonFile(
+    fromRelease,
+    toRelease,
+    projectId,
+    provider,
+    attributionOnly: boolean = false
+  ): Promise<boolean> {
     logger.debug('---------------Handling service json file-----------------');
     const vars = toRelease?.variables;
     const servicesJsonVar = vars?.servicesJson?.value?.trim();
@@ -1906,19 +1921,40 @@ export default class ChangeDataFactory {
         aggLinked.push(...pathResult.allExtendedCommits);
         aggUnlinked.push(...pathResult.commitsWithNoRelations);
       }
+
+      // In attribution-only mode, record first-introducing release per commit ID and skip aggregation
+      if (attributionOnly) {
+        const relVersion = toRelease?.name;
+        const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+        const visit = (c: any) => {
+          const id: string | undefined = c?.commit?.commitId || c?.commitId;
+          if (!id) return;
+          if (this.serviceReleaseByCommitId.has(id)) return;
+          this.serviceReleaseByCommitId.set(id, { version: relVersion, date: relRunDate });
+        };
+        aggLinked.forEach(visit);
+        aggUnlinked.forEach(visit);
+        continue;
+      }
+
       // Deduplicate per service across all its paths, keeping latest-pair commits
       const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
       const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
-      // annotate with release metadata for UI columns
-      const relVersion = toRelease?.name;
-      const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+
+      // annotate with release metadata for UI columns, preferring attribution map when available
+      const relVersionDefault = toRelease?.name;
+      const relRunDateDefault = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
       uniqueLinked.forEach((c: any) => {
-        c.releaseVersion = relVersion;
-        c.releaseRunDate = relRunDate;
+        const id: string | undefined = c?.commit?.commitId || c?.commitId;
+        const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
+        c.releaseVersion = meta?.version ?? relVersionDefault;
+        c.releaseRunDate = meta?.date ?? relRunDateDefault;
       });
       uniqueUnlinked.forEach((c: any) => {
-        c.releaseVersion = relVersion;
-        c.releaseRunDate = relRunDate;
+        const id: string | undefined = c?.commit?.commitId || c?.commitId;
+        const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
+        c.releaseVersion = meta?.version ?? relVersionDefault;
+        c.releaseRunDate = meta?.date ?? relRunDateDefault;
       });
       logger.info(
         `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
