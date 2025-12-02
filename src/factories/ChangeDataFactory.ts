@@ -870,11 +870,17 @@ export default class ChangeDataFactory {
       const fromRel = releasesList[j - 1];
       const toRel = releasesList[j];
       try {
+        logger.debug(
+          `services.json attribution: processing edge ${fromRel.id}(${fromRel.name})->${toRel.id}(${toRel.name})`
+        );
         await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
       } catch (e: any) {
         logger.debug(`services.json attribution pair ${fromRel.id}->${toRel.id} failed: ${e.message}`);
       }
     }
+    logger.debug(
+      `services.json attribution: map built with ${this.serviceReleaseByCommitId.size} unique commit ids`
+    );
 
     try {
       await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
@@ -1949,12 +1955,20 @@ export default class ChangeDataFactory {
         const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
         c.releaseVersion = meta?.version ?? relVersionDefault;
         c.releaseRunDate = meta?.date ?? relRunDateDefault;
+        logger.debug(
+          `services.json annotate linked: service=${service.serviceName}, commitId=${id}, ` +
+            `fromAttribution=${!!meta}, releaseVersion=${c.releaseVersion}`
+        );
       });
       uniqueUnlinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
         const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
         c.releaseVersion = meta?.version ?? relVersionDefault;
         c.releaseRunDate = meta?.date ?? relRunDateDefault;
+        logger.debug(
+          `services.json annotate unlinked: service=${service.serviceName}, commitId=${id}, ` +
+            `fromAttribution=${!!meta}, releaseVersion=${c.releaseVersion}`
+        );
       });
       logger.info(
         `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
