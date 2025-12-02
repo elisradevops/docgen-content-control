@@ -52,6 +52,7 @@ export default class ChangeDataFactory {
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
   private serviceReleaseByCommitId: Map<string, { version: string; date: any }> = new Map();
+  private releasesBySuffix: Map<string, { name: string; date: any }> = new Map();
   private replaceTaskWithParent: boolean = false;
   //#endregion properties
 
@@ -256,6 +257,22 @@ export default class ChangeDataFactory {
       logger.error(`could not fetch svd data:
         ${error.message}`);
       throw error;
+    } finally {
+      // Clear long-lived maps/sets to avoid leaking state between SVD runs
+      try {
+        if (this.serviceGroupsByKey) {
+          this.serviceGroupsByKey.clear();
+        }
+        this.serviceReleaseByCommitId.clear();
+        this.releasesBySuffix.clear();
+        this.pathExistenceCache.clear();
+        this.branchExistenceCache.clear();
+        this.jfrogCiUrlCache.clear();
+        this.pairCompareCache.clear();
+        this.includedWorkItemByIdSet.clear();
+      } catch (cleanupErr: any) {
+        logger.debug(`fetchSvdData cleanup failed: ${cleanupErr?.message}`);
+      }
     }
   }
 
@@ -862,6 +879,16 @@ export default class ChangeDataFactory {
 
     // Prefetch releases and build presence timelines
     const releasesList: any[] = await this.buildReleasesList(releasesBetween, pipelinesDataProvider);
+
+    // Cache releases by their full name (suffix after tag prefix) for later tag-to-release mapping
+    this.releasesBySuffix.clear();
+    for (const rel of releasesList) {
+      const name = (rel?.name || '').trim();
+      if (!name) continue;
+      const date = rel?.createdOn || rel?.created || rel?.createdDate;
+      this.releasesBySuffix.set(name, { name, date });
+    }
+
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
 
@@ -870,23 +897,22 @@ export default class ChangeDataFactory {
       const fromRel = releasesList[j - 1];
       const toRel = releasesList[j];
       try {
-        logger.debug(
-          `services.json attribution: processing edge ${fromRel.id}(${fromRel.name})->${toRel.id}(${toRel.name})`
-        );
         await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
       } catch (e: any) {
         logger.debug(`services.json attribution pair ${fromRel.id}->${toRel.id} failed: ${e.message}`);
       }
     }
-    logger.debug(
-      `services.json attribution: map built with ${this.serviceReleaseByCommitId.size} unique commit ids`
-    );
 
-    try {
-      await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
-    } catch (e: any) {
-      logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
-      logger.debug(`Services.json error stack: ${e.stack}`);
+    // Second pass: aggregate service commits across adjacent release pairs for the selected range
+    for (let j = 1; j < releasesList.length; j++) {
+      const fromRel = releasesList[j - 1];
+      const toRel = releasesList[j];
+      try {
+        await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, false);
+      } catch (e: any) {
+        logger.error(`Failed handling services.json for releases ${fromRel.id}->${toRel.id}: ${e.message}`);
+        logger.debug(`Services.json error stack: ${e.stack}`);
+      }
     }
 
     // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
@@ -1866,6 +1892,8 @@ export default class ChangeDataFactory {
     }
     if (!serviceJsonFile) return false;
 
+    const repoTagsCache = new Map<string, Array<{ name: string; commitId: string; date?: string }>>();
+
     const services = serviceJsonFile.services;
     logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
     for (const service of services) {
@@ -1943,32 +1971,101 @@ export default class ChangeDataFactory {
         continue;
       }
 
+      // Build a per-service tag lookup (commitId -> tag info) for tag-based attribution
+      let tagsByCommitId: Map<string, { name: string; date?: string }> | undefined = undefined;
+      try {
+        if (!repoTagsCache.has(repoName)) {
+          const tagList: any = await provider.GetRepoTagsWithCommits(projectId, repoName);
+          const arr: Array<{ name: string; commitId: string; date?: string }> = Array.isArray(tagList)
+            ? tagList
+            : [];
+          repoTagsCache.set(repoName, arr);
+        }
+        const rawTags = repoTagsCache.get(repoName) || [];
+        const localMap = new Map<string, { name: string; date?: string }>();
+        rawTags.forEach((t: any) => {
+          if (!t?.name || !t?.commitId) return;
+          if (tagPrefix && !String(t.name).startsWith(tagPrefix)) return;
+          localMap.set(String(t.commitId), { name: String(t.name), date: t.date });
+        });
+        tagsByCommitId = localMap;
+      } catch (e: any) {
+        logger.debug(
+          `services.json: failed to build tag map for service ${service.serviceName}, repo ${repoName}: ${e.message}`
+        );
+      }
+
       // Deduplicate per service across all its paths, keeping latest-pair commits
       const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
       const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
 
-      // annotate with release metadata for UI columns, preferring attribution map when available
+      // annotate with release metadata for UI columns
       const relVersionDefault = toRelease?.name;
       const relRunDateDefault = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
       uniqueLinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-        const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
-        c.releaseVersion = meta?.version ?? relVersionDefault;
-        c.releaseRunDate = meta?.date ?? relRunDateDefault;
-        logger.debug(
-          `services.json annotate linked: service=${service.serviceName}, commitId=${id}, ` +
-            `fromAttribution=${!!meta}, releaseVersion=${c.releaseVersion}`
-        );
+        let tagVersion: string | undefined;
+        let tagDate: any;
+
+        if (id && tagsByCommitId && tagsByCommitId.has(id)) {
+          const tagInfo = tagsByCommitId.get(id)!;
+          const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
+          const relMeta = this.releasesBySuffix.get(raw);
+          if (relMeta) {
+            tagVersion = relMeta.name;
+            tagDate = relMeta.date ?? tagInfo.date;
+          } else {
+            tagVersion = raw;
+            tagDate = tagInfo.date;
+          }
+        }
+
+        let metaVersion: string | undefined = tagVersion;
+        let metaDate: any = tagDate;
+
+        if (!metaVersion && id) {
+          const meta = this.serviceReleaseByCommitId.get(id);
+          if (meta) {
+            metaVersion = meta.version;
+            metaDate = meta.date;
+          }
+        }
+
+        c.releaseVersion = metaVersion ?? relVersionDefault;
+        c.releaseRunDate = metaDate ?? relRunDateDefault;
       });
       uniqueUnlinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-        const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
-        c.releaseVersion = meta?.version ?? relVersionDefault;
-        c.releaseRunDate = meta?.date ?? relRunDateDefault;
-        logger.debug(
-          `services.json annotate unlinked: service=${service.serviceName}, commitId=${id}, ` +
-            `fromAttribution=${!!meta}, releaseVersion=${c.releaseVersion}`
-        );
+
+        let tagVersion: string | undefined;
+        let tagDate: any;
+
+        if (id && tagsByCommitId && tagsByCommitId.has(id)) {
+          const tagInfo = tagsByCommitId.get(id)!;
+          const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
+          const relMeta = this.releasesBySuffix.get(raw);
+          if (relMeta) {
+            tagVersion = relMeta.name;
+            tagDate = relMeta.date ?? tagInfo.date;
+          } else {
+            tagVersion = raw;
+            tagDate = tagInfo.date;
+          }
+        }
+
+        let metaVersion: string | undefined = tagVersion;
+        let metaDate: any = tagDate;
+
+        if (!metaVersion && id) {
+          const meta = this.serviceReleaseByCommitId.get(id);
+          if (meta) {
+            metaVersion = meta.version;
+            metaDate = meta.date;
+          }
+        }
+
+        c.releaseVersion = metaVersion ?? relVersionDefault;
+        c.releaseRunDate = metaDate ?? relRunDateDefault;
       });
       logger.info(
         `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
