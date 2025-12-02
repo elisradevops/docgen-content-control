@@ -1927,7 +1927,7 @@ export default class ChangeDataFactory {
         const relVersion = toRelease?.name;
         const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
         const visit = (c: any) => {
-          const id: string | undefined = c?.commit?.commitId || c?.commitId;
+          const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
           if (!id) return;
           if (this.serviceReleaseByCommitId.has(id)) return;
           this.serviceReleaseByCommitId.set(id, { version: relVersion, date: relRunDate });
@@ -1945,13 +1945,13 @@ export default class ChangeDataFactory {
       const relVersionDefault = toRelease?.name;
       const relRunDateDefault = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
       uniqueLinked.forEach((c: any) => {
-        const id: string | undefined = c?.commit?.commitId || c?.commitId;
+        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
         const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
         c.releaseVersion = meta?.version ?? relVersionDefault;
         c.releaseRunDate = meta?.date ?? relRunDateDefault;
       });
       uniqueUnlinked.forEach((c: any) => {
-        const id: string | undefined = c?.commit?.commitId || c?.commitId;
+        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
         const meta = id ? this.serviceReleaseByCommitId.get(id) : undefined;
         c.releaseVersion = meta?.version ?? relVersionDefault;
         c.releaseRunDate = meta?.date ?? relRunDateDefault;
