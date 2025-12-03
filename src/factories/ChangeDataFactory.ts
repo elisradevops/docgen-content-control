@@ -53,6 +53,8 @@ export default class ChangeDataFactory {
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
   private serviceReleaseByCommitId: Map<string, { version: string; date: any }> = new Map();
   private releasesBySuffix: Map<string, { name: string; date: any }> = new Map();
+  private releasesSeq: any[] = [];
+  private releaseIndexByName: Map<string, number> = new Map();
   private replaceTaskWithParent: boolean = false;
   //#endregion properties
 
@@ -880,13 +882,19 @@ export default class ChangeDataFactory {
     // Prefetch releases and build presence timelines
     const releasesList: any[] = await this.buildReleasesList(releasesBetween, pipelinesDataProvider);
 
+    // Cache ordered releases list and index-by-name for per-service range resolution
+    this.releasesSeq = releasesList;
+    this.releaseIndexByName.clear();
+
     // Cache releases by their full name (suffix after tag prefix) for later tag-to-release mapping
     this.releasesBySuffix.clear();
-    for (const rel of releasesList) {
+    for (let idx = 0; idx < releasesList.length; idx++) {
+      const rel = releasesList[idx];
       const name = (rel?.name || '').trim();
       if (!name) continue;
       const date = rel?.createdOn || rel?.created || rel?.createdDate;
       this.releasesBySuffix.set(name, { name, date });
+      this.releaseIndexByName.set(name, idx);
     }
     logger.info(
       `SVD services: releasesList between ${fromId}->${toId}: ${releasesList
@@ -1915,12 +1923,72 @@ export default class ChangeDataFactory {
       logger.debug(
         `Processing service: ${service.serviceName} | Repo: ${repoName} | API URL: ${serviceGitRepoApiUrl}`
       );
+
+      // For aggregation (attributionOnly=false) in TAG mode, choose an effective per-service
+      // from/to release based on which tagged releases actually exist in this repo within
+      // the selected global range.
+      let effectiveFromRelease = fromRelease;
+      let effectiveToRelease = toRelease;
+
+      if (!attributionOnly && useTagMode && this.releasesSeq && this.releasesSeq.length > 0) {
+        const globalFromIdx = this.releasesSeq.findIndex((r: any) => r?.id === fromRelease?.id);
+        const globalToIdx = this.releasesSeq.findIndex((r: any) => r?.id === toRelease?.id);
+
+        if (globalFromIdx >= 0 && globalToIdx >= globalFromIdx) {
+          try {
+            if (!repoTagsCache.has(repoName)) {
+              const tagList: any = await provider.GetRepoTagsWithCommits(projectId, repoName);
+              const arr: Array<{ name: string; commitId: string; date?: string }> = Array.isArray(tagList)
+                ? tagList
+                : [];
+              repoTagsCache.set(repoName, arr);
+            }
+            const rawTags = repoTagsCache.get(repoName) || [];
+            const suffixes = new Set<string>();
+            rawTags.forEach((t: any) => {
+              if (!t?.name) return;
+              const full = String(t.name);
+              if (tagPrefix && !full.startsWith(tagPrefix)) return;
+              const raw = full.substring(tagPrefix.length).trim();
+              if (raw) suffixes.add(raw);
+            });
+
+            let minIdx = Number.POSITIVE_INFINITY;
+            let maxIdx = -1;
+            suffixes.forEach((suffix) => {
+              const idx = this.releaseIndexByName.has(suffix) ? this.releaseIndexByName.get(suffix)! : -1;
+              if (idx < 0) return;
+              if (idx < globalFromIdx || idx > globalToIdx) return;
+              if (idx < minIdx) minIdx = idx;
+              if (idx > maxIdx) maxIdx = idx;
+            });
+
+            if (minIdx !== Number.POSITIVE_INFINITY && maxIdx >= 0) {
+              effectiveFromRelease = this.releasesSeq[minIdx];
+              effectiveToRelease = this.releasesSeq[maxIdx];
+              logger.info(
+                `Service ${service.serviceName}: effective release range within ${fromRelease?.id}:${fromRelease?.name}->${toRelease?.id}:${toRelease?.name} is ${effectiveFromRelease?.id}:${effectiveFromRelease?.name}->${effectiveToRelease?.id}:${effectiveToRelease?.name}`
+              );
+            } else {
+              logger.info(
+                `Service ${service.serviceName}: no tagged releases in repo '${repoName}' within global range ${fromRelease?.id}:${fromRelease?.name}->${toRelease?.id}:${toRelease?.name}; skipping service for this SVD run`
+              );
+              continue;
+            }
+          } catch (e: any) {
+            logger.debug(
+              `services.json: failed to resolve effective release range for service ${service.serviceName}, repo ${repoName}: ${e.message}`
+            );
+          }
+        }
+      }
+
       const range = await this.resolveServiceRange(
         provider,
         service,
         tagPrefix,
-        fromRelease,
-        toRelease,
+        effectiveFromRelease,
+        effectiveToRelease,
         fromBranch,
         toBranch,
         hasBranches,
