@@ -909,27 +909,6 @@ export default class ChangeDataFactory {
     // Tags are used only to determine per-service effective from/to releases and to resolve
     // release metadata (version/date) from the tagged commits.
     try {
-      // First pass (consecutive mode only): build per-commit first-introducing release map
-      // across adjacent release pairs so that services.json attribution can use it
-      // as the primary source for releaseVersion, independent of per-commit tags.
-      this.serviceReleaseByCommitId.clear();
-      if (this.compareMode === 'consecutive' && releasesList.length > 1) {
-        for (let j = 1; j < releasesList.length; j++) {
-          const fromRel = releasesList[j - 1];
-          const toRel = releasesList[j];
-          logger.info(
-            `SVD services: attribution pass services.json from ${fromRel?.id}:${fromRel?.name} to ${toRel?.id}:${toRel?.name}`
-          );
-          try {
-            await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
-          } catch (e: any) {
-            logger.warn(
-              `SVD services: attribution pass failed for ${fromRel?.id}:${fromRel?.name} -> ${toRel?.id}:${toRel?.name}: ${e.message}`
-            );
-          }
-        }
-      }
-
       logger.info(
         `SVD services: global services.json compare from ${fromRelease?.id}:${fromRelease?.name} to ${toRelease?.id}:${toRelease?.name}`
       );
@@ -1215,6 +1194,7 @@ export default class ChangeDataFactory {
                     nonLinkedCommits: [],
                   });
                 }
+
                 // Clone before annotation to avoid mutating cached objects
                 const agg = artifactGroupsByKey.get(key)!;
                 const clonedLinked = mergedChanges.map((c) => ({ ...c }));
@@ -1806,8 +1786,7 @@ export default class ChangeDataFactory {
   /**
    * Handle Services JSON comparison for a release pair. Determines mode (tag/branch),
    * fetches and parses the services.json, evaluates per-path existence, collects path deltas,
-   * and either (a) records per-commit first-introducing release (attributionOnly=true) or
-   * (b) annotates commits with release metadata and aggregates into `serviceGroupsByKey`.
+   * and annotates commits with release metadata.
    */
   private async handleServiceJsonFile(
     fromRelease,
@@ -2068,7 +2047,7 @@ export default class ChangeDataFactory {
       const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
       const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
 
-      // annotate with release metadata for UI columns
+      // Annotate with release metadata using per-service reverse tag grouping.
       const relVersionDefault = effectiveToRelease?.name ?? toRelease?.name;
       const relRunDateDefault =
         effectiveToRelease?.createdOn ||
@@ -2077,151 +2056,126 @@ export default class ChangeDataFactory {
         toRelease?.createdOn ||
         toRelease?.created ||
         toRelease?.createdDate;
-      let linkedFromTags = 0;
-      let linkedFromMap = 0;
-      let linkedFromFallback = 0;
-      let unlinkedFromTags = 0;
-      let unlinkedFromMap = 0;
-      let unlinkedFromFallback = 0;
 
-      // In attributionOnly mode, we do not annotate or aggregate; instead we
-      // record the first-introducing release for each commitId observed in
-      // this release pair (based on the effectiveToRelease), without
-      // overriding any existing earlier attribution.
-      if (attributionOnly) {
-        const introRelease = effectiveToRelease || toRelease;
-        const introVersion = introRelease?.name;
-        const introDate = introRelease?.createdOn || introRelease?.created || introRelease?.createdDate;
+      const fromReleaseName = effectiveFromRelease?.name ?? fromRelease?.name;
+      const toReleaseName = effectiveToRelease?.name ?? toRelease?.name;
+      const fromIdx = fromReleaseName ? this.releaseIndexByName.get(fromReleaseName) : undefined;
+      const toIdx = toReleaseName ? this.releaseIndexByName.get(toReleaseName) : undefined;
 
-        if (introVersion) {
-          let newlyAttributed = 0;
-          const allCommits = [...uniqueLinked, ...uniqueUnlinked];
-          allCommits.forEach((c: any) => {
-            const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-            if (!id) {
-              return;
-            }
-            if (!this.serviceReleaseByCommitId.has(id)) {
-              this.serviceReleaseByCommitId.set(id, { version: introVersion, date: introDate });
-              newlyAttributed++;
-            }
-          });
-          logger.info(
-            `Service ${service.serviceName}: attributionOnly pass added ${newlyAttributed} new commitIds for introducing release ${introVersion} (mapSize=${this.serviceReleaseByCommitId.size})`
-          );
-        } else {
-          logger.info(
-            `Service ${service.serviceName}: attributionOnly pass has no introVersion (effectiveToRelease/toRelease undefined), skipping attribution mapping`
-          );
+      type ServiceBucket = { commitIds: Set<string>; runDate?: any };
+      const bucketsByRelease = new Map<string, ServiceBucket>();
+
+      const allForGrouping: Array<{ kind: 'linked' | 'unlinked'; item: any }> = [
+        ...uniqueLinked.map((c) => ({ kind: 'linked' as const, item: c })),
+        ...uniqueUnlinked.map((c) => ({ kind: 'unlinked' as const, item: c })),
+      ];
+
+      allForGrouping.sort((a, b) => {
+        const da =
+          a.kind === 'linked'
+            ? new Date(a.item?.commit?.committer?.date || a.item?.commitDate || 0).getTime()
+            : new Date(a.item?.commitDate || a.item?.commit?.committer?.date || 0).getTime();
+        const db =
+          b.kind === 'linked'
+            ? new Date(b.item?.commit?.committer?.date || b.item?.commitDate || 0).getTime()
+            : new Date(b.item?.commitDate || b.item?.commit?.committer?.date || 0).getTime();
+        return db - da; // newest first
+      });
+
+      let currentBucketName: string | undefined;
+      let currentBucketIdx: number | undefined;
+
+      const isIdxInWindow = (idx: number | undefined): boolean => {
+        if (typeof idx !== 'number') return false;
+        if (typeof fromIdx === 'number' && idx < fromIdx) return false;
+        if (typeof toIdx === 'number' && idx > toIdx) return false;
+        return true;
+      };
+
+      for (const entry of allForGrouping) {
+        const obj = entry.item;
+        const commitId: string | undefined = obj?.commit?.commitId || obj?.commitId || obj?.id;
+        if (!commitId) continue;
+
+        let tagReleaseName: string | undefined;
+        let tagReleaseIdx: number | undefined;
+        let tagReleaseDate: any;
+
+        if (tagsByCommitId && tagsByCommitId.has(commitId)) {
+          const tagInfo = tagsByCommitId.get(commitId)!;
+          const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
+          const relMeta = this.releasesBySuffix.get(raw);
+          if (relMeta) {
+            tagReleaseName = relMeta.name;
+            tagReleaseDate = relMeta.date ?? tagInfo.date;
+          } else {
+            tagReleaseName = raw;
+            tagReleaseDate = tagInfo.date;
+          }
+          if (tagReleaseName && this.releaseIndexByName.has(tagReleaseName)) {
+            tagReleaseIdx = this.releaseIndexByName.get(tagReleaseName)!;
+          }
         }
 
-        // Skip aggregation for attribution-only calls.
-        continue;
+        if (tagReleaseName && isIdxInWindow(tagReleaseIdx)) {
+          if (
+            typeof currentBucketIdx !== 'number' ||
+            (typeof tagReleaseIdx === 'number' && tagReleaseIdx <= currentBucketIdx)
+          ) {
+            currentBucketName = tagReleaseName;
+            currentBucketIdx = tagReleaseIdx;
+            if (!bucketsByRelease.has(currentBucketName)) {
+              bucketsByRelease.set(currentBucketName, {
+                commitIds: new Set<string>(),
+                runDate: tagReleaseDate,
+              });
+            } else {
+              const bucket = bucketsByRelease.get(currentBucketName)!;
+              if (!bucket.runDate && tagReleaseDate) {
+                bucket.runDate = tagReleaseDate;
+              }
+            }
+          }
+        }
+
+        if (!currentBucketName) {
+          continue;
+        }
+        const bucket = bucketsByRelease.get(currentBucketName);
+        if (!bucket) continue;
+        bucket.commitIds.add(commitId);
       }
 
-      const linkedFallbackExamples: string[] = [];
-      uniqueLinked.forEach((c: any) => {
-        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-        let tagVersion: string | undefined;
-        let tagDate: any;
-
-        if (id && tagsByCommitId && tagsByCommitId.has(id)) {
-          const tagInfo = tagsByCommitId.get(id)!;
-          const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
-          const relMeta = this.releasesBySuffix.get(raw);
-          if (relMeta) {
-            tagVersion = relMeta.name;
-            tagDate = relMeta.date ?? tagInfo.date;
-          } else {
-            tagVersion = raw;
-            tagDate = tagInfo.date;
-          }
-        }
-
-        let metaVersion: string | undefined = undefined;
-        let metaDate: any = undefined;
-
-        // Prefer first-introducing attribution map when available
-        if (id && this.serviceReleaseByCommitId.has(id)) {
-          const meta = this.serviceReleaseByCommitId.get(id)!;
-          metaVersion = meta.version;
-          metaDate = meta.date;
-          linkedFromMap++;
-        } else if (tagVersion) {
-          metaVersion = tagVersion;
-          metaDate = tagDate;
-          linkedFromTags++;
-        } else {
-          linkedFromFallback++;
-          if (id && linkedFallbackExamples.length < 20) {
-            linkedFallbackExamples.push(id);
-          }
-        }
-
-        c.releaseVersion = metaVersion || relVersionDefault;
-        c.releaseRunDate = metaDate || relRunDateDefault;
-      });
-      const unlinkedFallbackExamples: string[] = [];
-      uniqueUnlinked.forEach((c: any) => {
-        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-
-        let tagVersion: string | undefined;
-        let tagDate: any;
-
-        if (id && tagsByCommitId && tagsByCommitId.has(id)) {
-          const tagInfo = tagsByCommitId.get(id)!;
-          const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
-          const relMeta = this.releasesBySuffix.get(raw);
-          if (relMeta) {
-            tagVersion = relMeta.name;
-            tagDate = relMeta.date ?? tagInfo.date;
-          } else {
-            tagVersion = raw;
-            tagDate = tagInfo.date;
-          }
-        }
-
-        let metaVersion: string | undefined = undefined;
-        let metaDate: any = undefined;
-
-        // Prefer first-introducing attribution map when available
-        if (id && this.serviceReleaseByCommitId.has(id)) {
-          const meta = this.serviceReleaseByCommitId.get(id)!;
-          metaVersion = meta.version;
-          metaDate = meta.date;
-          unlinkedFromMap++;
-        } else if (tagVersion) {
-          metaVersion = tagVersion;
-          metaDate = tagDate;
-          unlinkedFromTags++;
-        } else {
-          unlinkedFromFallback++;
-          if (id && unlinkedFallbackExamples.length < 20) {
-            unlinkedFallbackExamples.push(id);
-          }
-        }
-
-        c.releaseVersion = metaVersion || relVersionDefault;
-        c.releaseRunDate = metaDate || relRunDateDefault;
-      });
+      let groupedCount = 0;
+      bucketsByRelease.forEach((b) => (groupedCount += b.commitIds.size));
       logger.info(
-        `Service ${service.serviceName}: Aggregated ${
-          uniqueLinked?.length || 0
-        } linked (map=${linkedFromMap}, tags=${linkedFromTags}, fallback=${linkedFromFallback}) and ${
-          uniqueUnlinked?.length || 0
-        } unlinked (map=${unlinkedFromMap}, tags=${unlinkedFromTags}, fallback=${unlinkedFromFallback}) commits across ${
-          itemPaths.length
-        } path(s)`
+        `Service ${service.serviceName}: grouped ${groupedCount} commits into ${bucketsByRelease.size} release bucket(s) using reverse tag walk`
       );
-      if (linkedFromFallback > 0 || unlinkedFromFallback > 0) {
-        logger.debug(
-          `Service ${
-            service.serviceName
-          }: fallback-attributed commits (no map/tag) samples - linked=[${linkedFallbackExamples.join(
-            ', '
-          )}], unlinked=[${unlinkedFallbackExamples.join(', ')}]`
-        );
-      }
+
+      const assignFromBuckets = (list: any[]) => {
+        for (const c of list) {
+          const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+          if (!id) {
+            c.releaseVersion = relVersionDefault;
+            c.releaseRunDate = relRunDateDefault;
+            continue;
+          }
+          let chosenVersion: string | undefined;
+          let chosenDate: any;
+          for (const [relName, bucket] of bucketsByRelease.entries()) {
+            if (bucket.commitIds.has(id)) {
+              chosenVersion = relName;
+              chosenDate = bucket.runDate;
+              break;
+            }
+          }
+          c.releaseVersion = chosenVersion || relVersionDefault;
+          c.releaseRunDate = chosenDate || relRunDateDefault;
+        }
+      };
+
+      assignFromBuckets(uniqueLinked);
+      assignFromBuckets(uniqueUnlinked);
       let grp = this.serviceGroupsByKey.get(artifactKey);
       if (!grp) {
         grp = {
