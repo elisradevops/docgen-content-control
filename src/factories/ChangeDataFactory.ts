@@ -888,6 +888,11 @@ export default class ChangeDataFactory {
       const date = rel?.createdOn || rel?.created || rel?.createdDate;
       this.releasesBySuffix.set(name, { name, date });
     }
+    logger.info(
+      `SVD services: releasesList between ${fromId}->${toId}: ${releasesList
+        .map((r: any) => `${r?.id}:${r?.name}`)
+        .join(', ')}`
+    );
 
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
@@ -902,9 +907,15 @@ export default class ChangeDataFactory {
         logger.debug(`services.json attribution pair ${fromRel.id}->${toRel.id} failed: ${e.message}`);
       }
     }
+    logger.info(
+      `SVD services: built serviceReleaseByCommitId map with ${this.serviceReleaseByCommitId.size} entries`
+    );
 
     // Global services.json compare: aggregate commits strictly between the selected from/to releases
     try {
+      logger.info(
+        `SVD services: global services.json compare from ${fromRelease?.id}:${fromRelease?.name} to ${toRelease?.id}:${toRelease?.name}`
+      );
       await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider, false);
     } catch (e: any) {
       logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
@@ -1956,14 +1967,19 @@ export default class ChangeDataFactory {
       if (attributionOnly) {
         const relVersion = toRelease?.name;
         const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+        let attributed = 0;
         const visit = (c: any) => {
           const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
           if (!id) return;
           if (this.serviceReleaseByCommitId.has(id)) return;
           this.serviceReleaseByCommitId.set(id, { version: relVersion, date: relRunDate });
+          attributed++;
         };
         aggLinked.forEach(visit);
         aggUnlinked.forEach(visit);
+        logger.info(
+          `Service ${service.serviceName}: attributionOnly=${attributionOnly}, from=${fromRelease?.id}:${fromRelease?.name} to=${toRelease?.id}:${toRelease?.name}, attributed ${attributed} unique commits`
+        );
         continue;
       }
 
@@ -1998,6 +2014,11 @@ export default class ChangeDataFactory {
       // annotate with release metadata for UI columns
       const relVersionDefault = toRelease?.name;
       const relRunDateDefault = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+      let linkedFromTags = 0;
+      let linkedFromMap = 0;
+      let unlinkedFromTags = 0;
+      let unlinkedFromMap = 0;
+
       uniqueLinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
         let tagVersion: string | undefined;
@@ -2025,6 +2046,12 @@ export default class ChangeDataFactory {
             metaVersion = meta.version;
             metaDate = meta.date;
           }
+        }
+
+        if (tagVersion) {
+          linkedFromTags++;
+        } else if (metaVersion && !tagVersion) {
+          linkedFromMap++;
         }
 
         c.releaseVersion = metaVersion ?? relVersionDefault;
@@ -2060,13 +2087,23 @@ export default class ChangeDataFactory {
           }
         }
 
+        if (tagVersion) {
+          unlinkedFromTags++;
+        } else if (metaVersion && !tagVersion) {
+          unlinkedFromMap++;
+        }
+
         c.releaseVersion = metaVersion ?? relVersionDefault;
         c.releaseRunDate = metaDate ?? relRunDateDefault;
       });
       logger.info(
-        `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
+        `Service ${service.serviceName}: Aggregated ${
+          uniqueLinked?.length || 0
+        } linked (tags=${linkedFromTags}, map=${linkedFromMap}) and ${
           uniqueUnlinked?.length || 0
-        } unlinked commits across ${itemPaths.length} path(s)`
+        } unlinked (tags=${unlinkedFromTags}, map=${unlinkedFromMap}) commits across ${
+          itemPaths.length
+        } path(s)`
       );
       let grp = this.serviceGroupsByKey.get(artifactKey);
       if (!grp) {
