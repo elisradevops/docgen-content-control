@@ -905,21 +905,9 @@ export default class ChangeDataFactory {
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
 
-    this.serviceReleaseByCommitId.clear();
-    for (let j = 1; j < releasesList.length; j++) {
-      const fromRel = releasesList[j - 1];
-      const toRel = releasesList[j];
-      try {
-        await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
-      } catch (e: any) {
-        logger.debug(`services.json attribution pair ${fromRel.id}->${toRel.id} failed: ${e.message}`);
-      }
-    }
-    logger.info(
-      `SVD services: built serviceReleaseByCommitId map with ${this.serviceReleaseByCommitId.size} entries`
-    );
-
-    // Global services.json compare: aggregate commits strictly between the selected from/to releases
+    // Global services.json compare: aggregate commits strictly between the selected from/to releases.
+    // Tags are used only to determine per-service effective from/to releases and to resolve
+    // release metadata (version/date) from the tagged commits.
     try {
       logger.info(
         `SVD services: global services.json compare from ${fromRelease?.id}:${fromRelease?.name} to ${toRelease?.id}:${toRelease?.name}`
@@ -1971,9 +1959,10 @@ export default class ChangeDataFactory {
               );
             } else {
               logger.info(
-                `Service ${service.serviceName}: no tagged releases in repo '${repoName}' within global range ${fromRelease?.id}:${fromRelease?.name}->${toRelease?.id}:${toRelease?.name}; skipping service for this SVD run`
+                `Service ${service.serviceName}: no tagged releases in repo '${repoName}' within global range ${fromRelease?.id}:${fromRelease?.name}->${toRelease?.id}:${toRelease?.name}; falling back to branch/global range`
               );
-              continue;
+              // leave effectiveFromRelease/effectiveToRelease as the original global range and
+              // allow resolveServiceRange to apply its existing tag/branch fallback logic
             }
           } catch (e: any) {
             logger.debug(
@@ -2030,27 +2019,6 @@ export default class ChangeDataFactory {
         aggLinked.push(...pathResult.allExtendedCommits);
         aggUnlinked.push(...pathResult.commitsWithNoRelations);
       }
-
-      // In attribution-only mode, record first-introducing release per commit ID and skip aggregation
-      if (attributionOnly) {
-        const relVersion = toRelease?.name;
-        const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
-        let attributed = 0;
-        const visit = (c: any) => {
-          const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-          if (!id) return;
-          if (this.serviceReleaseByCommitId.has(id)) return;
-          this.serviceReleaseByCommitId.set(id, { version: relVersion, date: relRunDate });
-          attributed++;
-        };
-        aggLinked.forEach(visit);
-        aggUnlinked.forEach(visit);
-        logger.info(
-          `Service ${service.serviceName}: attributionOnly=${attributionOnly}, from=${fromRelease?.id}:${fromRelease?.name} to=${toRelease?.id}:${toRelease?.name}, attributed ${attributed} unique commits`
-        );
-        continue;
-      }
-
       // Build a per-service tag lookup (commitId -> tag info) for tag-based attribution
       let tagsByCommitId: Map<string, { name: string; date?: string }> | undefined = undefined;
       try {
@@ -2080,8 +2048,14 @@ export default class ChangeDataFactory {
       const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
 
       // annotate with release metadata for UI columns
-      const relVersionDefault = toRelease?.name;
-      const relRunDateDefault = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+      const relVersionDefault = effectiveToRelease?.name ?? toRelease?.name;
+      const relRunDateDefault =
+        effectiveToRelease?.createdOn ||
+        effectiveToRelease?.created ||
+        effectiveToRelease?.createdDate ||
+        toRelease?.createdOn ||
+        toRelease?.created ||
+        toRelease?.createdDate;
       let linkedFromTags = 0;
       let linkedFromMap = 0;
       let unlinkedFromTags = 0;
@@ -2105,25 +2079,15 @@ export default class ChangeDataFactory {
           }
         }
 
-        let metaVersion: string | undefined = tagVersion;
-        let metaDate: any = tagDate;
+        const metaVersion: string | undefined = tagVersion;
+        const metaDate: any = tagDate;
 
-        if (!metaVersion && id) {
-          const meta = this.serviceReleaseByCommitId.get(id);
-          if (meta) {
-            metaVersion = meta.version;
-            metaDate = meta.date;
-          }
-        }
-
-        if (tagVersion) {
+        if (metaVersion) {
           linkedFromTags++;
-        } else if (metaVersion && !tagVersion) {
-          linkedFromMap++;
         }
 
-        c.releaseVersion = metaVersion ?? relVersionDefault;
-        c.releaseRunDate = metaDate ?? relRunDateDefault;
+        c.releaseVersion = metaVersion || relVersionDefault;
+        c.releaseRunDate = metaDate || relRunDateDefault;
       });
       uniqueUnlinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
@@ -2144,25 +2108,15 @@ export default class ChangeDataFactory {
           }
         }
 
-        let metaVersion: string | undefined = tagVersion;
-        let metaDate: any = tagDate;
+        const metaVersion: string | undefined = tagVersion;
+        const metaDate: any = tagDate;
 
-        if (!metaVersion && id) {
-          const meta = this.serviceReleaseByCommitId.get(id);
-          if (meta) {
-            metaVersion = meta.version;
-            metaDate = meta.date;
-          }
-        }
-
-        if (tagVersion) {
+        if (metaVersion) {
           unlinkedFromTags++;
-        } else if (metaVersion && !tagVersion) {
-          unlinkedFromMap++;
         }
 
-        c.releaseVersion = metaVersion ?? relVersionDefault;
-        c.releaseRunDate = metaDate ?? relRunDateDefault;
+        c.releaseVersion = metaVersion || relVersionDefault;
+        c.releaseRunDate = metaDate || relRunDateDefault;
       });
       logger.info(
         `Service ${service.serviceName}: Aggregated ${
