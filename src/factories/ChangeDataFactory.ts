@@ -2046,6 +2046,9 @@ export default class ChangeDataFactory {
       // Deduplicate per service across all its paths, keeping latest-pair commits
       const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
       const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
+      logger.info(
+        `Service ${service.serviceName}: uniqueLinked=${uniqueLinked.length}, uniqueUnlinked=${uniqueUnlinked.length}`
+      );
 
       // Annotate with release metadata using per-service reverse tag grouping.
       const relVersionDefault = effectiveToRelease?.name ?? toRelease?.name;
@@ -2061,6 +2064,11 @@ export default class ChangeDataFactory {
       const toReleaseName = effectiveToRelease?.name ?? toRelease?.name;
       const fromIdx = fromReleaseName ? this.releaseIndexByName.get(fromReleaseName) : undefined;
       const toIdx = toReleaseName ? this.releaseIndexByName.get(toReleaseName) : undefined;
+      logger.debug(
+        `Service ${service.serviceName}: grouping window releases from='${fromReleaseName}' (idx=${
+          typeof fromIdx === 'number' ? fromIdx : 'n/a'
+        }) to='${toReleaseName}' (idx=${typeof toIdx === 'number' ? toIdx : 'n/a'})`
+      );
 
       type ServiceBucket = { commitIds: Set<string>; runDate?: any };
       const bucketsByRelease = new Map<string, ServiceBucket>();
@@ -2069,6 +2077,10 @@ export default class ChangeDataFactory {
         ...uniqueLinked.map((c) => ({ kind: 'linked' as const, item: c })),
         ...uniqueUnlinked.map((c) => ({ kind: 'unlinked' as const, item: c })),
       ];
+
+      logger.debug(
+        `Service ${service.serviceName}: starting reverse grouping walk over ${allForGrouping.length} commits (linked+unlinked)`
+      );
 
       allForGrouping.sort((a, b) => {
         const da =
@@ -2115,6 +2127,24 @@ export default class ChangeDataFactory {
           if (tagReleaseName && this.releaseIndexByName.has(tagReleaseName)) {
             tagReleaseIdx = this.releaseIndexByName.get(tagReleaseName)!;
           }
+          logger.debug(
+            `Service ${service.serviceName}: commit ${commitId.substring(0, 7)} tagged '${
+              tagInfo.name
+            }' -> releaseName='${tagReleaseName}', idx=${
+              typeof tagReleaseIdx === 'number' ? tagReleaseIdx : 'n/a'
+            }`
+          );
+        }
+
+        if (tagReleaseName && !isIdxInWindow(tagReleaseIdx)) {
+          logger.debug(
+            `Service ${service.serviceName}: ignoring tag '${tagReleaseName}' for commit ${commitId.substring(
+              0,
+              7
+            )} because it is outside window [${typeof fromIdx === 'number' ? fromIdx : 'n/a'}, ${
+              typeof toIdx === 'number' ? toIdx : 'n/a'
+            }]`
+          );
         }
 
         if (tagReleaseName && isIdxInWindow(tagReleaseIdx)) {
@@ -2122,6 +2152,7 @@ export default class ChangeDataFactory {
             typeof currentBucketIdx !== 'number' ||
             (typeof tagReleaseIdx === 'number' && tagReleaseIdx <= currentBucketIdx)
           ) {
+            const prevBucket = currentBucketName;
             currentBucketName = tagReleaseName;
             currentBucketIdx = tagReleaseIdx;
             if (!bucketsByRelease.has(currentBucketName)) {
@@ -2129,12 +2160,35 @@ export default class ChangeDataFactory {
                 commitIds: new Set<string>(),
                 runDate: tagReleaseDate,
               });
+              logger.debug(
+                `Service ${
+                  service.serviceName
+                }: opening bucket '${currentBucketName}' at commit ${commitId.substring(0, 7)}`
+              );
             } else {
               const bucket = bucketsByRelease.get(currentBucketName)!;
               if (!bucket.runDate && tagReleaseDate) {
                 bucket.runDate = tagReleaseDate;
               }
+              if (prevBucket && prevBucket !== currentBucketName) {
+                logger.debug(
+                  `Service ${
+                    service.serviceName
+                  }: switching bucket '${prevBucket}' -> '${currentBucketName}' at commit ${commitId.substring(
+                    0,
+                    7
+                  )}`
+                );
+              }
             }
+          } else {
+            logger.debug(
+              `Service ${service.serviceName}: ignoring higher release tag '${tagReleaseName}' (idx=${
+                typeof tagReleaseIdx === 'number' ? tagReleaseIdx : 'n/a'
+              }) for commit ${commitId.substring(0, 7)}; currentBucket='${currentBucketName}' (idx=${
+                typeof currentBucketIdx === 'number' ? currentBucketIdx : 'n/a'
+              })`
+            );
           }
         }
 
@@ -2147,17 +2201,23 @@ export default class ChangeDataFactory {
       }
 
       let groupedCount = 0;
-      bucketsByRelease.forEach((b) => (groupedCount += b.commitIds.size));
+      bucketsByRelease.forEach((b, rel) => {
+        groupedCount += b.commitIds.size;
+        logger.debug(`Service ${service.serviceName}: bucket '${rel}' size=${b.commitIds.size}`);
+      });
       logger.info(
         `Service ${service.serviceName}: grouped ${groupedCount} commits into ${bucketsByRelease.size} release bucket(s) using reverse tag walk`
       );
 
-      const assignFromBuckets = (list: any[]) => {
+      const assignFromBuckets = (list: any[], listLabel: string) => {
+        let assignedFromBucket = 0;
+        let assignedFallback = 0;
         for (const c of list) {
           const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
           if (!id) {
             c.releaseVersion = relVersionDefault;
             c.releaseRunDate = relRunDateDefault;
+            assignedFallback++;
             continue;
           }
           let chosenVersion: string | undefined;
@@ -2169,13 +2229,27 @@ export default class ChangeDataFactory {
               break;
             }
           }
+          if (chosenVersion) {
+            assignedFromBucket++;
+            logger.debug(
+              `Service ${service.serviceName}: commit ${id.substring(
+                0,
+                7
+              )} (${listLabel}) assigned from bucket '${chosenVersion}'`
+            );
+          } else {
+            assignedFallback++;
+          }
           c.releaseVersion = chosenVersion || relVersionDefault;
           c.releaseRunDate = chosenDate || relRunDateDefault;
         }
+        logger.info(
+          `Service ${service.serviceName}: assignment summary for ${listLabel} -> fromBuckets=${assignedFromBucket}, fallback=${assignedFallback}`
+        );
       };
 
-      assignFromBuckets(uniqueLinked);
-      assignFromBuckets(uniqueUnlinked);
+      assignFromBuckets(uniqueLinked, 'linked');
+      assignFromBuckets(uniqueUnlinked, 'unlinked');
       let grp = this.serviceGroupsByKey.get(artifactKey);
       if (!grp) {
         grp = {
