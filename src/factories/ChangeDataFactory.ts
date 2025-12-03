@@ -2298,38 +2298,44 @@ export default class ChangeDataFactory {
   ) {
     logger.debug(`Checking path '${itemPath}' exists in source ${fromVersionType} '${fromVersion}'`);
     const srcKey = `${serviceGitRepoApiUrl}|${itemPath}|${fromVersionType}|${fromVersion}`;
-    let itemExistingInVersion: boolean;
+    let srcExists: boolean;
     if (this.pathExistenceCache.has(srcKey)) {
-      itemExistingInVersion = this.pathExistenceCache.get(srcKey)!;
+      srcExists = this.pathExistenceCache.get(srcKey)!;
     } else {
-      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      srcExists = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
         version: fromVersion,
         versionType: fromVersionType,
       });
-      this.pathExistenceCache.set(srcKey, !!itemExistingInVersion);
+      this.pathExistenceCache.set(srcKey, !!srcExists);
     }
-    if (!itemExistingInVersion) {
-      logger.warn(
-        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
-      );
-      return null;
-    }
+
     logger.debug(`Checking path '${itemPath}' exists in target ${toVersionType} '${toVersion}'`);
     const dstKey = `${serviceGitRepoApiUrl}|${itemPath}|${toVersionType}|${toVersion}`;
+    let dstExists: boolean;
     if (this.pathExistenceCache.has(dstKey)) {
-      itemExistingInVersion = this.pathExistenceCache.get(dstKey)!;
+      dstExists = this.pathExistenceCache.get(dstKey)!;
     } else {
-      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      dstExists = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
         version: toVersion,
         versionType: toVersionType,
       });
-      this.pathExistenceCache.set(dstKey, !!itemExistingInVersion);
+      this.pathExistenceCache.set(dstKey, !!dstExists);
     }
-    if (!itemExistingInVersion) {
+
+    if (!srcExists && !dstExists) {
       logger.warn(
-        `Service ${serviceName}: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
+        `Service ${serviceName}: Path '${itemPath}' does not exist in either source ${fromVersionType.toLowerCase()} '${fromVersion}' or target ${toVersionType.toLowerCase()} '${toVersion}'; skipping path`
       );
       return null;
+    }
+    if (!srcExists && dstExists) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}' but exists in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as newly added path in range`
+      );
+    } else if (srcExists && !dstExists) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' exists in source ${fromVersionType.toLowerCase()} '${fromVersion}' but not in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as deleted path in range`
+      );
     }
     logger.info(
       `Service ${serviceName}: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
