@@ -2639,7 +2639,10 @@ describe('ChangeDataFactory', () => {
       );
 
       expect(result).toBeNull();
-      expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(1);
+      // With the updated logic we always check both source and target; in this
+      // test both are missing so we expect two existence checks (one for each
+      // endpoint) before returning null.
+      expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(2);
     });
 
     it('resolveBranch should prefer env branch, then release.branch, then release.Branch', () => {
