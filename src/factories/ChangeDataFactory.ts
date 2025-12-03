@@ -2328,15 +2328,24 @@ export default class ChangeDataFactory {
       );
       return null;
     }
+
+    // Decide how to query commits. When the path exists in the source, we can safely
+    // use itemPath in the commitsbatch request. When it only exists in the target,
+    // Azure DevOps will return 404 if we specify itemPath against a source version
+    // that never contained it. In that case, fall back to a repo-level diff and rely
+    // on the service-level scoping (pathInGit) to keep things reasonably tight.
+    let effectiveItemPath = itemPath;
     if (!srcExists && dstExists) {
       logger.warn(
-        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}' but exists in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as newly added path in range`
+        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}' but exists in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as newly added path in range and falling back to repo-level diff (no itemPath) to avoid 404`
       );
+      effectiveItemPath = '';
     } else if (srcExists && !dstExists) {
       logger.warn(
         `Service ${serviceName}: Path '${itemPath}' exists in source ${fromVersionType.toLowerCase()} '${fromVersion}' but not in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as deleted path in range`
       );
     }
+
     logger.info(
       `Service ${serviceName}: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
     );
@@ -2351,7 +2360,7 @@ export default class ChangeDataFactory {
       serviceGitRepoApiUrl,
       new Set<number>(),
       undefined,
-      itemPath,
+      effectiveItemPath,
       this.linkedWiOptions
     );
     this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
