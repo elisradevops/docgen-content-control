@@ -1937,7 +1937,7 @@ export default class ChangeDataFactory {
         if (globalFromIdx >= 0 && globalToIdx >= globalFromIdx) {
           try {
             if (!repoTagsCache.has(repoName)) {
-              const tagList: any = await provider.GetRepoTagsWithCommits(projectId, repoName);
+              const tagList: any = await provider.GetRepoTagsWithCommits(serviceGitRepoApiUrl);
               const arr: Array<{ name: string; commitId: string; date?: string }> = Array.isArray(tagList)
                 ? tagList
                 : [];
@@ -2055,7 +2055,7 @@ export default class ChangeDataFactory {
       let tagsByCommitId: Map<string, { name: string; date?: string }> | undefined = undefined;
       try {
         if (!repoTagsCache.has(repoName)) {
-          const tagList: any = await provider.GetRepoTagsWithCommits(projectId, repoName);
+          const tagList: any = await provider.GetRepoTagsWithCommits(serviceGitRepoApiUrl);
           const arr: Array<{ name: string; commitId: string; date?: string }> = Array.isArray(tagList)
             ? tagList
             : [];
