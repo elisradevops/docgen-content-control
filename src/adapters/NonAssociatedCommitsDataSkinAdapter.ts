@@ -28,6 +28,20 @@ export default class NonAssociatedCommitsDataSkinAdapter {
   }
 
   /**
+   * Sanitize text for Word/OpenXML output by removing control characters that
+   * are invalid in XML (e.g. vertical tab 0x0B). This prevents downstream
+   * serialization errors in the JsonToWord service.
+   */
+  private sanitizeText(value: any): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    const str = String(value);
+    // Remove ASCII control chars that are not TAB (0x09), LF (0x0A), or CR (0x0D)
+    return str.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  }
+
+  /**
    * Adopts a flat list of non-linked commits into a skin-friendly rows array.
    * Only artifacts with nonLinkedCommits are considered. Column order and widths
    * are tuned for portrait layout.
@@ -52,30 +66,41 @@ export default class NonAssociatedCommitsDataSkinAdapter {
       const isReleaseCommit = commit.releaseVersion && commit.releaseRunDate;
       const fields: any[] = [
         { name: '#', value: index + 1, width: '5.5%' },
-        { name: 'Commit #', value: commit.commitId.substring(0, 5), width: '11.1%', url: commit.url },
+        {
+          name: 'Commit #',
+          value: this.sanitizeText(commit.commitId.substring(0, 5)),
+          width: '11.1%',
+          url: this.sanitizeText(commit.url),
+        },
       ];
 
       fields.push(
-        { name: 'Comment', value: commit.comment },
+        { name: 'Comment', value: this.sanitizeText(commit.comment) },
         {
           name: 'Committed Date & Time',
-          value: this.convertDateToLocalTime(commit.commitDate),
+          value: this.sanitizeText(this.convertDateToLocalTime(commit.commitDate)),
           width: isReleaseCommit ? '15.3%' : '20.7%',
         }
       );
       if (this.includeCommittedBy) {
         fields.push({
           name: 'Committed by',
-          value: commit.committer,
+          value: this.sanitizeText(commit.committer),
           width: isReleaseCommit ? '15.3%' : '19.4%',
         });
       }
 
       if (isReleaseCommit) {
-        fields.push({ name: 'Release', value: commit.releaseVersion || '', width: '12.5%' });
+        fields.push({
+          name: 'Release',
+          value: this.sanitizeText(commit.releaseVersion || ''),
+          width: '12.5%',
+        });
         fields.push({
           name: 'Created',
-          value: commit.releaseRunDate ? this.convertDateToLocalTime(commit.releaseRunDate) : '',
+          value: commit.releaseRunDate
+            ? this.sanitizeText(this.convertDateToLocalTime(commit.releaseRunDate))
+            : '',
           width: '12.5%',
         });
       }
