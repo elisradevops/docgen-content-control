@@ -903,16 +903,12 @@ export default class ChangeDataFactory {
       }
     }
 
-    // Second pass: aggregate service commits across adjacent release pairs for the selected range
-    for (let j = 1; j < releasesList.length; j++) {
-      const fromRel = releasesList[j - 1];
-      const toRel = releasesList[j];
-      try {
-        await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, false);
-      } catch (e: any) {
-        logger.error(`Failed handling services.json for releases ${fromRel.id}->${toRel.id}: ${e.message}`);
-        logger.debug(`Services.json error stack: ${e.stack}`);
-      }
+    // Global services.json compare: aggregate commits strictly between the selected from/to releases
+    try {
+      await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider, false);
+    } catch (e: any) {
+      logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
+      logger.debug(`Services.json error stack: ${e.stack}`);
     }
 
     // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
