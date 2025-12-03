@@ -909,6 +909,27 @@ export default class ChangeDataFactory {
     // Tags are used only to determine per-service effective from/to releases and to resolve
     // release metadata (version/date) from the tagged commits.
     try {
+      // First pass (consecutive mode only): build per-commit first-introducing release map
+      // across adjacent release pairs so that services.json attribution can use it
+      // as the primary source for releaseVersion, independent of per-commit tags.
+      this.serviceReleaseByCommitId.clear();
+      if (this.compareMode === 'consecutive' && releasesList.length > 1) {
+        for (let j = 1; j < releasesList.length; j++) {
+          const fromRel = releasesList[j - 1];
+          const toRel = releasesList[j];
+          logger.info(
+            `SVD services: attribution pass services.json from ${fromRel?.id}:${fromRel?.name} to ${toRel?.id}:${toRel?.name}`
+          );
+          try {
+            await this.handleServiceJsonFile(fromRel, toRel, this.teamProject, gitDataProvider, true);
+          } catch (e: any) {
+            logger.warn(
+              `SVD services: attribution pass failed for ${fromRel?.id}:${fromRel?.name} -> ${toRel?.id}:${toRel?.name}: ${e.message}`
+            );
+          }
+        }
+      }
+
       logger.info(
         `SVD services: global services.json compare from ${fromRelease?.id}:${fromRelease?.name} to ${toRelease?.id}:${toRelease?.name}`
       );
@@ -2058,9 +2079,47 @@ export default class ChangeDataFactory {
         toRelease?.createdDate;
       let linkedFromTags = 0;
       let linkedFromMap = 0;
+      let linkedFromFallback = 0;
       let unlinkedFromTags = 0;
       let unlinkedFromMap = 0;
+      let unlinkedFromFallback = 0;
 
+      // In attributionOnly mode, we do not annotate or aggregate; instead we
+      // record the first-introducing release for each commitId observed in
+      // this release pair (based on the effectiveToRelease), without
+      // overriding any existing earlier attribution.
+      if (attributionOnly) {
+        const introRelease = effectiveToRelease || toRelease;
+        const introVersion = introRelease?.name;
+        const introDate = introRelease?.createdOn || introRelease?.created || introRelease?.createdDate;
+
+        if (introVersion) {
+          let newlyAttributed = 0;
+          const allCommits = [...uniqueLinked, ...uniqueUnlinked];
+          allCommits.forEach((c: any) => {
+            const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+            if (!id) {
+              return;
+            }
+            if (!this.serviceReleaseByCommitId.has(id)) {
+              this.serviceReleaseByCommitId.set(id, { version: introVersion, date: introDate });
+              newlyAttributed++;
+            }
+          });
+          logger.info(
+            `Service ${service.serviceName}: attributionOnly pass added ${newlyAttributed} new commitIds for introducing release ${introVersion} (mapSize=${this.serviceReleaseByCommitId.size})`
+          );
+        } else {
+          logger.info(
+            `Service ${service.serviceName}: attributionOnly pass has no introVersion (effectiveToRelease/toRelease undefined), skipping attribution mapping`
+          );
+        }
+
+        // Skip aggregation for attribution-only calls.
+        continue;
+      }
+
+      const linkedFallbackExamples: string[] = [];
       uniqueLinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
         let tagVersion: string | undefined;
@@ -2079,16 +2138,30 @@ export default class ChangeDataFactory {
           }
         }
 
-        const metaVersion: string | undefined = tagVersion;
-        const metaDate: any = tagDate;
+        let metaVersion: string | undefined = undefined;
+        let metaDate: any = undefined;
 
-        if (metaVersion) {
+        // Prefer first-introducing attribution map when available
+        if (id && this.serviceReleaseByCommitId.has(id)) {
+          const meta = this.serviceReleaseByCommitId.get(id)!;
+          metaVersion = meta.version;
+          metaDate = meta.date;
+          linkedFromMap++;
+        } else if (tagVersion) {
+          metaVersion = tagVersion;
+          metaDate = tagDate;
           linkedFromTags++;
+        } else {
+          linkedFromFallback++;
+          if (id && linkedFallbackExamples.length < 20) {
+            linkedFallbackExamples.push(id);
+          }
         }
 
         c.releaseVersion = metaVersion || relVersionDefault;
         c.releaseRunDate = metaDate || relRunDateDefault;
       });
+      const unlinkedFallbackExamples: string[] = [];
       uniqueUnlinked.forEach((c: any) => {
         const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
 
@@ -2108,11 +2181,24 @@ export default class ChangeDataFactory {
           }
         }
 
-        const metaVersion: string | undefined = tagVersion;
-        const metaDate: any = tagDate;
+        let metaVersion: string | undefined = undefined;
+        let metaDate: any = undefined;
 
-        if (metaVersion) {
+        // Prefer first-introducing attribution map when available
+        if (id && this.serviceReleaseByCommitId.has(id)) {
+          const meta = this.serviceReleaseByCommitId.get(id)!;
+          metaVersion = meta.version;
+          metaDate = meta.date;
+          unlinkedFromMap++;
+        } else if (tagVersion) {
+          metaVersion = tagVersion;
+          metaDate = tagDate;
           unlinkedFromTags++;
+        } else {
+          unlinkedFromFallback++;
+          if (id && unlinkedFallbackExamples.length < 20) {
+            unlinkedFallbackExamples.push(id);
+          }
         }
 
         c.releaseVersion = metaVersion || relVersionDefault;
@@ -2121,12 +2207,21 @@ export default class ChangeDataFactory {
       logger.info(
         `Service ${service.serviceName}: Aggregated ${
           uniqueLinked?.length || 0
-        } linked (tags=${linkedFromTags}, map=${linkedFromMap}) and ${
+        } linked (map=${linkedFromMap}, tags=${linkedFromTags}, fallback=${linkedFromFallback}) and ${
           uniqueUnlinked?.length || 0
-        } unlinked (tags=${unlinkedFromTags}, map=${unlinkedFromMap}) commits across ${
+        } unlinked (map=${unlinkedFromMap}, tags=${unlinkedFromTags}, fallback=${unlinkedFromFallback}) commits across ${
           itemPaths.length
         } path(s)`
       );
+      if (linkedFromFallback > 0 || unlinkedFromFallback > 0) {
+        logger.debug(
+          `Service ${
+            service.serviceName
+          }: fallback-attributed commits (no map/tag) samples - linked=[${linkedFallbackExamples.join(
+            ', '
+          )}], unlinked=[${unlinkedFallbackExamples.join(', ')}]`
+        );
+      }
       let grp = this.serviceGroupsByKey.get(artifactKey);
       if (!grp) {
         grp = {
