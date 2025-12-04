@@ -76,3 +76,43 @@ export interface ArtifactChangesGroup {
   changes: ChangeEntry[];
   nonLinkedCommits: NonLinkedCommit[];
 }
+
+// Services.json and release attribution models
+
+export interface RepoTagInfo {
+  name: string;
+  commitId: string;
+  date?: string;
+}
+
+export interface TagCommitMeta {
+  name: string;
+  date?: string;
+}
+
+export interface ServiceBucket {
+  commitIds: Set<string>;
+  runDate?: any;
+}
+
+export interface PairCompareCacheEntry {
+  linked: ChangeEntry[];
+  unlinked: NonLinkedCommit[];
+}
+
+export interface ServiceReleaseInfo {
+  version: string;
+  date: any;
+}
+
+export interface ReleaseSuffixInfo {
+  name: string;
+  date: any;
+}
+
+export type ServiceGroupingKind = 'linked' | 'unlinked';
+
+export interface ServiceGroupingEntry {
+  kind: ServiceGroupingKind;
+  item: any;
+}
