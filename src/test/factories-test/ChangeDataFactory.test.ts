@@ -46,6 +46,7 @@ jest.mock('../../adapters/NonAssociatedCommitsDataSkinAdapter', () => {
 // Now it's safe to import the modules
 import ChangeDataFactory from '../../factories/ChangeDataFactory';
 import logger from '../../services/logger';
+import { TagCommitMeta } from '../../models/changeModels';
 
 describe('ChangeDataFactory', () => {
   let changeDataFactory: ChangeDataFactory;
@@ -717,2197 +718,2070 @@ describe('ChangeDataFactory', () => {
       expect(raw[0].changes).toEqual([{ id: 'c1' }]);
       expect(raw[0].nonLinkedCommits).toEqual([{ id: 'u1' }]);
     });
-  });
 
-  describe('fetchSvdData', () => {
-    it('should fetch all SVD data components when available', async () => {
-      // Mock the release component data
-      const mockReleaseData = [{ id: 1, name: 'Component 1' }];
-      mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue(mockReleaseData);
+    describe('fetchSvdData', () => {
+      it('should fetch all SVD data components when available', async () => {
+        // Mock the release component data
+        const mockReleaseData = [{ id: 1, name: 'Component 1' }];
+        mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue(mockReleaseData);
 
-      // Mock the system overview query results
-      const mockSystemOverviewData = [{ id: 1, title: 'System Item 1' }];
-      mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce(
-        mockSystemOverviewData
-      ).mockResolvedValueOnce([{ id: 2, title: 'Bug 1' }]);
+        // Mock the system overview query results
+        const mockSystemOverviewData = [{ id: 1, title: 'System Item 1' }];
+        mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce(
+          mockSystemOverviewData
+        ).mockResolvedValueOnce([{ id: 2, title: 'Bug 1' }]);
 
-      // Mock changes data
-      const mockChangesArray = [
-        {
-          artifact: { name: 'Repo 1' },
-          changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
-          nonLinkedCommits: [],
-        },
-      ];
-      jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
-        changeDataFactory['rawChangesArray'] = mockChangesArray;
+        // Mock changes data
+        const mockChangesArray = [
+          {
+            artifact: { name: 'Repo 1' },
+            changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+            nonLinkedCommits: [],
+          },
+        ];
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = mockChangesArray;
+        });
+
+        await changeDataFactory.fetchSvdData();
+
+        // Should have called all the necessary data fetch methods
+        expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).toHaveBeenCalled();
+        expect(mockTicketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledTimes(2);
+        expect(changeDataFactory.fetchChangesData).toHaveBeenCalled();
+
+        // Should have added all the content controls
+        const adoptedData = changeDataFactory.getAdoptedData();
+        expect(adoptedData).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              contentControl: 'release-components-content-control',
+              skin: 'release-components-skin',
+            }),
+            expect.objectContaining({
+              contentControl: 'system-overview-content-control',
+              skin: 'system-overview-skin',
+            }),
+            expect.objectContaining({
+              contentControl: 'required-states-and-modes',
+              skin: 'required-states-and-modes-skin',
+            }),
+            expect.objectContaining({
+              contentControl: 'system-installation-content-control',
+              skin: 'installation-instructions-skin',
+            }),
+            expect.objectContaining({
+              contentControl: 'possible-problems-known-errors-content-control',
+              skin: 'possible-problems-known-errors-skin',
+            }),
+          ])
+        );
       });
 
-      await changeDataFactory.fetchSvdData();
+      it('should handle errors during SVD fetch', async () => {
+        jest
+          .spyOn(changeDataFactory, 'fetchChangesData')
+          .mockRejectedValue(new Error('Failed to fetch changes'));
 
-      // Should have called all the necessary data fetch methods
-      expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).toHaveBeenCalled();
-      expect(mockTicketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledTimes(2);
-      expect(changeDataFactory.fetchChangesData).toHaveBeenCalled();
-
-      // Should have added all the content controls
-      const adoptedData = changeDataFactory.getAdoptedData();
-      expect(adoptedData).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            contentControl: 'release-components-content-control',
-            skin: 'release-components-skin',
-          }),
-          expect.objectContaining({
-            contentControl: 'system-overview-content-control',
-            skin: 'system-overview-skin',
-          }),
-          expect.objectContaining({
-            contentControl: 'required-states-and-modes',
-            skin: 'required-states-and-modes-skin',
-          }),
-          expect.objectContaining({
-            contentControl: 'system-installation-content-control',
-            skin: 'installation-instructions-skin',
-          }),
-          expect.objectContaining({
-            contentControl: 'possible-problems-known-errors-content-control',
-            skin: 'possible-problems-known-errors-skin',
-          }),
-        ])
-      );
-    });
-
-    it('should handle errors during SVD fetch', async () => {
-      jest
-        .spyOn(changeDataFactory, 'fetchChangesData')
-        .mockRejectedValue(new Error('Failed to fetch changes'));
-
-      await expect(changeDataFactory.fetchSvdData()).rejects.toThrow('Failed to fetch changes');
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('could not fetch svd data'));
-    });
-
-    it('should skip changes and non-associated-commits when there are no raw changes', async () => {
-      // No recent release artifacts
-      mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue([]);
-      // No query results
-      mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue([]);
-
-      // Do not populate rawChangesArray
-      jest.spyOn(changeDataFactory, 'fetchChangesData').mockResolvedValue(undefined as any);
-
-      await changeDataFactory.fetchSvdData();
-
-      expect((logger as any).warn).toHaveBeenCalledWith(
-        'fetchSvdData: rawChangesArray is empty, skipping changes adaptation'
-      );
-
-      const adopted = changeDataFactory.getAdoptedData();
-      const hasChangesControl = adopted.some((c: any) => c.contentControl === 'required-states-and-modes');
-      const hasNonAssociated = adopted.some(
-        (c: any) => c.contentControl === 'non-associated-commits-content-control'
-      );
-
-      expect(hasChangesControl).toBe(false);
-      expect(hasNonAssociated).toBe(false);
-    });
-  });
-
-  describe('jsonSkinDataAdapter', () => {
-    it('should adapt release-components data', async () => {
-      const mockRawData = [{ id: 1, name: 'Component 1' }];
-      const mockAdaptedData = [{ title: 'Adapted Component 1' }];
-
-      const mockAdapter = {
-        jsonSkinAdapter: jest.fn().mockReturnValue(mockAdaptedData),
-      };
-
-      require('../../adapters/ReleaseComponentsDataSkinAdapter').mockImplementation(() => mockAdapter);
-
-      const result = await changeDataFactory.jsonSkinDataAdapter('release-components', mockRawData);
-
-      expect(mockAdapter.jsonSkinAdapter).toHaveBeenCalledWith(mockRawData);
-      expect(result).toEqual(mockAdaptedData);
-    });
-
-    it("'release-range' should resolve release names and emit Version range paragraph when rangeType is release", async () => {
-      const releaseFactory = new ChangeDataFactory(
-        defaultParams.teamProject,
-        defaultParams.repoId,
-        '10',
-        '20',
-        'release',
-        defaultParams.linkTypeFilterArray,
-        defaultParams.branchName,
-        defaultParams.includePullRequests,
-        defaultParams.attachmentWikiUrl,
-        defaultParams.includeChangeDescription,
-        defaultParams.includeCommittedBy,
-        mockDgDataProvider,
-        defaultParams.attachmentsBucketName,
-        defaultParams.minioEndPoint,
-        defaultParams.minioAccessKey,
-        defaultParams.minioSecretKey,
-        defaultParams.PAT
-      );
-
-      const pipelines = {
-        GetReleaseByReleaseId: jest
-          .fn()
-          .mockResolvedValueOnce({ name: '1.0.0' })
-          .mockResolvedValueOnce({ name: '2.0.0' }),
-      } as any;
-
-      const result = await (releaseFactory as any).jsonSkinDataAdapter('release-range', {
-        pipelinesDataProvider: pipelines,
+        await expect(changeDataFactory.fetchSvdData()).rejects.toThrow('Failed to fetch changes');
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('could not fetch svd data'));
       });
 
-      expect(pipelines.GetReleaseByReleaseId).toHaveBeenCalledTimes(2);
-      expect(result).toEqual([
-        {
-          name: '',
-          value: 'Version\nv1.0.0 to v2.0.0',
-        },
-      ]);
+      it('should skip changes and non-associated-commits when there are no raw changes', async () => {
+        // No recent release artifacts
+        mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue([]);
+        // No query results
+        mockTicketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue([]);
+
+        // Do not populate rawChangesArray
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockResolvedValue(undefined as any);
+
+        await changeDataFactory.fetchSvdData();
+
+        expect((logger as any).warn).toHaveBeenCalledWith(
+          'fetchSvdData: rawChangesArray is empty, skipping changes adaptation'
+        );
+
+        const adopted = changeDataFactory.getAdoptedData();
+        const hasChangesControl = adopted.some((c: any) => c.contentControl === 'required-states-and-modes');
+        const hasNonAssociated = adopted.some(
+          (c: any) => c.contentControl === 'non-associated-commits-content-control'
+        );
+
+        expect(hasChangesControl).toBe(false);
+        expect(hasNonAssociated).toBe(false);
+      });
     });
 
-    it("'release-range' should log warning and fall back to empty value when release lookup fails", async () => {
-      const releaseFactory = new ChangeDataFactory(
-        defaultParams.teamProject,
-        defaultParams.repoId,
-        '10',
-        '20',
-        'release',
-        defaultParams.linkTypeFilterArray,
-        defaultParams.branchName,
-        defaultParams.includePullRequests,
-        defaultParams.attachmentWikiUrl,
-        defaultParams.includeChangeDescription,
-        defaultParams.includeCommittedBy,
-        mockDgDataProvider,
-        defaultParams.attachmentsBucketName,
-        defaultParams.minioEndPoint,
-        defaultParams.minioAccessKey,
-        defaultParams.minioSecretKey,
-        defaultParams.PAT
-      );
+    describe('services.json helpers', () => {
+      it('applyServiceReleaseGrouping should group commits by release according to reverse-tag rules', () => {
+        const factory = changeDataFactory as any;
 
-      const pipelines = {
-        GetReleaseByReleaseId: jest.fn().mockRejectedValue(new Error('boom')),
-      } as any;
+        // Simulate releases R1..R6
+        factory.releasesSeq = [
+          { name: 'R1', id: 1 },
+          { name: 'R2', id: 2 },
+          { name: 'R3', id: 3 },
+          { name: 'R4', id: 4 },
+          { name: 'R5', id: 5 },
+          { name: 'R6', id: 6 },
+        ];
+        factory.releaseIndexByName.clear();
+        factory.releasesBySuffix.clear();
+        factory.releasesSeq.forEach((r: any, idx: number) => {
+          factory.releaseIndexByName.set(r.name, idx);
+          factory.releasesBySuffix.set(r.name, { name: r.name, date: undefined });
+        });
 
-      const result = await (releaseFactory as any).jsonSkinDataAdapter('release-range', {
-        pipelinesDataProvider: pipelines,
+        const makeCommit = (id: string, date: string) => ({
+          commitId: id,
+          commitDate: date,
+        });
+
+        const linked: any[] = [
+          makeCommit('C2', '2025-01-01T00:00:00Z'),
+          makeCommit('C4', '2025-01-02T00:00:00Z'),
+          makeCommit('C6', '2025-01-03T00:00:00Z'),
+          makeCommit('C7', '2025-01-04T00:00:00Z'),
+          makeCommit('C8', '2025-01-05T00:00:00Z'),
+          makeCommit('C11', '2025-01-06T00:00:00Z'),
+        ];
+        const unlinked: any[] = [
+          makeCommit('C1', '2024-12-31T23:59:00Z'),
+          makeCommit('C3', '2025-01-01T12:00:00Z'),
+          makeCommit('C5', '2025-01-02T12:00:00Z'),
+          makeCommit('C9', '2025-01-05T12:00:00Z'),
+          makeCommit('C10', '2025-01-05T18:00:00Z'),
+        ];
+
+        const tagPrefix = 'test-';
+        const tagMap = new Map<string, TagCommitMeta>();
+        // C2->R1, C4->R2, C6->R3, C7->R6, C8->R4, C11->R5
+        tagMap.set('C2', { name: 'test-R1' });
+        tagMap.set('C4', { name: 'test-R2' });
+        tagMap.set('C6', { name: 'test-R3' });
+        tagMap.set('C7', { name: 'test-R6' });
+        tagMap.set('C8', { name: 'test-R4' });
+        tagMap.set('C11', { name: 'test-R5' });
+
+        const fromRelease = { name: 'R1' };
+        const toRelease = { name: 'R5' };
+
+        factory.applyServiceReleaseGrouping(
+          linked,
+          unlinked,
+          tagPrefix,
+          fromRelease,
+          toRelease,
+          fromRelease,
+          toRelease,
+          tagMap
+        );
+
+        const find = (id: string) => [...linked, ...unlinked].find((c) => c.commitId === id);
+
+        expect(find('C11')!.releaseVersion).toBe('R5');
+        expect(find('C8')!.releaseVersion).toBe('R4');
+        expect(find('C7')!.releaseVersion).toBe('R4');
+        expect(find('C6')!.releaseVersion).toBe('R3');
+        expect(find('C4')!.releaseVersion).toBe('R2');
+        expect(find('C2')!.releaseVersion).toBe('R1');
       });
 
-      expect((logger as any).warn).toHaveBeenCalledWith(
-        expect.stringContaining("jsonSkinDataAdapter: 'release-range' failed to resolve release names")
-      );
-      expect(result).toEqual([
-        {
-          name: '',
-          value: '',
-        },
-      ]);
+      it('filterServiceCommitsAcrossServices should drop duplicates across services for same repo+commit', () => {
+        const factory = changeDataFactory as any;
+        const seen = new Set<string>();
+        const repo = 'repo1';
+
+        const commits = [{ commit: { commitId: 'A' } }, { commit: { commitId: 'B' } }];
+
+        const first = factory.filterServiceCommitsAcrossServices(commits, repo, seen);
+        expect(first.map((c: any) => c.commit.commitId)).toEqual(['A', 'B']);
+
+        const secondInput = [{ commit: { commitId: 'A' } }, { commit: { commitId: 'C' } }];
+        const second = factory.filterServiceCommitsAcrossServices(secondInput, repo, seen);
+        expect(second.map((c: any) => c.commit.commitId)).toEqual(['C']);
+      });
     });
 
-    it('should adapt system-overview data', async () => {
-      const mockRawData = [{ id: 1, name: 'System Item 1' }];
-      const mockAdaptedData = [{ title: 'Adapted System Item 1' }];
-      const mockAttachmentData = [{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }];
+    describe('jsonSkinDataAdapter', () => {
+      it('should adapt release-components data', async () => {
+        const mockRawData = [{ id: 1, name: 'Component 1' }];
+        const mockAdaptedData = [{ title: 'Adapted Component 1' }];
 
-      const mockAdapter = {
-        jsonSkinAdapter: jest.fn().mockResolvedValue(mockAdaptedData),
-        getAttachmentMinioData: jest.fn().mockReturnValue(mockAttachmentData),
-      };
-
-      require('../../adapters/SystemOverviewDataSkinAdapter').mockImplementation(() => mockAdapter);
-
-      const result = await changeDataFactory.jsonSkinDataAdapter('system-overview', mockRawData);
-
-      expect(mockAdapter.jsonSkinAdapter).toHaveBeenCalledWith(mockRawData);
-      expect(mockAdapter.getAttachmentMinioData).toHaveBeenCalled();
-      expect(result).toEqual(mockAdaptedData);
-      expect(changeDataFactory.getAttachmentMinioData()).toEqual(mockAttachmentData);
-    });
-
-    it('changes adapter should apply task parent replacement and work item filters', async () => {
-      const factory = changeDataFactory as any;
-      factory.replaceTaskWithParent = true;
-      factory.workItemFilterOptions = {
-        isEnabled: true,
-        workItemTypes: ['user story'],
-        workItemStates: ['active'],
-      };
-
-      const baseGroups = [
-        {
-          artifact: { name: 'Repo 1' },
-          changes: [
-            {
-              workItem: {
-                fields: {
-                  'System.WorkItemType': 'User Story',
-                  'System.State': 'Active',
-                },
-              },
-            },
-            {
-              workItem: {
-                fields: {
-                  'System.WorkItemType': 'Bug',
-                  'System.State': 'Closed',
-                },
-              },
-            },
-          ],
-          nonLinkedCommits: [],
-        },
-      ];
-
-      factory.rawChangesArray = baseGroups;
-      const replacementSpy = jest.spyOn(factory, 'applyTaskParentReplacement').mockResolvedValue(baseGroups);
-
-      const result = await factory.jsonSkinDataAdapter('changes', baseGroups);
-
-      expect(replacementSpy).toHaveBeenCalled();
-      // Adapter is mocked, so we only assert that it returned whatever the mock provides
-      expect(result).toBeDefined();
-    });
-
-    it('jsonSkinDataAdapter changes should adapt changes data', async () => {
-      const mockRawData = [
-        {
-          artifact: { name: 'Repo 1' },
-          changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
-          nonLinkedCommits: [],
-        },
-      ];
-      const mockAdaptedData = [{ title: 'Change 1' }];
-      const mockAttachmentData = [{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }];
-
-      const mockAdapter = {
-        adoptSkinData: jest.fn().mockResolvedValue(undefined),
-        getAdoptedData: jest.fn().mockReturnValue(mockAdaptedData),
-        attachmentMinioData: mockAttachmentData,
-      };
-
-      require('../../adapters/ChangesTableDataSkinAdapter').mockImplementation(() => mockAdapter);
-
-      changeDataFactory['rawChangesArray'] = mockRawData as any;
-      const result = await changeDataFactory.jsonSkinDataAdapter('changes', mockRawData);
-
-      expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
-      expect(mockAdapter.getAdoptedData).toHaveBeenCalled();
-      expect(result).toEqual(mockAdaptedData);
-      expect(changeDataFactory.getAttachmentMinioData()).toEqual(mockAttachmentData);
-    });
-
-    it('should handle installation-instructions data', async () => {
-      const mockFileName = 'installation.md';
-      const mockUrl = `https://wiki.example.com/${mockFileName}`;
-
-      // Set up the factory with a wiki URL
-      changeDataFactory.attachmentWikiUrl = mockUrl;
-
-      const result = await changeDataFactory.jsonSkinDataAdapter('installation-instructions', []);
-
-      expect(result).toEqual([
-        expect.objectContaining({
-          title: 'Installation Instructions',
-          attachment: expect.objectContaining({
-            attachmentFileName: mockFileName,
-            attachmentMinioPath: mockUrl,
-          }),
-        }),
-      ]);
-
-      expect(changeDataFactory.getAttachmentMinioData()).toEqual([
-        expect.objectContaining({
-          attachmentMinioPath: mockUrl,
-          minioFileName: mockFileName,
-        }),
-      ]);
-    });
-
-    it('should log a warning and skip installation-instructions when attachmentWikiUrl is missing', async () => {
-      const factory = changeDataFactory as any;
-      factory.attachmentWikiUrl = '';
-
-      const result = await factory.jsonSkinDataAdapter('installation-instructions', []);
-
-      expect(result).toBeUndefined();
-      expect((logger as any).warn).toHaveBeenCalledWith(
-        'No attachment wiki URL provided for installation instructions'
-      );
-    });
-
-    it('should adapt possible-problems-known-errors data', async () => {
-      const mockRawData = [{ id: 1, title: 'Known Bug 1' }];
-      const mockAdaptedData = [{ bugTitle: 'Known Bug 1', severity: 'High' }];
-
-      const mockAdapter = {
-        adoptSkinData: jest.fn(),
-        getAdoptedData: jest.fn().mockReturnValue(mockAdaptedData),
-      };
-
-      require('../../adapters/BugsTableSkinAdpater').mockImplementation(() => mockAdapter);
-
-      const result = await changeDataFactory.jsonSkinDataAdapter(
-        'possible-problems-known-errors',
-        mockRawData
-      );
-
-      expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
-      expect(mockAdapter.getAdoptedData).toHaveBeenCalled();
-      expect(result).toEqual(mockAdaptedData);
-    });
-
-    it('installation-instructions should log and swallow errors when decoding file name fails', async () => {
-      const factory = changeDataFactory as any;
-      // Invalid URI sequence will cause decodeURIComponent to throw
-      factory.attachmentWikiUrl = 'https://wiki.example.com/%E0';
-
-      const result = await factory.jsonSkinDataAdapter('installation-instructions', []);
-
-      expect(result).toBeUndefined();
-      expect((logger as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('Error processing installation instructions:')
-      );
-    });
-
-    it('should handle unknown adapter type', async () => {
-      const result = await changeDataFactory.jsonSkinDataAdapter('unknown-type', []);
-      expect(result).toBeUndefined();
-    });
-
-    it('should handle errors in adaptation', async () => {
-      const mockError = new Error('Adaptation failed');
-
-      require('../../adapters/ReleaseComponentsDataSkinAdapter').mockImplementation(() => {
-        return {
-          jsonSkinAdapter: jest.fn().mockImplementation(() => {
-            throw mockError;
-          }),
+        const mockAdapter = {
+          jsonSkinAdapter: jest.fn().mockReturnValue(mockAdaptedData),
         };
+
+        require('../../adapters/ReleaseComponentsDataSkinAdapter').mockImplementation(() => mockAdapter);
+
+        const result = await changeDataFactory.jsonSkinDataAdapter('release-components', mockRawData);
+
+        expect(mockAdapter.jsonSkinAdapter).toHaveBeenCalledWith(mockRawData);
+        expect(result).toEqual(mockAdaptedData);
       });
 
-      await expect(changeDataFactory.jsonSkinDataAdapter('release-components', [])).rejects.toThrow(
-        'Adaptation failed'
-      );
-
-      expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Failed adapting data for type release-components')
-      );
-    });
-  });
-
-  describe('data retrieval methods', () => {
-    beforeEach(() => {
-      // Setup some test data
-      changeDataFactory['rawChangesArray'] = [
-        {
-          artifact: { name: 'test-artifact' },
-          changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
-          nonLinkedCommits: [],
-        },
-      ];
-      changeDataFactory['adoptedChangeData'] = [
-        { contentControl: 'test-control', data: [{ title: 'Test' }], skin: 'test-skin' },
-      ];
-      changeDataFactory['attachmentMinioData'] = [
-        { attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' },
-      ];
-    });
-
-    it('getRawData should return raw changes array', () => {
-      const result = changeDataFactory.getRawData();
-      expect(result).toEqual([
-        {
-          artifact: { name: 'test-artifact' },
-          changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
-          nonLinkedCommits: [],
-        },
-      ]);
-    });
-
-    it('getAdoptedData should return adopted change data', () => {
-      const result = changeDataFactory.getAdoptedData();
-      expect(result).toEqual([
-        { contentControl: 'test-control', data: [{ title: 'Test' }], skin: 'test-skin' },
-      ]);
-    });
-
-    it('getAttachmentMinioData should return attachment minio data', () => {
-      const result = changeDataFactory.getAttachmentMinioData();
-      expect(result).toEqual([{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }]);
-    });
-  });
-
-  describe('helper methods', () => {
-    it('should remove user from Git repo URL', () => {
-      const urlWithUser = 'https://user@example.com/repo';
-      const urlWithoutUser = 'https://example.com/repo';
-      const urlWithoutHttps = 'git@example.com:repo.git';
-
-      // Access the private method using type assertion
-      const removeUserMethod = (changeDataFactory as any).removeUserFromGitRepoUrl;
-
-      expect(removeUserMethod(urlWithUser)).toBe(urlWithoutUser);
-      expect(removeUserMethod(urlWithoutUser)).toBe(urlWithoutUser);
-      expect(removeUserMethod(urlWithoutHttps)).toBe(urlWithoutHttps);
-    });
-
-    it('getReleasesBetween should return history slice when both ids are found', async () => {
-      const factory = changeDataFactory as any;
-
-      const mockHistory = {
-        value: [
-          { id: '5', createdOn: '2024-01-01T00:00:00Z' },
-          { id: '10', createdOn: '2024-01-02T00:00:00Z' },
-          { id: '20', createdOn: '2024-01-03T00:00:00Z' },
-        ],
-      };
-
-      const mockPipelines = {
-        GetReleaseHistory: jest.fn().mockResolvedValue(mockHistory),
-      } as any;
-
-      const fromRelease = { id: '10' };
-      const toRelease = { id: '20' };
-
-      const result = await factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease);
-
-      expect(mockPipelines.GetReleaseHistory).toHaveBeenCalledWith('TestProject', '123');
-      expect(result.map((r: any) => Number(r.id))).toEqual([10, 20]);
-    });
-
-    it('getReleasesBetween should fall back to direct from/to when no definition id', async () => {
-      const factory = changeDataFactory as any;
-
-      const mockPipelines = {} as any;
-      const fromRelease = { id: '30' };
-      const toRelease = { id: '10' };
-
-      const result = await factory.getReleasesBetween(mockPipelines, 30, 10, null, fromRelease, toRelease);
-
-      expect(result.map((r: any) => Number(r.id))).toEqual([10, 30]);
-    });
-
-    it('compareConsecutiveReleases should only process adjacent pairs in consecutive mode', async () => {
-      const factory = changeDataFactory as any;
-
-      // three releases, no artifacts so inner artifact loop is skipped
-      const releasesList = [
-        { id: 1, artifacts: [] },
-        { id: 2, artifacts: [] },
-        { id: 3, artifacts: [] },
-      ];
-
-      factory.compareMode = 'consecutive';
-
-      const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
-
-      await factory.compareConsecutiveReleases(
-        releasesList,
-        mockGitDataProvider,
-        mockJfrogDataProvider,
-        new Map(),
-        new Map()
-      );
-
-      expect(spy).toHaveBeenCalledTimes(2);
-      const pairs = spy.mock.calls.map(([from, to]) => [(from as any).id, (to as any).id]);
-      expect(pairs).toEqual([
-        [1, 2],
-        [2, 3],
-      ]);
-    });
-
-    it('compareConsecutiveReleases should process all i<j pairs in allPairs mode', async () => {
-      const factory = changeDataFactory as any;
-
-      const releasesList = [
-        { id: 1, artifacts: [] },
-        { id: 2, artifacts: [] },
-        { id: 3, artifacts: [] },
-      ];
-
-      factory.compareMode = 'allPairs';
-
-      const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
-
-      await factory.compareConsecutiveReleases(
-        releasesList,
-        mockGitDataProvider,
-        mockJfrogDataProvider,
-        new Map(),
-        new Map()
-      );
-
-      expect(spy).toHaveBeenCalledTimes(3);
-      const pairSet = new Set(spy.mock.calls.map(([from, to]) => `${(from as any).id}->${(to as any).id}`));
-      expect(pairSet).toEqual(new Set(['1->2', '1->3', '2->3']));
-    });
-
-    it('compareConsecutiveReleases should aggregate Git artifacts into a single group with annotated commits', async () => {
-      const factory = changeDataFactory as any;
-      factory.compareMode = 'consecutive';
-
-      const releasesList = [
-        {
-          id: 10,
-          name: '1.0.0',
-          createdOn: '2024-01-01T00:00:00Z',
-          artifacts: [
-            {
-              type: 'Git',
-              alias: 'repo1',
-              definitionReference: {
-                definition: { id: 'repo-id-1', name: 'repo1' },
-                version: { id: 'fromCommit', name: 'v1.0.0' },
-              },
-            },
-          ],
-        },
-        {
-          id: 20,
-          name: '2.0.0',
-          createdOn: '2024-01-02T00:00:00Z',
-          artifacts: [
-            {
-              type: 'Git',
-              alias: 'repo1',
-              definitionReference: {
-                definition: { id: 'repo-id-1', name: 'repo1' },
-                version: { id: 'toCommit', name: 'v2.0.0' },
-              },
-            },
-          ],
-        },
-      ];
-
-      jest.spyOn(factory, 'getCommitRangeChanges').mockResolvedValue({
-        allExtendedCommits: [{ commitId: 'c1' }],
-        commitsWithNoRelations: [],
-      });
-
-      jest.spyOn(factory, 'takeNewCommits').mockImplementation((_key: string, arr: any[]) => arr);
-
-      jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
-
-      const artifactGroupsByKey = new Map<string, any>();
-      const artifactWiSets = new Map<string, Set<number>>();
-
-      await factory.compareConsecutiveReleases(
-        releasesList,
-        mockGitDataProvider,
-        mockJfrogDataProvider,
-        artifactGroupsByKey,
-        artifactWiSets
-      );
-
-      const groups = Array.from(artifactGroupsByKey.values());
-      expect(groups).toHaveLength(1);
-      expect(groups[0].changes).toHaveLength(1);
-      expect(groups[0].changes[0].commitId).toBe('c1');
-      expect(groups[0].changes[0].releaseVersion).toBe('2.0.0');
-    });
-
-    it('buildReleasesList should hydrate missing releases using pipelinesDataProvider', async () => {
-      const factory = changeDataFactory as any;
-
-      const partialRelease = { id: '20' };
-      const fullRelease = { id: '20', artifacts: [{ type: 'Git' }] };
-
-      const releasesBetween = [{ id: '10', artifacts: [{ type: 'Git' }] }, partialRelease];
-
-      mockPipelinesDataProvider.GetReleaseByReleaseId.mockResolvedValueOnce(fullRelease);
-
-      const result = await factory.buildReleasesList(releasesBetween, mockPipelinesDataProvider);
-
-      expect(result).toHaveLength(2);
-      expect(result[0]).toBe(releasesBetween[0]);
-      expect(result[1]).toEqual(fullRelease);
-      expect(mockPipelinesDataProvider.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 20);
-    });
-
-    it('buildArtifactPresence should track only allowed artifact types with valid build providers', () => {
-      const factory = changeDataFactory as any;
-
-      const releasesList = [
-        {
-          id: 1,
-          artifacts: [
-            {
-              type: 'Git',
-              alias: 'repo1',
-              definitionReference: { definition: { id: '1', name: 'repo1' } },
-            },
-            {
-              type: 'Build',
-              alias: 'build1',
-              definitionReference: {
-                'repository.provider': { id: 'TfsGit' },
-                definition: { id: '2', name: 'build1' },
-              },
-            },
-            {
-              type: 'Build',
-              alias: 'ignoredBuild',
-              definitionReference: {
-                'repository.provider': { id: 'GitHub' },
-                definition: { id: '3', name: 'ignored' },
-              },
-            },
-            {
-              type: 'Other',
-              alias: 'other',
-            },
-          ],
-        },
-        {
-          id: 2,
-          artifacts: [
-            {
-              type: 'Git',
-              alias: 'repo1',
-              definitionReference: { definition: { id: '1', name: 'repo1' } },
-            },
-          ],
-        },
-      ];
-
-      const gitKey = (factory as any).buildArtifactKey(releasesList[0].artifacts[0]);
-      const buildKey = (factory as any).buildArtifactKey(releasesList[0].artifacts[1]);
-
-      const presence = factory.buildArtifactPresence(releasesList);
-
-      expect(Array.from(presence.keys()).sort()).toEqual([buildKey, gitKey].sort());
-      expect(presence.get(gitKey)!.map((e: any) => e.idx)).toEqual([0, 1]);
-      expect(presence.get(buildKey)!.map((e: any) => e.idx)).toEqual([0]);
-    });
-
-    it('getServicesEligibleIndices should return indices with valid servicesJson variables', () => {
-      const factory = changeDataFactory as any;
-
-      const releasesList = [
-        { id: 1, variables: {} },
-        {
-          id: 2,
-          variables: {
-            servicesJson: { value: ' url ' },
-            servicesJsonVersion: { value: ' master ' },
-            servicesJsonVersionType: { value: ' branch ' },
-          },
-        },
-        {
-          id: 3,
-          variables: {
-            servicesJson: { value: '' },
-            servicesJsonVersion: { value: 'v' },
-            servicesJsonVersionType: { value: 'branch' },
-          },
-        },
-      ];
-
-      const indices = factory.getServicesEligibleIndices(releasesList);
-      expect(indices).toEqual([1]);
-    });
-
-    it('processServicesGaps should invoke handleServiceJsonFile for non-adjacent eligible releases', async () => {
-      const factory = changeDataFactory as any;
-
-      const releasesList = [{ id: 1 }, { id: 2 }, { id: 3 }];
-      const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
-
-      await factory.processServicesGaps([0, 2], releasesList, mockGitDataProvider);
-
-      expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenCalledWith(releasesList[0], releasesList[2], 'TestProject', mockGitDataProvider);
-    });
-
-    it('processGap should delegate to processGitArtifactPair / processBuildArtifactPair / processArtifactoryArtifactPair', async () => {
-      const factory = changeDataFactory as any;
-
-      const gitArtifact = {
-        type: 'Git',
-        alias: 'repo1',
-        definitionReference: {
-          definition: { id: '1', name: 'repo1' },
-          version: { name: 'v1' },
-        },
-      };
-      const gitArtifactNew = {
-        type: 'Git',
-        alias: 'repo1',
-        definitionReference: {
-          definition: { id: '1', name: 'repo1' },
-          version: { name: 'v2' },
-        },
-      };
-
-      const buildArtifact = {
-        type: 'Build',
-        alias: 'build1',
-        definitionReference: {
-          'repository.provider': { id: 'TfsGit' },
-          definition: { id: '2', name: 'build1' },
-          version: { name: 'b1' },
-        },
-      };
-      const buildArtifactNew = {
-        type: 'Build',
-        alias: 'build1',
-        definitionReference: {
-          'repository.provider': { id: 'TfsGit' },
-          definition: { id: '2', name: 'build1' },
-          version: { name: 'b2' },
-        },
-      };
-
-      const artArtifact = {
-        type: 'Artifactory',
-        alias: 'art1',
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '1.0.0' },
-        },
-      };
-      const artArtifactNew = {
-        type: 'Artifactory',
-        alias: 'art1',
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '2.0.0' },
-        },
-      };
-
-      const releasesList = [
-        { id: 1, name: 'r1', artifacts: [gitArtifact, buildArtifact, artArtifact] },
-        { id: 2, name: 'r2', artifacts: [gitArtifactNew, buildArtifactNew, artArtifactNew] },
-      ];
-
-      const keyGit = (factory as any).buildArtifactKey(gitArtifactNew);
-      const keyBuild = (factory as any).buildArtifactKey(buildArtifactNew);
-      const keyArt = (factory as any).buildArtifactKey(artArtifactNew);
-
-      const artifactGroupsByKey = new Map();
-      const artifactWiSets = new Map();
-
-      const gitSpy = jest.spyOn(factory, 'processGitArtifactPair').mockResolvedValue(undefined as any);
-      const buildSpy = jest.spyOn(factory, 'processBuildArtifactPair').mockResolvedValue(undefined as any);
-      const artSpy = jest
-        .spyOn(factory, 'processArtifactoryArtifactPair')
-        .mockResolvedValue(undefined as any);
-
-      await factory.processGap(
-        0,
-        1,
-        keyGit,
-        releasesList,
-        artifactGroupsByKey,
-        artifactWiSets,
-        mockGitDataProvider,
-        mockJfrogDataProvider
-      );
-      await factory.processGap(
-        0,
-        1,
-        keyBuild,
-        releasesList,
-        artifactGroupsByKey,
-        artifactWiSets,
-        mockGitDataProvider,
-        mockJfrogDataProvider
-      );
-      await factory.processGap(
-        0,
-        1,
-        keyArt,
-        releasesList,
-        artifactGroupsByKey,
-        artifactWiSets,
-        mockGitDataProvider,
-        mockJfrogDataProvider
-      );
-
-      expect(gitSpy).toHaveBeenCalledTimes(1);
-      expect(buildSpy).toHaveBeenCalledTimes(1);
-      expect(artSpy).toHaveBeenCalledTimes(1);
-    });
-
-    it('getArtifactDisplayName should format names based on artifact type', () => {
-      const factory = changeDataFactory as any;
-
-      const gitArt = {
-        type: 'Git',
-        definitionReference: { definition: { name: 'repo1' } },
-      };
-      const buildArt = {
-        type: 'Build',
-        definitionReference: { definition: { name: 'pipe1' } },
-      };
-      const artifactoryArt = {
-        type: 'Artifactory',
-        definitionReference: { definition: { name: 'bundle1' } },
-      };
-      const otherArt = { type: 'Other', alias: 'x' };
-
-      expect(factory.getArtifactDisplayName('Git', gitArt)).toBe('Repository repo1');
-      expect(factory.getArtifactDisplayName('Build', buildArt)).toBe('Pipeline pipe1');
-      expect(factory.getArtifactDisplayName('Artifactory', artifactoryArt)).toBe('Artifactory bundle1');
-      expect(factory.getArtifactDisplayName('Other', otherArt)).toBe('x');
-    });
-
-    it('getCachedJfrogCiUrl should cache provider results by key', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        getCiDataFromJfrog: jest.fn().mockResolvedValue('https://ci.example/_build?buildId=1'),
-      };
-
-      const url1 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build1', '1.0.0');
-      const url2 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build1', '1.0.0');
-
-      expect(url1).toBe('https://ci.example/_build?buildId=1');
-      expect(url2).toBe('https://ci.example/_build?buildId=1');
-      expect(provider.getCiDataFromJfrog).toHaveBeenCalledTimes(1);
-    });
-
-    it('getCachedJfrogCiUrl should cache empty URL results as empty string', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        getCiDataFromJfrog: jest.fn().mockResolvedValue(''),
-      };
-
-      const url1 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build2', '2.0.0');
-      const url2 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build2', '2.0.0');
-
-      expect(url1).toBe('');
-      expect(url2).toBe('');
-      expect(provider.getCiDataFromJfrog).toHaveBeenCalledTimes(1);
-    });
-
-    it('fetchAndParseServicesJson should return parsed JSON when file exists', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        GetFileFromGitRepo: jest.fn().mockResolvedValue('{"services":[]}'),
-      };
-
-      const result = await factory.fetchAndParseServicesJson(
-        provider,
-        'proj',
-        'repo',
-        'services.json',
-        'master',
-        'branch',
-        'https://api',
-        'originalPath'
-      );
-
-      expect(provider.GetFileFromGitRepo).toHaveBeenCalled();
-      expect(result).toEqual({ services: [] });
-    });
-
-    it('fetchAndParseServicesJson should warn and return null when file is missing', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        GetFileFromGitRepo: jest.fn().mockResolvedValue(null),
-      };
-
-      const result = await factory.fetchAndParseServicesJson(
-        provider,
-        'proj',
-        'repo',
-        'services.json',
-        'master',
-        'branch',
-        'https://api',
-        'originalPath'
-      );
-
-      expect(result).toBeNull();
-      expect(logger.warn).toHaveBeenCalledWith('file originalPath could not be fetched');
-    });
-
-    it('getCachedBranchExists should cache branch existence lookups', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        GetBranch: jest.fn().mockResolvedValue({ value: [{}], count: 1 }),
-      };
-
-      const repoApiUrl = 'https://example.com/_apis/git/repositories/repo';
-      const branch = 'refs/heads/main';
-
-      const first = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
-      const second = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
-
-      expect(first).toBe(true);
-      expect(second).toBe(true);
-      expect(provider.GetBranch).toHaveBeenCalledTimes(1);
-    });
-
-    it('getCachedBranchExists should return false when branch is missing and cache the result', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider = {
-        GetBranch: jest.fn().mockResolvedValue({ value: [], count: 0 }),
-      };
-
-      const repoApiUrl = 'https://example.com/_apis/git/repositories/repo';
-      const branch = 'refs/heads/feature';
-
-      const first = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
-      const second = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
-
-      expect(first).toBe(false);
-      expect(second).toBe(false);
-      expect(provider.GetBranch).toHaveBeenCalledTimes(1);
-    });
-
-    it('takeNewCommits should deduplicate by commit id across calls', () => {
-      const factory = changeDataFactory as any;
-
-      const key = 'Git|1|alias';
-      const commits = [{ commitId: 'c1' }, { commit: { commitId: 'c2' } }, { commitId: 'c1' }];
-
-      const first = factory.takeNewCommits(key, commits);
-      const second = factory.takeNewCommits(key, commits);
-
-      const extractIds = (arr: any[]) => arr.map((c) => (c.commitId ? c.commitId : c.commit?.commitId));
-
-      expect(extractIds(first)).toEqual(['c1', 'c2']);
-      expect(extractIds(second)).toEqual([]);
-    });
-
-    it('parseServicesJsonLocation should extract repo, file name and API URL', () => {
-      const factory = changeDataFactory as any;
-
-      const url = 'https://server/org/project/_git/services?path=folder/services.json';
-      const result = factory.parseServicesJsonLocation(url);
-
-      expect(result.servicesJsonFileGitPath).toBe(url);
-      expect(result.servicesJsonFileName).toBe('folder/services.json');
-      expect(result.servicesJsonFileGitRepoName).toBe('services');
-      expect(result.servicesJsonFileGitRepoApiUrl).toBe(
-        'https://server/org/project/_apis/git/repositories/services'
-      );
-    });
-
-    it('processGitArtifactPair should reuse cached comparison results on subsequent calls', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1 };
-      const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
-      const fromRelArt = {
-        definitionReference: {
-          definition: { id: '1', name: 'repo1' },
-          version: { id: 'fromCommit', name: 'v1' },
-        },
-      };
-      const toRelArt = {
-        definitionReference: {
-          definition: { id: '1', name: 'repo1' },
-          version: { id: 'toCommit', name: 'v2' },
-        },
-      };
-      const artifact = {
-        type: 'Git',
-        alias: 'repo1',
-        definitionReference: {
-          definition: { id: '1', name: 'repo1' },
-          version: { id: 'toCommit', name: 'v2' },
-        },
-      };
-
-      const key = (factory as any).buildArtifactKey(artifact);
-      const artifactDisplayName = factory.getArtifactDisplayName('Git', artifact);
-
-      const artifactGroupsByKey = new Map();
-      const artifactWiSets = new Map();
-
-      // First call populates cache
-      await factory.processGitArtifactPair(
-        key,
-        'repo1',
-        artifactDisplayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockGitDataProvider,
-        artifactGroupsByKey,
-        artifactWiSets
-      );
-
-      const getRangeSpy = jest.spyOn(factory, 'getCommitRangeChanges');
-
-      // Second call should hit cached branch and not invoke getCommitRangeChanges
-      await factory.processGitArtifactPair(
-        key,
-        'repo1',
-        artifactDisplayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockGitDataProvider,
-        artifactGroupsByKey,
-        artifactWiSets
-      );
-
-      expect(getRangeSpy).not.toHaveBeenCalled();
-    });
-
-    it('processBuildArtifactPair should aggregate build changes into groups', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1 };
-      const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
-      const fromRelArt = {
-        definitionReference: {
-          definition: { id: '2', name: 'build1' },
-          version: { id: 'b1', name: 'b1' },
-        },
-      };
-      const toRelArt = {
-        definitionReference: {
-          definition: { id: '2', name: 'build1' },
-          version: { id: 'b2', name: 'b2' },
-        },
-      };
-      const artifact = {
-        type: 'Build',
-        alias: 'build1',
-        definitionReference: fromRelArt.definitionReference,
-      };
-
-      const key = (factory as any).buildArtifactKey(artifact);
-      const displayName = factory.getArtifactDisplayName('Build', artifact);
-      const artifactGroupsByKey = new Map();
-
-      await factory.processBuildArtifactPair(
-        key,
-        'build1',
-        displayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockGitDataProvider,
-        artifactGroupsByKey
-      );
-
-      const groups = Array.from(artifactGroupsByKey.values());
-      expect(groups.length).toBe(1);
-      // We don't assert exact contents because they depend on underlying pipeline mocks,
-      // but we do verify structure is present.
-      expect(groups[0].artifact.name).toBe(displayName);
-    });
-
-    it('processBuildArtifactPair should reuse cached comparison results and annotate commits', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1 };
-      const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
-      const fromRelArt = {
-        definitionReference: {
-          definition: { id: '2', name: 'build1' },
-          version: { id: 'b1', name: 'b1' },
-        },
-      };
-      const toRelArt = {
-        definitionReference: {
-          definition: { id: '2', name: 'build1' },
-          version: { id: 'b2', name: 'b2' },
-        },
-      };
-      const artifact = {
-        type: 'Build',
-        alias: 'build1',
-        definitionReference: fromRelArt.definitionReference,
-      };
-
-      const key = (factory as any).buildArtifactKey(artifact);
-      const displayName = factory.getArtifactDisplayName('Build', artifact);
-
-      const buildCacheKey = `${key}|Build|${defaultParams.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
-      (factory as any).pairCompareCache.set(buildCacheKey, {
-        linked: [{ commitId: 'c1' }],
-        unlinked: [{ commitId: 'u1' }],
-      });
-
-      const artifactGroupsByKey = new Map();
-
-      await factory.processBuildArtifactPair(
-        key,
-        'build1',
-        displayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockGitDataProvider,
-        artifactGroupsByKey
-      );
-
-      const groups = Array.from(artifactGroupsByKey.values());
-      expect(groups.length).toBe(1);
-      const group = groups[0];
-      expect(group.artifact.name).toBe(displayName);
-      expect(group.changes[0].commitId).toBe('c1');
-      expect(group.changes[0].releaseVersion).toBe('2.0.0');
-      expect(group.nonLinkedCommits[0].commitId).toBe('u1');
-      expect(group.nonLinkedCommits[0].releaseRunDate).toBe(toRelease.createdOn);
-    });
-
-    it('processArtifactoryArtifactPair should aggregate JFrog changes into groups', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1 };
-      const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
-      const fromRelArt = {
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '1.0.0' },
-        },
-      };
-      const toRelArt = {
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '2.0.0' },
-        },
-      };
-      const artifact = {
-        type: 'Artifactory',
-        alias: 'art1',
-        definitionReference: fromRelArt.definitionReference,
-      };
-
-      const key = (factory as any).buildArtifactKey(artifact);
-      const displayName = factory.getArtifactDisplayName('Artifactory', artifact);
-      const artifactGroupsByKey = new Map();
-
-      await factory.processArtifactoryArtifactPair(
-        key,
-        'art1',
-        displayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockJfrogDataProvider,
-        artifactGroupsByKey
-      );
-
-      const groups = Array.from(artifactGroupsByKey.values());
-      expect(groups.length).toBe(1);
-      expect(groups[0].artifact.name).toBe(displayName);
-    });
-
-    it('processArtifactoryArtifactPair should reuse cached comparison results and annotate commits', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1 };
-      const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
-      const fromRelArt = {
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '1.0.0' },
-        },
-      };
-      const toRelArt = {
-        definitionReference: {
-          connection: { id: 'conn1' },
-          definition: { name: 'build-art', id: '3' },
-          version: { name: '2.0.0' },
-        },
-      };
-      const artifact = {
-        type: 'Artifactory',
-        alias: 'art1',
-        definitionReference: fromRelArt.definitionReference,
-      };
-
-      const key = (factory as any).buildArtifactKey(artifact);
-      const displayName = factory.getArtifactDisplayName('Artifactory', artifact);
-
-      // Force getCachedJfrogCiUrl to return pipeline-style URLs so the 'pipeline' uploader branch is exercised
-      const toCiUrl = 'https://server/tp/_build?buildId=200';
-      const fromCiUrl = 'https://server/tp/_build?buildId=100';
-      jest
-        .spyOn(factory, 'getCachedJfrogCiUrl')
-        .mockImplementationOnce(async () => toCiUrl)
-        .mockImplementationOnce(async () => fromCiUrl);
-
-      // Pre-populate pairCompareCache so the cached branch is used
-      const jfrogCacheKey = `${key}|JFrog|tp|100->200`;
-      (factory as any).pairCompareCache.set(jfrogCacheKey, {
-        linked: [{ commitId: 'c1' }],
-        unlinked: [{ commitId: 'u1' }],
-      });
-
-      const artifactGroupsByKey = new Map();
-
-      await factory.processArtifactoryArtifactPair(
-        key,
-        'art1',
-        displayName,
-        fromRelease,
-        toRelease,
-        fromRelArt,
-        toRelArt,
-        '2.0.0',
-        toRelease.createdOn,
-        mockJfrogDataProvider,
-        artifactGroupsByKey
-      );
-
-      const groups = Array.from(artifactGroupsByKey.values());
-      expect(groups.length).toBe(1);
-      const group = groups[0];
-      expect(group.artifact.name).toBe(displayName);
-      expect(group.changes[0].commitId).toBe('c1');
-      expect(group.changes[0].releaseVersion).toBe('2.0.0');
-      expect(group.nonLinkedCommits[0].commitId).toBe('u1');
-      expect(group.nonLinkedCommits[0].releaseRunDate).toBe(toRelease.createdOn);
-    });
-
-    it('GetPipelineChanges should log error when target build has not succeeded and requestedByBuild is false', async () => {
-      const factory = changeDataFactory as any;
-      factory.requestedByBuild = false;
-
-      const pipelines = {
-        getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
-          id: 200,
-          result: 'failed',
-          definition: { id: 1 },
-        }),
-      } as any;
-
-      const result = await factory.GetPipelineChanges(
-        pipelines,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        200,
-        100
-      );
-
-      expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-      expect((logger as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('could not handle pipeline The selected 200 build has not been succeeded')
-      );
-    });
-
-    it('GetPipelineChanges should log error when target build is canceled and requestedByBuild is true', async () => {
-      const factory = changeDataFactory as any;
-      factory.requestedByBuild = true;
-
-      const pipelines = {
-        getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
-          id: 200,
-          result: 'canceled',
-          definition: { id: 1 },
-        }),
-      } as any;
-
-      const result = await factory.GetPipelineChanges(
-        pipelines,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        200,
-        100
-      );
-
-      expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-      expect((logger as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('could not handle pipeline The selected 200 build has canceled')
-      );
-    });
-
-    it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {
-      const factory = changeDataFactory as any;
-      factory.requestedByBuild = false;
-
-      const pipelines: any = {
-        getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
-          id,
-          result: 'succeeded',
-          definition: { id: 10 },
-        })),
-        findPreviousPipeline: jest.fn(),
-        getPipelineRunDetails: jest.fn().mockResolvedValue({}),
-        getPipelineResourcePipelinesFromObject: jest
-          .fn()
-          // Top-level: source and target resource pipelines
-          .mockResolvedValueOnce([
-            {
-              buildId: 250,
-              definitionId: 99,
-              teamProject: defaultParams.teamProject,
-              buildNumber: '250',
-              name: 'ResPipe',
-              provider: 'TfsGit',
-            },
-          ])
-          .mockResolvedValueOnce([
-            {
-              buildId: 300,
-              definitionId: 99,
-              teamProject: defaultParams.teamProject,
-              buildNumber: '300',
-              name: 'ResPipe',
-              provider: 'TfsGit',
-            },
-          ])
-          // Recursive call: no further resource pipelines
-          .mockResolvedValueOnce([])
-          .mockResolvedValueOnce([]),
-        getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
-      };
-
-      const spy = jest.spyOn(factory, 'GetPipelineChanges');
-
-      const result = await factory.GetPipelineChanges(
-        pipelines,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        200,
-        100
-      );
-
-      // One top-level call + one recursive call
-      expect(spy).toHaveBeenCalledTimes(2);
-      expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-    });
-
-    it('GetPipelineChanges should skip resource pipelines that are not TfsGit', async () => {
-      const factory = changeDataFactory as any;
-      factory.requestedByBuild = false;
-
-      const pipelines: any = {
-        getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
-          id,
-          result: 'succeeded',
-          definition: { id: 10 },
-        })),
-        findPreviousPipeline: jest.fn(),
-        getPipelineRunDetails: jest.fn().mockResolvedValue({}),
-        getPipelineResourcePipelinesFromObject: jest
-          .fn()
-          // sourcePipelineResourcePipelines (unused by this branch)
-          .mockResolvedValueOnce([])
-          // targetPipelineResourcePipelines contains a non-TfsGit provider
-          .mockResolvedValueOnce([
-            {
-              buildId: 250,
-              definitionId: 99,
-              teamProject: defaultParams.teamProject,
-              buildNumber: '250',
-              name: 'ResPipe',
-              provider: 'GitHub',
-            },
-          ]),
-        getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
-      };
-
-      const result = await factory.GetPipelineChanges(
-        pipelines,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        200,
-        100
-      );
-
-      expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-      expect((logger as any).debug).toHaveBeenCalledWith(
-        expect.stringContaining('resource pipeline GitHub is not based on azure devops git, skipping')
-      );
-    });
-
-    it('GetPipelineChanges should skip resource pipelines when names do not match', async () => {
-      const factory = changeDataFactory as any;
-      factory.requestedByBuild = false;
-
-      const pipelines: any = {
-        getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
-          id,
-          result: 'succeeded',
-          definition: { id: 10 },
-        })),
-        findPreviousPipeline: jest.fn(),
-        getPipelineRunDetails: jest.fn().mockResolvedValue({}),
-        getPipelineResourcePipelinesFromObject: jest
-          .fn()
-          // targetResourcePipelines
-          .mockResolvedValueOnce([
-            {
-              buildId: 300,
-              definitionId: 99,
-              teamProject: defaultParams.teamProject,
-              buildNumber: '300',
-              name: 'TargetRes',
-              provider: 'TfsGit',
-            },
-          ])
-          // sourcePipelineResourcePipelines
-          .mockResolvedValueOnce([
-            {
-              buildId: 250,
-              definitionId: 99,
-              teamProject: defaultParams.teamProject,
-              buildNumber: '250',
-              name: 'SourceRes',
-              provider: 'TfsGit',
-            },
-          ]),
-        getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
-      };
-
-      const result = await factory.GetPipelineChanges(
-        pipelines,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        200,
-        100
-      );
-
-      expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-      expect((logger as any).debug).toHaveBeenCalledWith(
-        expect.stringContaining('resource pipeline TargetRes is not the same as SourceRes, skipping')
-      );
-    });
-
-    it('parseSubModules should log errors and return empty arrays when getSubmodulesData fails', async () => {
-      const factory = changeDataFactory as any;
-
-      const failingGitProvider = {
-        getSubmodulesData: jest.fn().mockRejectedValue(new Error('submodule boom')),
-      } as any;
-
-      const result = await factory.parseSubModules(
-        failingGitProvider,
-        defaultParams.teamProject,
-        'repo',
-        'toCommit',
-        'fromCommit',
-        'commit',
-        'commit',
-        [],
-        new Set<number>(),
-        '',
-        undefined
-      );
-
-      expect(result).toEqual({ commitsWithRelatedWi: [], commitsWithNoRelations: [] });
-      expect((logger as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('could not handle submodules submodule boom')
-      );
-    });
-
-    it('getCommitRangeChanges should aggregate direct and submodule commits', async () => {
-      const factory = changeDataFactory as any;
-
-      const gitProvider: any = {
-        GetCommitBatch: jest.fn().mockResolvedValue([{ id: 'ext1' }]),
-        getItemsForPipelineRange: jest.fn().mockResolvedValue({
-          commitChangesArray: [{ id: 'linked-main' }],
-          commitsWithNoRelations: [{ id: 'unlinked-main' }],
-        }),
-      };
-
-      jest.spyOn(factory, 'parseSubModules').mockResolvedValue({
-        commitsWithRelatedWi: [{ id: 'linked-sub' }],
-        commitsWithNoRelations: [{ id: 'unlinked-sub' }],
-      });
-
-      const result = await factory.getCommitRangeChanges(
-        gitProvider,
-        defaultParams.teamProject,
-        'fromSha',
-        'commit',
-        'toSha',
-        'commit',
-        'repoName',
-        'https://server/org/project/_git/repo',
-        new Set<number>(),
-        'subModule',
-        '/path',
-        factory.linkedWiOptions
-      );
-
-      expect(gitProvider.GetCommitBatch).toHaveBeenCalledWith(
-        'https://server/org/project/_apis/git/repositories/repo',
-        { version: 'fromSha', versionType: 'commit' },
-        { version: 'toSha', versionType: 'commit' },
-        '/path'
-      );
-      expect(gitProvider.getItemsForPipelineRange).toHaveBeenCalled();
-      expect(result.allExtendedCommits.map((c: any) => c.id)).toEqual(['linked-main', 'linked-sub']);
-      expect(result.commitsWithNoRelations.map((c: any) => c.id)).toEqual(['unlinked-main', 'unlinked-sub']);
-    });
-
-    it('getCommitRangeChanges should log and rethrow when GetCommitBatch fails', async () => {
-      const factory = changeDataFactory as any;
-
-      const gitProvider: any = {
-        GetCommitBatch: jest.fn().mockRejectedValue(new Error('batch failed')),
-      };
-
-      await expect(
-        factory.getCommitRangeChanges(
-          gitProvider,
+      it("'release-range' should resolve release names and emit Version range paragraph when rangeType is release", async () => {
+        const releaseFactory = new ChangeDataFactory(
           defaultParams.teamProject,
-          'from',
-          'commit',
-          'to',
-          'commit',
-          'repo',
-          'https://server/org/project/_git/repo',
-          new Set<number>()
-        )
-      ).rejects.toThrow('batch failed');
-
-      expect((logger as any).error).toHaveBeenCalledWith(
-        expect.stringContaining('Cannot get commits for commit range repo')
-      );
-    });
-
-    it('applyTaskParentReplacement should replace Task work items with Requirement parents and deduplicate by parent id', async () => {
-      const factory = changeDataFactory as any;
-
-      // Ensure tickets data provider has GetWorkItemByUrl
-      mockTicketsDataProvider.GetWorkItemByUrl = jest.fn().mockResolvedValue({
-        id: 201,
-        fields: { 'System.WorkItemType': 'Requirement' },
-      });
-
-      const rawGroups = [
-        {
-          artifact: { name: 'Repo' },
-          changes: [
-            // Non-task change should be preserved as-is
-            {
-              workItem: {
-                id: 'USR1',
-                fields: { 'System.WorkItemType': 'User Story' },
-              },
-              commit: { committer: { date: '2024-01-01T00:00:00Z' } },
-            },
-            // Two Task changes pointing to same parent; later commit should win
-            {
-              workItem: {
-                id: 101,
-                fields: { 'System.WorkItemType': 'Task' },
-                relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/parent1' }],
-              },
-              commit: { committer: { date: '2024-01-01T01:00:00Z' } },
-            },
-            {
-              workItem: {
-                id: 102,
-                fields: { 'System.WorkItemType': 'Task' },
-                relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/parent1' }],
-              },
-              commit: { committer: { date: '2024-01-01T02:00:00Z' } },
-            },
-          ],
-        },
-      ];
-
-      const result = await factory.applyTaskParentReplacement(rawGroups);
-
-      expect(result).toHaveLength(1);
-      const changes = result[0].changes;
-      // One original non-task + one Requirement parent entry
-      expect(changes.length).toBe(2);
-
-      const parentChange = changes.find((c: any) => c.workItem && c.workItem.id === 201);
-      expect(parentChange).toBeDefined();
-      // Should have been replaced from the Task with the later commit timestamp (id 102)
-      expect(parentChange.replacedFromTaskId).toBe(102);
-      // Ensure no remaining Task-type work items
-      expect(
-        changes.some(
-          (c: any) =>
-            c.workItem?.fields?.['System.WorkItemType'] && c.workItem.fields['System.WorkItemType'] === 'Task'
-        )
-      ).toBe(false);
-    });
-
-    it('handleServiceJsonFile should return false and log when required variables are missing', async () => {
-      const factory = changeDataFactory as any;
-
-      const fromRelease = { id: 1, variables: {} };
-      const toRelease = { id: 2, variables: {} };
-
-      const result = await factory.handleServiceJsonFile(
-        fromRelease,
-        toRelease,
-        defaultParams.teamProject,
-        mockGitDataProvider
-      );
-
-      expect(result).toBe(false);
-      expect((logger as any).warn).toHaveBeenCalledWith('missing variables in release');
-      expect((logger as any).warn).toHaveBeenCalledWith(
-        'required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value'
-      );
-    });
-
-    it('resolveServiceRange should fall back from TAG to BRANCH mode when source tag is missing and branches exist', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider: any = {
-        GetTag: jest.fn().mockResolvedValueOnce({ value: [], count: 0 }),
-        GetBranch: jest.fn().mockResolvedValue({ value: [{}], count: 1 }),
-      };
-
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
-
-      const fromRelease = { name: '1.0.0' };
-      const toRelease = { name: '2.0.0' };
-
-      const result = await factory.resolveServiceRange(
-        provider,
-        service,
-        'ARG-',
-        fromRelease,
-        toRelease,
-        'branches/source',
-        'branches/target',
-        true,
-        'https://server/org/project/_apis/git/repositories/repo',
-        'repo',
-        true,
-        false,
-        'branches/source',
-        'branches/target'
-      );
-
-      expect(result).toEqual({
-        fromVersion: 'branches/source',
-        toVersion: 'branches/target',
-        fromVersionType: 'Branch',
-        toVersionType: 'Branch',
-      });
-      expect(provider.GetBranch).toHaveBeenCalledTimes(2);
-    });
-
-    it('resolveServiceRange should resolve TAG mode when both tags exist', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider: any = {
-        // Simulate two existing tags that point to different commits
-        GetTag: jest
-          .fn()
-          .mockResolvedValueOnce({ objectId: 'from-sha' })
-          .mockResolvedValueOnce({ objectId: 'to-sha' }),
-        // Target commit is a descendant of source commit
-        isCommitDescendant: jest.fn().mockResolvedValue(true),
-      };
-
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
-
-      const fromRelease = { name: '1.0.0' };
-      const toRelease = { name: '2.0.0' };
-
-      const result = await factory.resolveServiceRange(
-        provider,
-        service,
-        'ARG-',
-        fromRelease,
-        toRelease,
-        'branches/source',
-        'branches/target',
-        true,
-        'https://server/org/project/_apis/git/repositories/repo',
-        'repo',
-        true,
-        false,
-        'branches/source',
-        'branches/target'
-      );
-
-      expect(result).toEqual({
-        fromVersion: 'ARG-1.0.0',
-        toVersion: 'ARG-2.0.0',
-        fromVersionType: 'Tag',
-        toVersionType: 'Tag',
-      });
-      expect(provider.GetTag).toHaveBeenCalledTimes(2);
-      expect(provider.isCommitDescendant).toHaveBeenCalledWith(
-        'https://server/org/project/_apis/git/repositories/repo',
-        'to-sha',
-        'from-sha'
-      );
-    });
-
-    it('resolveServiceRange should use BRANCH mode and return null when from-branch does not exist', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider: any = {
-        GetBranch: jest.fn().mockResolvedValue({ value: [], count: 0 }),
-      };
-
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
-
-      const fromRelease = { name: '1.0.0' };
-      const toRelease = { name: '2.0.0' };
-
-      const result = await factory.resolveServiceRange(
-        provider,
-        service,
-        '',
-        fromRelease,
-        toRelease,
-        'branches/source',
-        'branches/target',
-        true,
-        'https://server/org/project/_apis/git/repositories/repo',
-        'repo',
-        false,
-        true,
-        'branches/source',
-        'branches/target'
-      );
-
-      expect(result).toBeNull();
-      expect(provider.GetBranch).toHaveBeenCalledTimes(1);
-    });
-
-    it('resolveServiceRange should respect tag commit order using isCommitDescendant (releases 1->2, 1->3, 1->4)', async () => {
-      const factory = changeDataFactory as any;
-
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
-
-      const serviceGitRepoApiUrl = 'https://server/org/project/_apis/git/repositories/repo';
-      const repoName = 'repo';
-      const tagPrefix = 'test-Release-';
-
-      const makeReleases = (fromName: string, toName: string) => ({
-        from: { name: fromName },
-        to: { name: toName },
-      });
-
-      // Commit graph (conceptual):
-      // C1 -> C2(tag1) -> C3 -> C4(tag3) -> C5 -> C6(tag2) -> C7 -> C8(tag4)
-      // Tags test-Release-1,3,2,4 point to C2, C4, C6, C8 respectively.
-
-      // 1) Range: release 1 -> release 2 (tag1=C2, tag2=C6)
-      {
-        const { from, to } = makeReleases('1', '2');
-        const provider: any = {
-          GetTag: jest
-            .fn()
-            .mockResolvedValueOnce({ objectId: 'C2' })
-            .mockResolvedValueOnce({ objectId: 'C6' }),
-          isCommitDescendant: jest.fn().mockResolvedValue(true),
-        };
-
-        const result = await factory.resolveServiceRange(
-          provider,
-          service,
-          tagPrefix,
-          from,
-          to,
-          'branches/source',
-          'branches/target',
-          true,
-          serviceGitRepoApiUrl,
-          repoName,
-          true,
-          false,
-          'branches/source',
-          'branches/target'
+          defaultParams.repoId,
+          '10',
+          '20',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
         );
 
-        expect(result).toEqual({
-          fromVersion: 'test-Release-1',
-          toVersion: 'test-Release-2',
-          fromVersionType: 'Tag',
-          toVersionType: 'Tag',
-        });
-        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C6', 'C2');
-      }
-
-      // 2) Range: release 1 -> release 3 (tag1=C2, tag3=C4)
-      {
-        const { from, to } = makeReleases('1', '3');
-        const provider: any = {
-          GetTag: jest
+        const pipelines = {
+          GetReleaseByReleaseId: jest
             .fn()
-            .mockResolvedValueOnce({ objectId: 'C2' })
-            .mockResolvedValueOnce({ objectId: 'C4' }),
-          isCommitDescendant: jest.fn().mockResolvedValue(true),
-        };
+            .mockResolvedValueOnce({ name: '1.0.0' })
+            .mockResolvedValueOnce({ name: '2.0.0' }),
+        } as any;
 
-        const result = await factory.resolveServiceRange(
-          provider,
-          service,
-          tagPrefix,
-          from,
-          to,
-          'branches/source',
-          'branches/target',
-          true,
-          serviceGitRepoApiUrl,
-          repoName,
-          true,
-          false,
-          'branches/source',
-          'branches/target'
+        const result = await (releaseFactory as any).jsonSkinDataAdapter('release-range', {
+          pipelinesDataProvider: pipelines,
+        });
+
+        expect(pipelines.GetReleaseByReleaseId).toHaveBeenCalledTimes(2);
+        expect(result).toEqual([
+          {
+            name: '',
+            value: 'Version\nv1.0.0 to v2.0.0',
+          },
+        ]);
+      });
+
+      it("'release-range' should log warning and fall back to empty value when release lookup fails", async () => {
+        const releaseFactory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '10',
+          '20',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
         );
 
-        expect(result).toEqual({
-          fromVersion: 'test-Release-1',
-          toVersion: 'test-Release-3',
-          fromVersionType: 'Tag',
-          toVersionType: 'Tag',
-        });
-        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C4', 'C2');
-      }
+        const pipelines = {
+          GetReleaseByReleaseId: jest.fn().mockRejectedValue(new Error('boom')),
+        } as any;
 
-      // 3) Range: release 1 -> release 4 (tag1=C2, tag4=C8)
-      {
-        const { from, to } = makeReleases('1', '4');
-        const provider: any = {
-          GetTag: jest
-            .fn()
-            .mockResolvedValueOnce({ objectId: 'C2' })
-            .mockResolvedValueOnce({ objectId: 'C8' }),
-          isCommitDescendant: jest.fn().mockResolvedValue(true),
+        const result = await (releaseFactory as any).jsonSkinDataAdapter('release-range', {
+          pipelinesDataProvider: pipelines,
+        });
+
+        expect((logger as any).warn).toHaveBeenCalledWith(
+          expect.stringContaining("jsonSkinDataAdapter: 'release-range' failed to resolve release names")
+        );
+        expect(result).toEqual([
+          {
+            name: '',
+            value: '',
+          },
+        ]);
+      });
+
+      it('should adapt system-overview data', async () => {
+        const mockRawData = [{ id: 1, name: 'System Item 1' }];
+        const mockAdaptedData = [{ title: 'Adapted System Item 1' }];
+        const mockAttachmentData = [{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }];
+
+        const mockAdapter = {
+          jsonSkinAdapter: jest.fn().mockResolvedValue(mockAdaptedData),
+          getAttachmentMinioData: jest.fn().mockReturnValue(mockAttachmentData),
         };
 
-        const result = await factory.resolveServiceRange(
-          provider,
-          service,
-          tagPrefix,
-          from,
-          to,
-          'branches/source',
-          'branches/target',
-          true,
-          serviceGitRepoApiUrl,
-          repoName,
-          true,
-          false,
-          'branches/source',
-          'branches/target'
-        );
+        require('../../adapters/SystemOverviewDataSkinAdapter').mockImplementation(() => mockAdapter);
 
-        expect(result).toEqual({
-          fromVersion: 'test-Release-1',
-          toVersion: 'test-Release-4',
-          fromVersionType: 'Tag',
-          toVersionType: 'Tag',
-        });
-        expect(provider.isCommitDescendant).toHaveBeenCalledWith(serviceGitRepoApiUrl, 'C8', 'C2');
-      }
-    });
+        const result = await changeDataFactory.jsonSkinDataAdapter('system-overview', mockRawData);
 
-    it('resolveServiceRange should return null when from/to tags resolve to the same commit', async () => {
-      const factory = changeDataFactory as any;
+        expect(mockAdapter.jsonSkinAdapter).toHaveBeenCalledWith(mockRawData);
+        expect(mockAdapter.getAttachmentMinioData).toHaveBeenCalled();
+        expect(result).toEqual(mockAdaptedData);
+        expect(changeDataFactory.getAttachmentMinioData()).toEqual(mockAttachmentData);
+      });
 
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
+      it('changes adapter should apply task parent replacement and work item filters', async () => {
+        const factory = changeDataFactory as any;
+        factory.replaceTaskWithParent = true;
+        factory.workItemFilterOptions = {
+          isEnabled: true,
+          workItemTypes: ['user story'],
+          workItemStates: ['active'],
+        };
 
-      const fromRelease = { name: '1.0.0' };
-      const toRelease = { name: '2.0.0' };
-
-      const provider: any = {
-        GetTag: jest.fn().mockResolvedValue({ objectId: 'same-sha' }),
-        isCommitDescendant: jest.fn(),
-      };
-
-      const result = await factory.resolveServiceRange(
-        provider,
-        service,
-        'ARG-',
-        fromRelease,
-        toRelease,
-        'branches/source',
-        'branches/target',
-        true,
-        'https://server/org/project/_apis/git/repositories/repo',
-        'repo',
-        true,
-        false,
-        'branches/source',
-        'branches/target'
-      );
-
-      expect(result).toBeNull();
-      expect(provider.isCommitDescendant).not.toHaveBeenCalled();
-      expect((logger as any).warn).toHaveBeenCalledWith(
-        expect.stringContaining('from and to tag resolve to the same object ID')
-      );
-    });
-
-    it('resolveServiceRange should return null when target tag is older or not descendant of source tag', async () => {
-      const factory = changeDataFactory as any;
-
-      const service = {
-        serviceName: 'Svc',
-        serviceLocation: {
-          gitRepoUrl: 'https://server/org/project/_git/repo',
-          pathInGit: 'services.json',
-        },
-      };
-
-      const fromRelease = { name: '1.0.0' };
-      const toRelease = { name: '2.0.0' };
-
-      const provider: any = {
-        GetTag: jest
-          .fn()
-          .mockResolvedValueOnce({ objectId: 'C10' })
-          .mockResolvedValueOnce({ objectId: 'C5' }),
-        isCommitDescendant: jest.fn().mockResolvedValue(false),
-      };
-
-      const result = await factory.resolveServiceRange(
-        provider,
-        service,
-        'ARG-',
-        fromRelease,
-        toRelease,
-        'branches/source',
-        'branches/target',
-        true,
-        'https://server/org/project/_apis/git/repositories/repo',
-        'repo',
-        true,
-        false,
-        'branches/source',
-        'branches/target'
-      );
-
-      expect(result).toBeNull();
-      expect(provider.isCommitDescendant).toHaveBeenCalledWith(
-        'https://server/org/project/_apis/git/repositories/repo',
-        'C5',
-        'C10'
-      );
-      expect((logger as any).warn).toHaveBeenCalledWith(expect.stringContaining('Target tag'));
-    });
-
-    it('handleServiceJsonFile should skip service when tags and branches all fail (no fallback)', async () => {
-      const factory = changeDataFactory as any;
-
-      const servicesJsonUrl = 'https://server/org/project/_git/servicesRepo?path=folder/services.json';
-
-      const fromRelease = {
-        id: 1,
-        name: '1.0.0',
-        variables: {
-          servicesJson: { value: servicesJsonUrl },
-          servicesJsonVersion: { value: 'v-configured' },
-          servicesJsonVersionType: { value: 'Tag' },
-          servicesJsonTagPrefix: { value: 'ARG-' },
-        },
-      };
-      const toRelease = {
-        id: 2,
-        name: '2.0.0',
-        variables: fromRelease.variables,
-      };
-
-      const provider: any = {
-        // services.json is present, so we reach resolveServiceRange
-        GetFileFromGitRepo: jest.fn().mockResolvedValue(
-          JSON.stringify({
-            services: [
+        const baseGroups = [
+          {
+            artifact: { name: 'Repo 1' },
+            changes: [
               {
-                serviceName: 'Svc',
-                serviceLocation: {
-                  gitRepoUrl: 'https://server/org/project/_git/repo',
-                  pathInGit: 'folder/services.json',
+                workItem: {
+                  fields: {
+                    'System.WorkItemType': 'User Story',
+                    'System.State': 'Active',
+                  },
+                },
+              },
+              {
+                workItem: {
+                  fields: {
+                    'System.WorkItemType': 'Bug',
+                    'System.State': 'Closed',
+                  },
                 },
               },
             ],
-          })
-        ),
-        // Tags missing for both from/to -> real GitDataProvider.GetTag returns null when not found
-        GetTag: jest.fn().mockResolvedValue(null),
-        // Branches will not be used for fallback because no branch variables are present
-        GetBranch: jest.fn(),
-      };
+            nonLinkedCommits: [],
+          },
+        ];
 
-      const result = await factory.handleServiceJsonFile(
-        fromRelease,
-        toRelease,
-        defaultParams.teamProject,
-        provider
-      );
+        factory.rawChangesArray = baseGroups;
+        const replacementSpy = jest
+          .spyOn(factory, 'applyTaskParentReplacement')
+          .mockResolvedValue(baseGroups);
 
-      // Services are skipped because resolveServiceRange returns null; handler still returns true
-      expect(result).toBe(true);
-      // No service groups created
-      expect((factory as any).serviceGroupsByKey.size).toBe(0);
-      // Should log that there are no branches available for fallback
-      expect((logger as any).debug).toHaveBeenCalledWith(
-        expect.stringContaining('No branches available for fallback on Svc')
-      );
-    });
+        const result = await factory.jsonSkinDataAdapter('changes', baseGroups);
 
-    it('collectPathChangesForService should cache path existence and return commit-range results', async () => {
-      const factory = changeDataFactory as any;
-
-      const provider: any = {
-        CheckIfItemExist: jest.fn().mockResolvedValue(true),
-      };
-
-      jest.spyOn(factory, 'getCommitRangeChanges').mockResolvedValue({
-        allExtendedCommits: [{ id: 'c1' }],
-        commitsWithNoRelations: [{ id: 'u1' }],
+        expect(replacementSpy).toHaveBeenCalled();
+        // Adapter is mocked, so we only assert that it returned whatever the mock provides
+        expect(result).toBeDefined();
       });
 
-      const first = await factory.collectPathChangesForService(
-        provider,
-        defaultParams.teamProject,
-        'Svc',
-        'repo',
-        'https://server/org/project/_apis/git/repositories/repo',
-        '/path',
-        'fromVer',
-        'Branch',
-        'toVer',
-        'Branch'
-      );
+      it('jsonSkinDataAdapter changes should adapt changes data', async () => {
+        const mockRawData = [
+          {
+            artifact: { name: 'Repo 1' },
+            changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+            nonLinkedCommits: [],
+          },
+        ];
+        const mockAdaptedData = [{ title: 'Change 1' }];
+        const mockAttachmentData = [{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }];
 
-      expect(first).toEqual({
-        allExtendedCommits: [{ id: 'c1' }],
-        commitsWithNoRelations: [{ id: 'u1' }],
+        const mockAdapter = {
+          adoptSkinData: jest.fn().mockResolvedValue(undefined),
+          getAdoptedData: jest.fn().mockReturnValue(mockAdaptedData),
+          attachmentMinioData: mockAttachmentData,
+        };
+
+        require('../../adapters/ChangesTableDataSkinAdapter').mockImplementation(() => mockAdapter);
+
+        changeDataFactory['rawChangesArray'] = mockRawData as any;
+        const result = await changeDataFactory.jsonSkinDataAdapter('changes', mockRawData);
+
+        expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
+        expect(mockAdapter.getAdoptedData).toHaveBeenCalled();
+        expect(result).toEqual(mockAdaptedData);
+        expect(changeDataFactory.getAttachmentMinioData()).toEqual(mockAttachmentData);
       });
-      expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(2);
 
-      provider.CheckIfItemExist.mockClear();
+      it('should handle installation-instructions data', async () => {
+        const mockFileName = 'installation.md';
+        const mockUrl = `https://wiki.example.com/${mockFileName}`;
 
-      const second = await factory.collectPathChangesForService(
-        provider,
-        defaultParams.teamProject,
-        'Svc',
-        'repo',
-        'https://server/org/project/_apis/git/repositories/repo',
-        '/path',
-        'fromVer',
-        'Branch',
-        'toVer',
-        'Branch'
-      );
+        // Set up the factory with a wiki URL
+        changeDataFactory.attachmentWikiUrl = mockUrl;
 
-      expect(second).toEqual(first);
-      expect(provider.CheckIfItemExist).not.toHaveBeenCalled();
+        const result = await changeDataFactory.jsonSkinDataAdapter('installation-instructions', []);
+
+        expect(result).toEqual([
+          expect.objectContaining({
+            title: 'Installation Instructions',
+            attachment: expect.objectContaining({
+              attachmentFileName: mockFileName,
+              attachmentMinioPath: mockUrl,
+            }),
+          }),
+        ]);
+
+        expect(changeDataFactory.getAttachmentMinioData()).toEqual([
+          expect.objectContaining({
+            attachmentMinioPath: mockUrl,
+            minioFileName: mockFileName,
+          }),
+        ]);
+      });
+
+      it('should log a warning and skip installation-instructions when attachmentWikiUrl is missing', async () => {
+        const factory = changeDataFactory as any;
+        factory.attachmentWikiUrl = '';
+
+        const result = await factory.jsonSkinDataAdapter('installation-instructions', []);
+
+        expect(result).toBeUndefined();
+        expect((logger as any).warn).toHaveBeenCalledWith(
+          'No attachment wiki URL provided for installation instructions'
+        );
+      });
+
+      it('should adapt possible-problems-known-errors data', async () => {
+        const mockRawData = [{ id: 1, title: 'Known Bug 1' }];
+        const mockAdaptedData = [{ bugTitle: 'Known Bug 1', severity: 'High' }];
+
+        const mockAdapter = {
+          adoptSkinData: jest.fn(),
+          getAdoptedData: jest.fn().mockReturnValue(mockAdaptedData),
+        };
+
+        require('../../adapters/BugsTableSkinAdpater').mockImplementation(() => mockAdapter);
+
+        const result = await changeDataFactory.jsonSkinDataAdapter(
+          'possible-problems-known-errors',
+          mockRawData
+        );
+
+        expect(mockAdapter.adoptSkinData).toHaveBeenCalled();
+        expect(mockAdapter.getAdoptedData).toHaveBeenCalled();
+        expect(result).toEqual(mockAdaptedData);
+      });
+
+      it('installation-instructions should log and swallow errors when decoding file name fails', async () => {
+        const factory = changeDataFactory as any;
+        // Invalid URI sequence will cause decodeURIComponent to throw
+        factory.attachmentWikiUrl = 'https://wiki.example.com/%E0';
+
+        const result = await factory.jsonSkinDataAdapter('installation-instructions', []);
+
+        expect(result).toBeUndefined();
+        expect((logger as any).error).toHaveBeenCalledWith(
+          expect.stringContaining('Error processing installation instructions:')
+        );
+      });
+
+      it('should handle unknown adapter type', async () => {
+        const result = await changeDataFactory.jsonSkinDataAdapter('unknown-type', []);
+        expect(result).toBeUndefined();
+      });
+
+      it('should handle errors in adaptation', async () => {
+        const mockError = new Error('Adaptation failed');
+
+        require('../../adapters/ReleaseComponentsDataSkinAdapter').mockImplementation(() => {
+          return {
+            jsonSkinAdapter: jest.fn().mockImplementation(() => {
+              throw mockError;
+            }),
+          };
+        });
+
+        await expect(changeDataFactory.jsonSkinDataAdapter('release-components', [])).rejects.toThrow(
+          'Adaptation failed'
+        );
+
+        expect(logger.error).toHaveBeenCalledWith(
+          expect.stringContaining('Failed adapting data for type release-components')
+        );
+      });
     });
 
-    it('collectPathChangesForService should return null when source path does not exist', async () => {
-      const factory = changeDataFactory as any;
+    describe('data retrieval methods', () => {
+      beforeEach(() => {
+        // Setup some test data
+        changeDataFactory['rawChangesArray'] = [
+          {
+            artifact: { name: 'test-artifact' },
+            changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+            nonLinkedCommits: [],
+          },
+        ];
+        changeDataFactory['adoptedChangeData'] = [
+          { contentControl: 'test-control', data: [{ title: 'Test' }], skin: 'test-skin' },
+        ];
+        changeDataFactory['attachmentMinioData'] = [
+          { attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' },
+        ];
+      });
 
-      const provider: any = {
-        CheckIfItemExist: jest.fn().mockResolvedValue(false),
-      };
+      it('getRawData should return raw changes array', () => {
+        const result = changeDataFactory.getRawData();
+        expect(result).toEqual([
+          {
+            artifact: { name: 'test-artifact' },
+            changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+            nonLinkedCommits: [],
+          },
+        ]);
+      });
 
-      const result = await factory.collectPathChangesForService(
-        provider,
-        defaultParams.teamProject,
-        'Svc',
-        'repo',
-        'https://server/org/project/_apis/git/repositories/repo',
-        '/missing',
-        'fromVer',
-        'Branch',
-        'toVer',
-        'Branch'
-      );
+      it('getAdoptedData should return adopted change data', () => {
+        const result = changeDataFactory.getAdoptedData();
+        expect(result).toEqual([
+          { contentControl: 'test-control', data: [{ title: 'Test' }], skin: 'test-skin' },
+        ]);
+      });
 
-      expect(result).toBeNull();
-      expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(1);
+      it('getAttachmentMinioData should return attachment minio data', () => {
+        const result = changeDataFactory.getAttachmentMinioData();
+        expect(result).toEqual([{ attachmentMinioPath: 'path/to/file', minioFileName: 'file.txt' }]);
+      });
     });
 
-    it('resolveBranch should prefer env branch, then release.branch, then release.Branch', () => {
-      const factory = changeDataFactory as any;
+    describe('helper methods', () => {
+      it('should remove user from Git repo URL', () => {
+        const urlWithUser = 'https://user@example.com/repo';
+        const urlWithoutUser = 'https://example.com/repo';
+        const urlWithoutHttps = 'git@example.com:repo.git';
 
-      const envRel = {
-        environments: [{ variables: { branch: { value: 'env-branch' } } }],
-        variables: {
-          branch: { value: 'rel-branch' },
-          Branch: { value: 'RelBranch' },
-        },
-      };
+        // Access the private method using type assertion
+        const removeUserMethod = (changeDataFactory as any).removeUserFromGitRepoUrl;
 
-      const relLower = {
-        variables: {
-          branch: { value: 'rel-branch' },
-        },
-      };
+        expect(removeUserMethod(urlWithUser)).toBe(urlWithoutUser);
+        expect(removeUserMethod(urlWithoutUser)).toBe(urlWithoutUser);
+        expect(removeUserMethod(urlWithoutHttps)).toBe(urlWithoutHttps);
+      });
 
-      const relUpper = {
-        variables: {
-          Branch: { value: 'RelBranch' },
-        },
-      };
+      it('getReleasesBetween should return history slice when both ids are found', async () => {
+        const factory = changeDataFactory as any;
 
-      expect(factory.resolveBranch(envRel)).toEqual({ v: 'env-branch', src: 'env' });
-      expect(factory.resolveBranch(relLower)).toEqual({ v: 'rel-branch', src: 'release.branch' });
-      expect(factory.resolveBranch(relUpper)).toEqual({ v: 'RelBranch', src: 'release.Branch' });
-    });
+        const mockHistory = {
+          value: [
+            { id: '5', createdOn: '2024-01-01T00:00:00Z' },
+            { id: '10', createdOn: '2024-01-02T00:00:00Z' },
+            { id: '20', createdOn: '2024-01-03T00:00:00Z' },
+          ],
+        };
 
-    it('isChangesReachedMaxSize should throw when artifactsChangesLength exceeds 500', () => {
-      const factory = changeDataFactory as any;
+        const mockPipelines = {
+          GetReleaseHistory: jest.fn().mockResolvedValue(mockHistory),
+        } as any;
 
-      expect(() => factory.isChangesReachedMaxSize('commitSha', 501)).toThrow(
-        'The number of changes is too large (501)'
-      );
+        const fromRelease = { id: '10' };
+        const toRelease = { id: '20' };
+
+        const result = await factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease);
+
+        expect(mockPipelines.GetReleaseHistory).toHaveBeenCalledWith('TestProject', '123');
+        expect(result.map((r: any) => Number(r.id))).toEqual([10, 20]);
+      });
+
+      it('getReleasesBetween should fall back to direct from/to when no definition id', async () => {
+        const factory = changeDataFactory as any;
+
+        const mockPipelines = {} as any;
+        const fromRelease = { id: '30' };
+        const toRelease = { id: '10' };
+
+        const result = await factory.getReleasesBetween(mockPipelines, 30, 10, null, fromRelease, toRelease);
+
+        expect(result.map((r: any) => Number(r.id))).toEqual([10, 30]);
+      });
+
+      it('compareConsecutiveReleases should only process adjacent pairs in consecutive mode', async () => {
+        const factory = changeDataFactory as any;
+
+        // three releases, no artifacts so inner artifact loop is skipped
+        const releasesList = [
+          { id: 1, artifacts: [] },
+          { id: 2, artifacts: [] },
+          { id: 3, artifacts: [] },
+        ];
+
+        factory.compareMode = 'consecutive';
+
+        const debugMock = (logger as any).debug as jest.Mock;
+
+        await factory.compareConsecutiveReleases(
+          releasesList,
+          mockGitDataProvider,
+          mockJfrogDataProvider,
+          new Map(),
+          new Map()
+        );
+
+        const compareCalls = debugMock.mock.calls
+          .map((args) => String(args[0]))
+          .filter((msg) => msg.startsWith('Comparing releases:'));
+
+        expect(compareCalls).toHaveLength(2);
+        expect(compareCalls).toEqual(['Comparing releases: 1 -> 2', 'Comparing releases: 2 -> 3']);
+      });
+
+      it('compareConsecutiveReleases should process all i<j pairs in allPairs mode', async () => {
+        const factory = changeDataFactory as any;
+
+        const releasesList = [
+          { id: 1, artifacts: [] },
+          { id: 2, artifacts: [] },
+          { id: 3, artifacts: [] },
+        ];
+
+        factory.compareMode = 'allPairs';
+
+        const debugMock = (logger as any).debug as jest.Mock;
+
+        await factory.compareConsecutiveReleases(
+          releasesList,
+          mockGitDataProvider,
+          mockJfrogDataProvider,
+          new Map(),
+          new Map()
+        );
+
+        const pairSet = new Set(
+          debugMock.mock.calls
+            .map((args) => String(args[0]))
+            .filter((msg) => msg.startsWith('Comparing releases:'))
+            .map((msg) => msg.replace('Comparing releases: ', ''))
+        );
+
+        expect(pairSet).toEqual(new Set(['1 -> 2', '1 -> 3', '2 -> 3']));
+      });
+
+      it('compareConsecutiveReleases should aggregate Git artifacts into a single group with annotated commits', async () => {
+        const factory = changeDataFactory as any;
+        factory.compareMode = 'consecutive';
+
+        const releasesList = [
+          {
+            id: 10,
+            name: '1.0.0',
+            createdOn: '2024-01-01T00:00:00Z',
+            artifacts: [
+              {
+                type: 'Git',
+                alias: 'repo1',
+                definitionReference: {
+                  definition: { id: 'repo-id-1', name: 'repo1' },
+                  version: { id: 'fromCommit', name: 'v1.0.0' },
+                },
+              },
+            ],
+          },
+          {
+            id: 20,
+            name: '2.0.0',
+            createdOn: '2024-01-02T00:00:00Z',
+            artifacts: [
+              {
+                type: 'Git',
+                alias: 'repo1',
+                definitionReference: {
+                  definition: { id: 'repo-id-1', name: 'repo1' },
+                  version: { id: 'toCommit', name: 'v2.0.0' },
+                },
+              },
+            ],
+          },
+        ];
+
+        jest.spyOn(factory, 'getCommitRangeChanges').mockResolvedValue({
+          allExtendedCommits: [{ commitId: 'c1' }],
+          commitsWithNoRelations: [],
+        });
+
+        jest.spyOn(factory, 'takeNewCommits').mockImplementation((_key: string, arr: any[]) => arr);
+
+        jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
+
+        const artifactGroupsByKey = new Map<string, any>();
+        const artifactWiSets = new Map<string, Set<number>>();
+
+        await factory.compareConsecutiveReleases(
+          releasesList,
+          mockGitDataProvider,
+          mockJfrogDataProvider,
+          artifactGroupsByKey,
+          artifactWiSets
+        );
+
+        const groups = Array.from(artifactGroupsByKey.values());
+        expect(groups).toHaveLength(1);
+        expect(groups[0].changes).toHaveLength(1);
+        expect(groups[0].changes[0].commitId).toBe('c1');
+        expect(groups[0].changes[0].releaseVersion).toBe('2.0.0');
+      });
+
+      it('buildReleasesList should hydrate missing releases using pipelinesDataProvider', async () => {
+        const factory = changeDataFactory as any;
+
+        const partialRelease = { id: '20' };
+        const fullRelease = { id: '20', artifacts: [{ type: 'Git' }] };
+
+        const releasesBetween = [{ id: '10', artifacts: [{ type: 'Git' }] }, partialRelease];
+
+        mockPipelinesDataProvider.GetReleaseByReleaseId.mockResolvedValueOnce(fullRelease);
+
+        const result = await factory.buildReleasesList(releasesBetween, mockPipelinesDataProvider);
+
+        expect(result).toHaveLength(2);
+        expect(result[0]).toBe(releasesBetween[0]);
+        expect(result[1]).toEqual(fullRelease);
+        expect(mockPipelinesDataProvider.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 20);
+      });
+
+      it('buildArtifactPresence should track only allowed artifact types with valid build providers', () => {
+        const factory = changeDataFactory as any;
+
+        const releasesList = [
+          {
+            id: 1,
+            artifacts: [
+              {
+                type: 'Git',
+                alias: 'repo1',
+                definitionReference: { definition: { id: '1', name: 'repo1' } },
+              },
+              {
+                type: 'Build',
+                alias: 'build1',
+                definitionReference: {
+                  'repository.provider': { id: 'TfsGit' },
+                  definition: { id: '2', name: 'build1' },
+                },
+              },
+              {
+                type: 'Build',
+                alias: 'ignoredBuild',
+                definitionReference: {
+                  'repository.provider': { id: 'GitHub' },
+                  definition: { id: '3', name: 'ignored' },
+                },
+              },
+              {
+                type: 'Other',
+                alias: 'other',
+              },
+            ],
+          },
+          {
+            id: 2,
+            artifacts: [
+              {
+                type: 'Git',
+                alias: 'repo1',
+                definitionReference: { definition: { id: '1', name: 'repo1' } },
+              },
+            ],
+          },
+        ];
+
+        const gitKey = (factory as any).buildArtifactKey(releasesList[0].artifacts[0]);
+        const buildKey = (factory as any).buildArtifactKey(releasesList[0].artifacts[1]);
+
+        const presence = factory.buildArtifactPresence(releasesList);
+
+        expect(Array.from(presence.keys()).sort()).toEqual([buildKey, gitKey].sort());
+        expect(presence.get(gitKey)!.map((e: any) => e.idx)).toEqual([0, 1]);
+        expect(presence.get(buildKey)!.map((e: any) => e.idx)).toEqual([0]);
+      });
+
+      it('getServicesEligibleIndices should return indices with valid servicesJson variables', () => {
+        const factory = changeDataFactory as any;
+
+        const releasesList = [
+          { id: 1, variables: {} },
+          {
+            id: 2,
+            variables: {
+              servicesJson: { value: ' url ' },
+              servicesJsonVersion: { value: ' master ' },
+              servicesJsonVersionType: { value: ' branch ' },
+            },
+          },
+          {
+            id: 3,
+            variables: {
+              servicesJson: { value: '' },
+              servicesJsonVersion: { value: 'v' },
+              servicesJsonVersionType: { value: 'branch' },
+            },
+          },
+        ];
+
+        const indices = factory.getServicesEligibleIndices(releasesList);
+        expect(indices).toEqual([1]);
+      });
+
+      it('processServicesGaps should invoke handleServiceJsonFile for non-adjacent eligible releases', async () => {
+        const factory = changeDataFactory as any;
+
+        const releasesList = [{ id: 1 }, { id: 2 }, { id: 3 }];
+        const spy = jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined as any);
+
+        await factory.processServicesGaps([0, 2], releasesList, mockGitDataProvider);
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(
+          releasesList[0],
+          releasesList[2],
+          'TestProject',
+          mockGitDataProvider
+        );
+      });
+
+      it('processGap should delegate to processGitArtifactPair / processBuildArtifactPair / processArtifactoryArtifactPair', async () => {
+        const factory = changeDataFactory as any;
+
+        const gitArtifact = {
+          type: 'Git',
+          alias: 'repo1',
+          definitionReference: {
+            definition: { id: '1', name: 'repo1' },
+            version: { name: 'v1' },
+          },
+        };
+        const gitArtifactNew = {
+          type: 'Git',
+          alias: 'repo1',
+          definitionReference: {
+            definition: { id: '1', name: 'repo1' },
+            version: { name: 'v2' },
+          },
+        };
+
+        const buildArtifact = {
+          type: 'Build',
+          alias: 'build1',
+          definitionReference: {
+            'repository.provider': { id: 'TfsGit' },
+            definition: { id: '2', name: 'build1' },
+            version: { name: 'b1' },
+          },
+        };
+        const buildArtifactNew = {
+          type: 'Build',
+          alias: 'build1',
+          definitionReference: {
+            'repository.provider': { id: 'TfsGit' },
+            definition: { id: '2', name: 'build1' },
+            version: { name: 'b2' },
+          },
+        };
+
+        const artArtifact = {
+          type: 'Artifactory',
+          alias: 'art1',
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '1.0.0' },
+          },
+        };
+        const artArtifactNew = {
+          type: 'Artifactory',
+          alias: 'art1',
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '2.0.0' },
+          },
+        };
+
+        const releasesList = [
+          { id: 1, name: 'r1', artifacts: [gitArtifact, buildArtifact, artArtifact] },
+          { id: 2, name: 'r2', artifacts: [gitArtifactNew, buildArtifactNew, artArtifactNew] },
+        ];
+
+        const keyGit = (factory as any).buildArtifactKey(gitArtifactNew);
+        const keyBuild = (factory as any).buildArtifactKey(buildArtifactNew);
+        const keyArt = (factory as any).buildArtifactKey(artArtifactNew);
+
+        const artifactGroupsByKey = new Map();
+        const artifactWiSets = new Map();
+
+        const gitSpy = jest.spyOn(factory, 'processGitArtifactPair').mockResolvedValue(undefined as any);
+        const buildSpy = jest.spyOn(factory, 'processBuildArtifactPair').mockResolvedValue(undefined as any);
+        const artSpy = jest
+          .spyOn(factory, 'processArtifactoryArtifactPair')
+          .mockResolvedValue(undefined as any);
+
+        await factory.processGap(
+          0,
+          1,
+          keyGit,
+          releasesList,
+          artifactGroupsByKey,
+          artifactWiSets,
+          mockGitDataProvider,
+          mockJfrogDataProvider
+        );
+        await factory.processGap(
+          0,
+          1,
+          keyBuild,
+          releasesList,
+          artifactGroupsByKey,
+          artifactWiSets,
+          mockGitDataProvider,
+          mockJfrogDataProvider
+        );
+        await factory.processGap(
+          0,
+          1,
+          keyArt,
+          releasesList,
+          artifactGroupsByKey,
+          artifactWiSets,
+          mockGitDataProvider,
+          mockJfrogDataProvider
+        );
+
+        expect(gitSpy).toHaveBeenCalledTimes(1);
+        expect(buildSpy).toHaveBeenCalledTimes(1);
+        expect(artSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('getArtifactDisplayName should format names based on artifact type', () => {
+        const factory = changeDataFactory as any;
+
+        const gitArt = {
+          type: 'Git',
+          definitionReference: { definition: { name: 'repo1' } },
+        };
+        const buildArt = {
+          type: 'Build',
+          definitionReference: { definition: { name: 'pipe1' } },
+        };
+        const artifactoryArt = {
+          type: 'Artifactory',
+          definitionReference: { definition: { name: 'bundle1' } },
+        };
+        const otherArt = { type: 'Other', alias: 'x' };
+
+        expect(factory.getArtifactDisplayName('Git', gitArt)).toBe('Repository repo1');
+        expect(factory.getArtifactDisplayName('Build', buildArt)).toBe('Pipeline pipe1');
+        expect(factory.getArtifactDisplayName('Artifactory', artifactoryArt)).toBe('Artifactory bundle1');
+        expect(factory.getArtifactDisplayName('Other', otherArt)).toBe('x');
+      });
+
+      it('getCachedJfrogCiUrl should cache provider results by key', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          getCiDataFromJfrog: jest.fn().mockResolvedValue('https://ci.example/_build?buildId=1'),
+        };
+
+        const url1 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build1', '1.0.0');
+        const url2 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build1', '1.0.0');
+
+        expect(url1).toBe('https://ci.example/_build?buildId=1');
+        expect(url2).toBe('https://ci.example/_build?buildId=1');
+        expect(provider.getCiDataFromJfrog).toHaveBeenCalledTimes(1);
+      });
+
+      it('getCachedJfrogCiUrl should cache empty URL results as empty string', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          getCiDataFromJfrog: jest.fn().mockResolvedValue(''),
+        };
+
+        const url1 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build2', '2.0.0');
+        const url2 = await factory.getCachedJfrogCiUrl(provider, 'https://jfrog', 'build2', '2.0.0');
+
+        expect(url1).toBe('');
+        expect(url2).toBe('');
+        expect(provider.getCiDataFromJfrog).toHaveBeenCalledTimes(1);
+      });
+
+      it('fetchAndParseServicesJson should return parsed JSON when file exists', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          GetFileFromGitRepo: jest.fn().mockResolvedValue('{"services":[]}'),
+        };
+
+        const result = await factory.fetchAndParseServicesJson(
+          provider,
+          'proj',
+          'repo',
+          'services.json',
+          'master',
+          'branch',
+          'https://api',
+          'originalPath'
+        );
+
+        expect(provider.GetFileFromGitRepo).toHaveBeenCalled();
+        expect(result).toEqual({ services: [] });
+      });
+
+      it('fetchAndParseServicesJson should warn and return null when file is missing', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          GetFileFromGitRepo: jest.fn().mockResolvedValue(null),
+        };
+
+        const result = await factory.fetchAndParseServicesJson(
+          provider,
+          'proj',
+          'repo',
+          'services.json',
+          'master',
+          'branch',
+          'https://api',
+          'originalPath'
+        );
+
+        expect(result).toBeNull();
+        expect(logger.warn).toHaveBeenCalledWith('file originalPath could not be fetched');
+      });
+
+      it('getCachedBranchExists should cache branch existence lookups', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          GetBranch: jest.fn().mockResolvedValue({ value: [{}], count: 1 }),
+        };
+
+        const repoApiUrl = 'https://example.com/_apis/git/repositories/repo';
+        const branch = 'refs/heads/main';
+
+        const first = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
+        const second = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
+
+        expect(first).toBe(true);
+        expect(second).toBe(true);
+        expect(provider.GetBranch).toHaveBeenCalledTimes(1);
+      });
+
+      it('getCachedBranchExists should return false when branch is missing and cache the result', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider = {
+          GetBranch: jest.fn().mockResolvedValue({ value: [], count: 0 }),
+        };
+
+        const repoApiUrl = 'https://example.com/_apis/git/repositories/repo';
+        const branch = 'refs/heads/feature';
+
+        const first = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
+        const second = await factory.getCachedBranchExists(provider, repoApiUrl, branch);
+
+        expect(first).toBe(false);
+        expect(second).toBe(false);
+        expect(provider.GetBranch).toHaveBeenCalledTimes(1);
+      });
+
+      it('takeNewCommits should deduplicate by commit id across calls', () => {
+        const factory = changeDataFactory as any;
+
+        const key = 'Git|1|alias';
+        const commits = [{ commitId: 'c1' }, { commit: { commitId: 'c2' } }, { commitId: 'c1' }];
+
+        const first = factory.takeNewCommits(key, commits);
+        const second = factory.takeNewCommits(key, commits);
+
+        const extractIds = (arr: any[]) => arr.map((c) => (c.commitId ? c.commitId : c.commit?.commitId));
+
+        expect(extractIds(first)).toEqual(['c1', 'c2']);
+        expect(extractIds(second)).toEqual([]);
+      });
+
+      it('parseServicesJsonLocation should extract repo, file name and API URL', () => {
+        const factory = changeDataFactory as any;
+
+        const url = 'https://server/org/project/_git/services?path=folder/services.json';
+        const result = factory.parseServicesJsonLocation(url);
+
+        expect(result.servicesJsonFileGitPath).toBe(url);
+        expect(result.servicesJsonFileName).toBe('folder/services.json');
+        expect(result.servicesJsonFileGitRepoName).toBe('services');
+        expect(result.servicesJsonFileGitRepoApiUrl).toBe(
+          'https://server/org/project/_apis/git/repositories/services'
+        );
+      });
+
+      it('processGitArtifactPair should reuse cached comparison results on subsequent calls', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const fromRelArt = {
+          definitionReference: {
+            definition: { id: '1', name: 'repo1' },
+            version: { id: 'fromCommit', name: 'v1' },
+          },
+        };
+        const toRelArt = {
+          definitionReference: {
+            definition: { id: '1', name: 'repo1' },
+            version: { id: 'toCommit', name: 'v2' },
+          },
+        };
+        const artifact = {
+          type: 'Git',
+          alias: 'repo1',
+          definitionReference: {
+            definition: { id: '1', name: 'repo1' },
+            version: { id: 'toCommit', name: 'v2' },
+          },
+        };
+
+        const key = (factory as any).buildArtifactKey(artifact);
+        const artifactDisplayName = factory.getArtifactDisplayName('Git', artifact);
+
+        const artifactGroupsByKey = new Map();
+        const artifactWiSets = new Map();
+
+        // First call populates cache
+        await factory.processGitArtifactPair(
+          key,
+          'repo1',
+          artifactDisplayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockGitDataProvider,
+          artifactGroupsByKey,
+          artifactWiSets
+        );
+
+        const getRangeSpy = jest.spyOn(factory, 'getCommitRangeChanges');
+
+        // Second call should hit cached branch and not invoke getCommitRangeChanges
+        await factory.processGitArtifactPair(
+          key,
+          'repo1',
+          artifactDisplayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockGitDataProvider,
+          artifactGroupsByKey,
+          artifactWiSets
+        );
+
+        expect(getRangeSpy).not.toHaveBeenCalled();
+      });
+
+      it('processBuildArtifactPair should aggregate build changes into groups', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const fromRelArt = {
+          definitionReference: {
+            definition: { id: '2', name: 'build1' },
+            version: { id: 'b1', name: 'b1' },
+          },
+        };
+        const toRelArt = {
+          definitionReference: {
+            definition: { id: '2', name: 'build1' },
+            version: { id: 'b2', name: 'b2' },
+          },
+        };
+        const artifact = {
+          type: 'Build',
+          alias: 'build1',
+          definitionReference: fromRelArt.definitionReference,
+        };
+
+        const key = (factory as any).buildArtifactKey(artifact);
+        const displayName = factory.getArtifactDisplayName('Build', artifact);
+        const artifactGroupsByKey = new Map();
+
+        await factory.processBuildArtifactPair(
+          key,
+          'build1',
+          displayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockGitDataProvider,
+          artifactGroupsByKey
+        );
+
+        const groups = Array.from(artifactGroupsByKey.values());
+        expect(groups.length).toBe(1);
+        // We don't assert exact contents because they depend on underlying pipeline mocks,
+        // but we do verify structure is present.
+        expect(groups[0].artifact.name).toBe(displayName);
+      });
+
+      it('processBuildArtifactPair should reuse cached comparison results and annotate commits', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const fromRelArt = {
+          definitionReference: {
+            definition: { id: '2', name: 'build1' },
+            version: { id: 'b1', name: 'b1' },
+          },
+        };
+        const toRelArt = {
+          definitionReference: {
+            definition: { id: '2', name: 'build1' },
+            version: { id: 'b2', name: 'b2' },
+          },
+        };
+        const artifact = {
+          type: 'Build',
+          alias: 'build1',
+          definitionReference: fromRelArt.definitionReference,
+        };
+
+        const key = (factory as any).buildArtifactKey(artifact);
+        const displayName = factory.getArtifactDisplayName('Build', artifact);
+
+        const buildCacheKey = `${key}|Build|${defaultParams.teamProject}|${fromRelArt.definitionReference['version'].id}->${toRelArt.definitionReference['version'].id}`;
+        (factory as any).pairCompareCache.set(buildCacheKey, {
+          linked: [{ commitId: 'c1' }],
+          unlinked: [{ commitId: 'u1' }],
+        });
+
+        const artifactGroupsByKey = new Map();
+
+        await factory.processBuildArtifactPair(
+          key,
+          'build1',
+          displayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockGitDataProvider,
+          artifactGroupsByKey
+        );
+
+        const groups = Array.from(artifactGroupsByKey.values());
+        expect(groups.length).toBe(1);
+        const group = groups[0];
+        expect(group.artifact.name).toBe(displayName);
+        expect(group.changes[0].commitId).toBe('c1');
+        expect(group.changes[0].releaseVersion).toBe('2.0.0');
+        expect(group.nonLinkedCommits[0].commitId).toBe('u1');
+        expect(group.nonLinkedCommits[0].releaseRunDate).toBe(toRelease.createdOn);
+      });
+
+      it('processArtifactoryArtifactPair should aggregate JFrog changes into groups', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const fromRelArt = {
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '1.0.0' },
+          },
+        };
+        const toRelArt = {
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '2.0.0' },
+          },
+        };
+        const artifact = {
+          type: 'Artifactory',
+          alias: 'art1',
+          definitionReference: fromRelArt.definitionReference,
+        };
+
+        const key = (factory as any).buildArtifactKey(artifact);
+        const displayName = factory.getArtifactDisplayName('Artifactory', artifact);
+        const artifactGroupsByKey = new Map();
+
+        await factory.processArtifactoryArtifactPair(
+          key,
+          'art1',
+          displayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockJfrogDataProvider,
+          artifactGroupsByKey
+        );
+
+        const groups = Array.from(artifactGroupsByKey.values());
+        expect(groups.length).toBe(1);
+        expect(groups[0].artifact.name).toBe(displayName);
+      });
+
+      it('processArtifactoryArtifactPair should reuse cached comparison results and annotate commits', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const fromRelArt = {
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '1.0.0' },
+          },
+        };
+        const toRelArt = {
+          definitionReference: {
+            connection: { id: 'conn1' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: '2.0.0' },
+          },
+        };
+        const artifact = {
+          type: 'Artifactory',
+          alias: 'art1',
+          definitionReference: fromRelArt.definitionReference,
+        };
+
+        const key = (factory as any).buildArtifactKey(artifact);
+        const displayName = factory.getArtifactDisplayName('Artifactory', artifact);
+
+        // Force getCachedJfrogCiUrl to return pipeline-style URLs so the 'pipeline' uploader branch is exercised
+        const toCiUrl = 'https://server/tp/_build?buildId=200';
+        const fromCiUrl = 'https://server/tp/_build?buildId=100';
+        jest
+          .spyOn(factory, 'getCachedJfrogCiUrl')
+          .mockImplementationOnce(async () => toCiUrl)
+          .mockImplementationOnce(async () => fromCiUrl);
+
+        // Pre-populate pairCompareCache so the cached branch is used
+        const jfrogCacheKey = `${key}|JFrog|tp|100->200`;
+        (factory as any).pairCompareCache.set(jfrogCacheKey, {
+          linked: [{ commitId: 'c1' }],
+          unlinked: [{ commitId: 'u1' }],
+        });
+
+        const artifactGroupsByKey = new Map();
+
+        await factory.processArtifactoryArtifactPair(
+          key,
+          'art1',
+          displayName,
+          fromRelease,
+          toRelease,
+          fromRelArt,
+          toRelArt,
+          '2.0.0',
+          toRelease.createdOn,
+          mockJfrogDataProvider,
+          artifactGroupsByKey
+        );
+
+        const groups = Array.from(artifactGroupsByKey.values());
+        expect(groups.length).toBe(1);
+        const group = groups[0];
+        expect(group.artifact.name).toBe(displayName);
+        expect(group.changes[0].commitId).toBe('c1');
+        expect(group.changes[0].releaseVersion).toBe('2.0.0');
+        expect(group.nonLinkedCommits[0].commitId).toBe('u1');
+        expect(group.nonLinkedCommits[0].releaseRunDate).toBe(toRelease.createdOn);
+      });
+
+      it('GetPipelineChanges should log error when target build has not succeeded and requestedByBuild is false', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines = {
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
+            id: 200,
+            result: 'failed',
+            definition: { id: 1 },
+          }),
+        } as any;
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect((logger as any).error).toHaveBeenCalledWith(
+          expect.stringContaining('could not handle pipeline The selected 200 build has not been succeeded')
+        );
+      });
+
+      it('GetPipelineChanges should log error when target build is canceled and requestedByBuild is true', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = true;
+
+        const pipelines = {
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
+            id: 200,
+            result: 'canceled',
+            definition: { id: 1 },
+          }),
+        } as any;
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect((logger as any).error).toHaveBeenCalledWith(
+          expect.stringContaining('could not handle pipeline The selected 200 build has canceled')
+        );
+      });
+
+      it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // Top-level: source and target resource pipelines
+            .mockResolvedValueOnce([
+              {
+                buildId: 250,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '250',
+                name: 'ResPipe',
+                provider: 'TfsGit',
+              },
+            ])
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '300',
+                name: 'ResPipe',
+                provider: 'TfsGit',
+              },
+            ])
+            // Recursive call: no further resource pipelines
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const spy = jest.spyOn(factory, 'GetPipelineChanges');
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        // One top-level call + one recursive call
+        expect(spy).toHaveBeenCalledTimes(2);
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+      });
+
+      it('GetPipelineChanges should skip resource pipelines that are not TfsGit', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // sourcePipelineResourcePipelines (unused by this branch)
+            .mockResolvedValueOnce([])
+            // targetPipelineResourcePipelines contains a non-TfsGit provider
+            .mockResolvedValueOnce([
+              {
+                buildId: 250,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '250',
+                name: 'ResPipe',
+                provider: 'GitHub',
+              },
+            ]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect((logger as any).debug).toHaveBeenCalledWith(
+          expect.stringContaining('resource pipeline GitHub is not based on azure devops git, skipping')
+        );
+      });
+
+      it('GetPipelineChanges should skip resource pipelines when names do not match', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // targetResourcePipelines
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '300',
+                name: 'TargetRes',
+                provider: 'TfsGit',
+              },
+            ])
+            // sourcePipelineResourcePipelines
+            .mockResolvedValueOnce([
+              {
+                buildId: 250,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '250',
+                name: 'SourceRes',
+                provider: 'TfsGit',
+              },
+            ]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect((logger as any).debug).toHaveBeenCalledWith(
+          expect.stringContaining('resource pipeline TargetRes is not the same as SourceRes, skipping')
+        );
+      });
+
+      it('parseSubModules should log errors and return empty arrays when getSubmodulesData fails', async () => {
+        const factory = changeDataFactory as any;
+
+        const failingGitProvider = {
+          getSubmodulesData: jest.fn().mockRejectedValue(new Error('submodule boom')),
+        } as any;
+
+        const result = await factory.parseSubModules(
+          failingGitProvider,
+          defaultParams.teamProject,
+          'repo',
+          'toCommit',
+          'fromCommit',
+          'commit',
+          'commit',
+          [],
+          new Set<number>(),
+          '',
+          undefined
+        );
+
+        expect(result).toEqual({ commitsWithRelatedWi: [], commitsWithNoRelations: [] });
+        expect((logger as any).error).toHaveBeenCalledWith(
+          expect.stringContaining('could not handle submodules submodule boom')
+        );
+      });
+
+      it('getCommitRangeChanges should aggregate direct and submodule commits', async () => {
+        const factory = changeDataFactory as any;
+
+        const gitProvider: any = {
+          GetCommitBatch: jest.fn().mockResolvedValue([{ id: 'ext1' }]),
+          getItemsForPipelineRange: jest.fn().mockResolvedValue({
+            commitChangesArray: [{ id: 'linked-main' }],
+            commitsWithNoRelations: [{ id: 'unlinked-main' }],
+          }),
+        };
+
+        jest.spyOn(factory, 'parseSubModules').mockResolvedValue({
+          commitsWithRelatedWi: [{ id: 'linked-sub' }],
+          commitsWithNoRelations: [{ id: 'unlinked-sub' }],
+        });
+
+        const result = await factory.getCommitRangeChanges(
+          gitProvider,
+          defaultParams.teamProject,
+          'fromSha',
+          'commit',
+          'toSha',
+          'commit',
+          'repoName',
+          'https://server/org/project/_git/repo',
+          new Set<number>(),
+          'subModule',
+          '/path',
+          factory.linkedWiOptions
+        );
+
+        expect(gitProvider.GetCommitBatch).toHaveBeenCalledWith(
+          'https://server/org/project/_apis/git/repositories/repo',
+          { version: 'fromSha', versionType: 'commit' },
+          { version: 'toSha', versionType: 'commit' },
+          '/path'
+        );
+        expect(gitProvider.getItemsForPipelineRange).toHaveBeenCalled();
+        expect(result.allExtendedCommits.map((c: any) => c.id)).toEqual(['linked-main', 'linked-sub']);
+        expect(result.commitsWithNoRelations.map((c: any) => c.id)).toEqual([
+          'unlinked-main',
+          'unlinked-sub',
+        ]);
+      });
+
+      it('getCommitRangeChanges should log and rethrow when GetCommitBatch fails', async () => {
+        const factory = changeDataFactory as any;
+
+        const gitProvider: any = {
+          GetCommitBatch: jest.fn().mockRejectedValue(new Error('batch failed')),
+        };
+
+        await expect(
+          factory.getCommitRangeChanges(
+            gitProvider,
+            defaultParams.teamProject,
+            'from',
+            'commit',
+            'to',
+            'commit',
+            'repo',
+            'https://server/org/project/_git/repo',
+            new Set<number>()
+          )
+        ).rejects.toThrow('batch failed');
+
+        expect((logger as any).error).toHaveBeenCalledWith(
+          expect.stringContaining('Cannot get commits for commit range repo')
+        );
+      });
+
+      it('applyTaskParentReplacement should replace Task work items with Requirement parents and deduplicate by parent id', async () => {
+        const factory = changeDataFactory as any;
+
+        // Ensure tickets data provider has GetWorkItemByUrl
+        mockTicketsDataProvider.GetWorkItemByUrl = jest.fn().mockResolvedValue({
+          id: 201,
+          fields: { 'System.WorkItemType': 'Requirement' },
+        });
+
+        const rawGroups = [
+          {
+            artifact: { name: 'Repo' },
+            changes: [
+              // Non-task change should be preserved as-is
+              {
+                workItem: {
+                  id: 'USR1',
+                  fields: { 'System.WorkItemType': 'User Story' },
+                },
+                commit: { committer: { date: '2024-01-01T00:00:00Z' } },
+              },
+              // Two Task changes pointing to same parent; later commit should win
+              {
+                workItem: {
+                  id: 101,
+                  fields: { 'System.WorkItemType': 'Task' },
+                  relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/parent1' }],
+                },
+                commit: { committer: { date: '2024-01-01T01:00:00Z' } },
+              },
+              {
+                workItem: {
+                  id: 102,
+                  fields: { 'System.WorkItemType': 'Task' },
+                  relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/parent1' }],
+                },
+                commit: { committer: { date: '2024-01-01T02:00:00Z' } },
+              },
+            ],
+          },
+        ];
+
+        const result = await factory.applyTaskParentReplacement(rawGroups);
+
+        expect(result).toHaveLength(1);
+        const changes = result[0].changes;
+        // One original non-task + one Requirement parent entry
+        expect(changes.length).toBe(2);
+
+        const parentChange = changes.find((c: any) => c.workItem && c.workItem.id === 201);
+        expect(parentChange).toBeDefined();
+        // Should have been replaced from the Task with the later commit timestamp (id 102)
+        expect(parentChange.replacedFromTaskId).toBe(102);
+        // Ensure no remaining Task-type work items
+        expect(
+          changes.some(
+            (c: any) =>
+              c.workItem?.fields?.['System.WorkItemType'] &&
+              c.workItem.fields['System.WorkItemType'] === 'Task'
+          )
+        ).toBe(false);
+      });
+
+      it('handleServiceJsonFile should return false and log when required variables are missing', async () => {
+        const factory = changeDataFactory as any;
+
+        const fromRelease = { id: 1, variables: {} };
+        const toRelease = { id: 2, variables: {} };
+
+        const result = await factory.handleServiceJsonFile(
+          fromRelease,
+          toRelease,
+          defaultParams.teamProject,
+          mockGitDataProvider
+        );
+
+        expect(result).toBe(false);
+        expect((logger as any).warn).toHaveBeenCalledWith('missing variables in release');
+        expect((logger as any).warn).toHaveBeenCalledWith(
+          'required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value'
+        );
+      });
+
+      it('resolveServiceRange should fall back from TAG to BRANCH mode when source tag is missing and branches exist', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          GetTag: jest.fn().mockResolvedValueOnce({ value: [], count: 0 }),
+          GetBranch: jest.fn().mockResolvedValue({ value: [{}], count: 1 }),
+        };
+
+        const service = {
+          serviceName: 'Svc',
+          serviceLocation: {
+            gitRepoUrl: 'https://server/org/project/_git/repo',
+            pathInGit: 'services.json',
+          },
+        };
+
+        const fromRelease = { name: '1.0.0' };
+        const toRelease = { name: '2.0.0' };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          'ARG-',
+          fromRelease,
+          toRelease,
+          'branches/source',
+          'branches/target',
+          true,
+          'https://server/org/project/_apis/git/repositories/repo',
+          'repo',
+          true,
+          false,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toEqual({
+          fromVersion: 'branches/source',
+          toVersion: 'branches/target',
+          fromVersionType: 'Branch',
+          toVersionType: 'Branch',
+        });
+        expect(provider.GetBranch).toHaveBeenCalledTimes(2);
+      });
+
+      it('resolveServiceRange should resolve TAG mode when both tags exist', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          // Simulate two existing tags; current implementation only checks truthiness
+          GetTag: jest.fn().mockResolvedValue({ objectId: 'some-sha' }),
+        };
+
+        const service = {
+          serviceName: 'Svc',
+          serviceLocation: {
+            gitRepoUrl: 'https://server/org/project/_git/repo',
+            pathInGit: 'services.json',
+          },
+        };
+
+        const fromRelease = { name: '1.0.0' };
+        const toRelease = { name: '2.0.0' };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          'ARG-',
+          fromRelease,
+          toRelease,
+          'branches/source',
+          'branches/target',
+          true,
+          'https://server/org/project/_apis/git/repositories/repo',
+          'repo',
+          true,
+          false,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toEqual({
+          fromVersion: 'ARG-1.0.0',
+          toVersion: 'ARG-2.0.0',
+          fromVersionType: 'Tag',
+          toVersionType: 'Tag',
+        });
+        expect(provider.GetTag).toHaveBeenCalledTimes(2);
+      });
+
+      it('resolveServiceRange should use BRANCH mode and return null when from-branch does not exist', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          GetBranch: jest.fn().mockResolvedValue({ value: [], count: 0 }),
+        };
+
+        const service = {
+          serviceName: 'Svc',
+          serviceLocation: {
+            gitRepoUrl: 'https://server/org/project/_git/repo',
+            pathInGit: 'services.json',
+          },
+        };
+
+        const fromRelease = { name: '1.0.0' };
+        const toRelease = { name: '2.0.0' };
+
+        const result = await factory.resolveServiceRange(
+          provider,
+          service,
+          '',
+          fromRelease,
+          toRelease,
+          'branches/source',
+          'branches/target',
+          true,
+          'https://server/org/project/_apis/git/repositories/repo',
+          'repo',
+          false,
+          true,
+          'branches/source',
+          'branches/target'
+        );
+
+        expect(result).toBeNull();
+        expect(provider.GetBranch).toHaveBeenCalledTimes(1);
+      });
+
+      it('handleServiceJsonFile should skip service when tags and branches all fail (no fallback)', async () => {
+        const factory = changeDataFactory as any;
+
+        const servicesJsonUrl = 'https://server/org/project/_git/servicesRepo?path=folder/services.json';
+
+        const fromRelease = {
+          id: 1,
+          name: '1.0.0',
+          variables: {
+            servicesJson: { value: servicesJsonUrl },
+            servicesJsonVersion: { value: 'v-configured' },
+            servicesJsonVersionType: { value: 'Tag' },
+            servicesJsonTagPrefix: { value: 'ARG-' },
+          },
+        };
+        const toRelease = {
+          id: 2,
+          name: '2.0.0',
+          variables: fromRelease.variables,
+        };
+
+        const provider: any = {
+          // services.json is present, so we reach resolveServiceRange
+          GetFileFromGitRepo: jest.fn().mockResolvedValue(
+            JSON.stringify({
+              services: [
+                {
+                  serviceName: 'Svc',
+                  serviceLocation: {
+                    gitRepoUrl: 'https://server/org/project/_git/repo',
+                    pathInGit: 'folder/services.json',
+                  },
+                },
+              ],
+            })
+          ),
+          // Tags missing for both from/to -> real GitDataProvider.GetTag returns null when not found
+          GetTag: jest.fn().mockResolvedValue(null),
+          // Branches will not be used for fallback because no branch variables are present
+          GetBranch: jest.fn(),
+        };
+
+        const result = await factory.handleServiceJsonFile(
+          fromRelease,
+          toRelease,
+          defaultParams.teamProject,
+          provider
+        );
+
+        // Services are skipped because resolveServiceRange returns null; handler still returns true
+        expect(result).toBe(true);
+        // No service groups created
+        expect((factory as any).serviceGroupsByKey.size).toBe(0);
+        // Should log that there are no branches available for fallback
+        expect((logger as any).debug).toHaveBeenCalledWith(
+          expect.stringContaining('No branches available for fallback on Svc')
+        );
+      });
+
+      it('collectPathChangesForService should cache path existence and return commit-range results', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          CheckIfItemExist: jest.fn().mockResolvedValue(true),
+        };
+
+        jest.spyOn(factory, 'getCommitRangeChanges').mockResolvedValue({
+          allExtendedCommits: [{ id: 'c1' }],
+          commitsWithNoRelations: [{ id: 'u1' }],
+        });
+
+        const first = await factory.collectPathChangesForService(
+          provider,
+          defaultParams.teamProject,
+          'Svc',
+          'repo',
+          'https://server/org/project/_apis/git/repositories/repo',
+          '/path',
+          'fromVer',
+          'Branch',
+          'toVer',
+          'Branch'
+        );
+
+        expect(first).toEqual({
+          allExtendedCommits: [{ id: 'c1' }],
+          commitsWithNoRelations: [{ id: 'u1' }],
+        });
+        expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(2);
+
+        provider.CheckIfItemExist.mockClear();
+
+        const second = await factory.collectPathChangesForService(
+          provider,
+          defaultParams.teamProject,
+          'Svc',
+          'repo',
+          'https://server/org/project/_apis/git/repositories/repo',
+          '/path',
+          'fromVer',
+          'Branch',
+          'toVer',
+          'Branch'
+        );
+
+        expect(second).toEqual(first);
+        expect(provider.CheckIfItemExist).not.toHaveBeenCalled();
+      });
+
+      it('collectPathChangesForService should return null when source path does not exist', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          CheckIfItemExist: jest.fn().mockResolvedValue(false),
+        };
+
+        const result = await factory.collectPathChangesForService(
+          provider,
+          defaultParams.teamProject,
+          'Svc',
+          'repo',
+          'https://server/org/project/_apis/git/repositories/repo',
+          '/missing',
+          'fromVer',
+          'Branch',
+          'toVer',
+          'Branch'
+        );
+
+        expect(result).toBeNull();
+        // With the updated logic we always check both source and target; in this
+        // test both are missing so we expect two existence checks (one for each
+        // endpoint) before returning null.
+        expect(provider.CheckIfItemExist).toHaveBeenCalledTimes(2);
+      });
+
+      it('resolveBranch should prefer env branch, then release.branch, then release.Branch', () => {
+        const factory = changeDataFactory as any;
+
+        const envRel = {
+          environments: [{ variables: { branch: { value: 'env-branch' } } }],
+          variables: {
+            branch: { value: 'rel-branch' },
+            Branch: { value: 'RelBranch' },
+          },
+        };
+
+        const relLower = {
+          variables: {
+            branch: { value: 'rel-branch' },
+          },
+        };
+
+        const relUpper = {
+          variables: {
+            Branch: { value: 'RelBranch' },
+          },
+        };
+
+        expect(factory.resolveBranch(envRel)).toEqual({ v: 'env-branch', src: 'env' });
+        expect(factory.resolveBranch(relLower)).toEqual({ v: 'rel-branch', src: 'release.branch' });
+        expect(factory.resolveBranch(relUpper)).toEqual({ v: 'RelBranch', src: 'release.Branch' });
+      });
+
+      it('isChangesReachedMaxSize should throw when artifactsChangesLength exceeds 500', () => {
+        const factory = changeDataFactory as any;
+
+        expect(() => factory.isChangesReachedMaxSize('commitSha', 501)).toThrow(
+          'The number of changes is too large (501)'
+        );
+      });
     });
   });
 });

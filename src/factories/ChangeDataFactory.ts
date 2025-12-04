@@ -4,7 +4,16 @@ import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
 import PipelinesDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/PipelinesDataProvider';
 import { Artifact, GitObject } from '../models/contentControl';
-import { ArtifactChangesGroup } from '../models/changeModels';
+import {
+  ArtifactChangesGroup,
+  RepoTagInfo,
+  TagCommitMeta,
+  ServiceBucket,
+  PairCompareCacheEntry,
+  ServiceReleaseInfo,
+  ReleaseSuffixInfo,
+  ServiceGroupingEntry,
+} from '../models/changeModels';
 import ReleaseComponentDataSkinAdapter from '../adapters/ReleaseComponentsDataSkinAdapter';
 import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAdapter';
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
@@ -48,9 +57,13 @@ export default class ChangeDataFactory {
   private pathExistenceCache: Map<string, boolean> = new Map();
   private branchExistenceCache: Map<string, boolean> = new Map();
   private jfrogCiUrlCache: Map<string, string> = new Map();
-  private pairCompareCache: Map<string, { linked: any[]; unlinked: any[] }> = new Map();
+  private pairCompareCache: Map<string, PairCompareCacheEntry> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
+  private serviceReleaseByCommitId: Map<string, ServiceReleaseInfo> = new Map();
+  private releasesBySuffix: Map<string, ReleaseSuffixInfo> = new Map();
+  private releasesSeq: any[] = [];
+  private releaseIndexByName: Map<string, number> = new Map();
   private replaceTaskWithParent: boolean = false;
   //#endregion properties
 
@@ -255,6 +268,22 @@ export default class ChangeDataFactory {
       logger.error(`could not fetch svd data:
         ${error.message}`);
       throw error;
+    } finally {
+      // Clear long-lived maps/sets to avoid leaking state between SVD runs
+      try {
+        if (this.serviceGroupsByKey) {
+          this.serviceGroupsByKey.clear();
+        }
+        this.serviceReleaseByCommitId.clear();
+        this.releasesBySuffix.clear();
+        this.pathExistenceCache.clear();
+        this.branchExistenceCache.clear();
+        this.jfrogCiUrlCache.clear();
+        this.pairCompareCache.clear();
+        this.includedWorkItemByIdSet.clear();
+      } catch (cleanupErr: any) {
+        logger.debug(`fetchSvdData cleanup failed: ${cleanupErr?.message}`);
+      }
     }
   }
 
@@ -861,8 +890,42 @@ export default class ChangeDataFactory {
 
     // Prefetch releases and build presence timelines
     const releasesList: any[] = await this.buildReleasesList(releasesBetween, pipelinesDataProvider);
+
+    // Cache ordered releases list and index-by-name for per-service range resolution
+    this.releasesSeq = releasesList;
+    this.releaseIndexByName.clear();
+
+    // Cache releases by their full name (suffix after tag prefix) for later tag-to-release mapping
+    this.releasesBySuffix.clear();
+    for (let idx = 0; idx < releasesList.length; idx++) {
+      const rel = releasesList[idx];
+      const name = (rel?.name || '').trim();
+      if (!name) continue;
+      const date = rel?.createdOn || rel?.created || rel?.createdDate;
+      this.releasesBySuffix.set(name, { name, date });
+      this.releaseIndexByName.set(name, idx);
+    }
+    logger.info(
+      `SVD services: releasesList between ${fromId}->${toId}: ${releasesList
+        .map((r: any) => `${r?.id}:${r?.name}`)
+        .join(', ')}`
+    );
+
     const artifactPresence = this.buildArtifactPresence(releasesList);
     const servicesPresentIdx: number[] = this.getServicesEligibleIndices(releasesList);
+
+    // Global services.json compare: aggregate commits strictly between the selected from/to releases.
+    // Tags are used only to determine per-service effective from/to releases and to resolve
+    // release metadata (version/date) from the tagged commits.
+    try {
+      logger.info(
+        `SVD services: global services.json compare from ${fromRelease?.id}:${fromRelease?.name} to ${toRelease?.id}:${toRelease?.name}`
+      );
+      await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider, false);
+    } catch (e: any) {
+      logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
+      logger.debug(`Services.json error stack: ${e.stack}`);
+    }
 
     // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
     await this.compareConsecutiveReleases(
@@ -1140,6 +1203,7 @@ export default class ChangeDataFactory {
                     nonLinkedCommits: [],
                   });
                 }
+
                 // Clone before annotation to avoid mutating cached objects
                 const agg = artifactGroupsByKey.get(key)!;
                 const clonedLinked = mergedChanges.map((c) => ({ ...c }));
@@ -1154,9 +1218,6 @@ export default class ChangeDataFactory {
                 });
                 agg.changes.push(...this.takeNewCommits(key, clonedLinked));
                 agg.nonLinkedCommits.push(...this.takeNewCommits(key, clonedNoLink));
-                logger.info(
-                  `Aggregated add [${artifactType} ${artifactAlias}] ${fromRelease.id}->${toRelease.id} key=${key}: +linked=${clonedLinked.length}, +unlinked=${clonedNoLink.length} | totals linked=${agg.changes.length}, unlinked=${agg.nonLinkedCommits.length}`
-                );
               }
             } catch (error: any) {
               logger.error(
@@ -1165,9 +1226,6 @@ export default class ChangeDataFactory {
               logger.debug(`Error stack: ${error.stack}`);
             }
           } // end for each artifact
-
-          // Handle services.json directly for this pair
-          await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider);
         } catch (e: any) {
           logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
           logger.debug(`Pair error stack: ${e.stack}`);
@@ -1180,7 +1238,7 @@ export default class ChangeDataFactory {
   /**
    * Fetches change data for the configured range and aggregates it into `rawChangesArray`.
    *
-   * Modes
+   * Modes:
    * - 'consecutive': process only adjacent edges (O(R)).
    * - 'allPairs': optimized to O(R) by processing adjacent edges and scheduling minimal long‑hop
    *   comparisons for presence gaps where an artifact exists at two releases but not in between.
@@ -1735,12 +1793,24 @@ export default class ChangeDataFactory {
   }
 
   /**
-   * Handle Services JSON comparison for a release pair. Determines mode (tag/branch),
-   * fetches and parses the services.json, evaluates per-path existence, collects path deltas,
-   * annotates with release metadata, and aggregates into `serviceGroupsByKey` for one table per service.
+   * Handle services.json comparison for a release pair.
+   *
+   * This method:
+   *  - Resolves the services.json artifact location and fetch strategy (tag/branch).
+   *  - Iterates all declared services, resolving an effective release range per service.
+   *  - Collects commits for each service path using getCommitRangeChanges.
+   *  - Deduplicates commits per service and across services for the same repo+commitId.
+   *  - Applies reverse-order tag-based release grouping to annotate commits with
+   *    `releaseVersion` and `releaseRunDate`.
+   *  - Aggregates results into `serviceGroupsByKey`.
    */
-  private async handleServiceJsonFile(fromRelease, toRelease, projectId, provider): Promise<boolean> {
-    logger.debug('---------------Handling service json file-----------------');
+  private async handleServiceJsonFile(
+    fromRelease,
+    toRelease,
+    projectId,
+    provider,
+    attributionOnly: boolean = false
+  ): Promise<boolean> {
     const vars = toRelease?.variables;
     const servicesJsonVar = vars?.servicesJson?.value?.trim();
     const servicesJsonVersion = vars?.servicesJsonVersion?.value?.trim();
@@ -1750,9 +1820,6 @@ export default class ChangeDataFactory {
     const tb = this.resolveBranch(toRelease);
     const fromBranchVal = fb.v;
     const toBranchVal = tb.v;
-    logger.debug(
-      `services.json: branch sources resolved: from=${fb.src} ('${fromBranchVal}'), to=${tb.src} ('${toBranchVal}')`
-    );
 
     if (!servicesJsonVar || !servicesJsonVersion || !servicesJsonVersionType) {
       logger.warn(`missing variables in release`);
@@ -1789,12 +1856,6 @@ export default class ChangeDataFactory {
     */
 
     const modeChosen = useTagMode ? 'Tag' : 'Branch';
-    logger.debug(
-      `services.json: repo=${servicesJsonFileGitRepoName}, path=${servicesJsonFileName}, version=${servicesJsonVersion}, versionType=${servicesJsonVersionType}, mode=${modeChosen}`
-    );
-    logger.debug(
-      `services.json: tagPrefix='${tagPrefix}', fromBranch='${fromBranchVal}', toBranch='${toBranchVal}', useTagMode=${useTagMode}, useBranchMode=${useBranchMode}, hasBranches=${hasBranches}`
-    );
 
     // fetch the services.json file with fallbacks if the configured version/type is invalid
     // primary attempt uses the configured servicesJsonVersion/servicesJsonVersionType from the target release
@@ -1820,9 +1881,6 @@ export default class ChangeDataFactory {
 
     let serviceJsonFile: any = null;
     for (const cand of candidates) {
-      logger.debug(
-        `Attempting to fetch services.json via ${cand.why}: ${cand.versionType} '${cand.version}'`
-      );
       serviceJsonFile = await this.fetchAndParseServicesJson(
         provider,
         projectId,
@@ -1833,110 +1891,449 @@ export default class ChangeDataFactory {
         servicesJsonFileGitRepoApiUrl,
         servicesJsonFileGitPath
       );
-      if (serviceJsonFile) {
-        logger.debug(`services.json fetched successfully using ${cand.versionType} '${cand.version}'`);
-        break;
-      }
+      if (serviceJsonFile) break;
     }
     if (!serviceJsonFile) return false;
 
+    const repoTagsCache = new Map<string, RepoTagInfo[]>();
     const services = serviceJsonFile.services;
-    logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
+    const seenCommitsAcrossServices = new Set<string>();
+
     for (const service of services) {
-      logger.debug('---------------Iterating service-----------------');
-      logger.debug(`Processing service: ${service.serviceName}`);
-      let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
-      repoName = repoName?.replace(/%20/g, ' ');
-      let serviceGitRepoApiUrl = service.serviceLocation.gitRepoUrl.replace(
-        '/_git/',
-        '/_apis/git/repositories/'
-      );
-      logger.debug(
-        `Processing service: ${service.serviceName} | Repo: ${repoName} | API URL: ${serviceGitRepoApiUrl}`
-      );
-      const range = await this.resolveServiceRange(
-        provider,
-        service,
-        tagPrefix,
-        fromRelease,
-        toRelease,
-        fromBranch,
-        toBranch,
-        hasBranches,
-        serviceGitRepoApiUrl,
-        repoName,
-        useTagMode,
-        useBranchMode,
-        fromBranchVal,
-        toBranchVal
-      );
-      if (!range) {
-        continue;
-      }
-
-      const { fromVersion, toVersion, fromVersionType, toVersionType } = range;
-
-      let itemPaths = service.serviceLocation.pathInGit
-        .split(',')
-        .map((p: string) => p.trim())
-        .filter((p: string) => p.length > 0);
-      logger.debug(`Service ${service.serviceName}: evaluating paths: ${itemPaths.join(',')}`);
-      const artifactKey = `Service|${repoName}|${service.serviceName}`;
-      const aggLinked: any[] = [];
-      const aggUnlinked: any[] = [];
-      for (const itemPath of itemPaths) {
-        const pathResult = await this.collectPathChangesForService(
-          provider,
-          projectId,
-          service.serviceName,
-          repoName,
-          serviceGitRepoApiUrl,
-          itemPath,
-          fromVersion,
-          fromVersionType,
-          toVersion,
-          toVersionType
-        );
-        if (!pathResult) continue;
-        aggLinked.push(...pathResult.allExtendedCommits);
-        aggUnlinked.push(...pathResult.commitsWithNoRelations);
-      }
-      // Deduplicate per service across all its paths, keeping latest-pair commits
-      const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
-      const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
-      // annotate with release metadata for UI columns
-      const relVersion = toRelease?.name;
-      const relRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
-      uniqueLinked.forEach((c: any) => {
-        c.releaseVersion = relVersion;
-        c.releaseRunDate = relRunDate;
-      });
-      uniqueUnlinked.forEach((c: any) => {
-        c.releaseVersion = relVersion;
-        c.releaseRunDate = relRunDate;
-      });
+      const serviceName = service?.serviceName || '<unknown>';
+      logger.info('================================================================');
       logger.info(
-        `Service ${service.serviceName}: Aggregated ${uniqueLinked?.length || 0} linked and ${
-          uniqueUnlinked?.length || 0
-        } unlinked commits across ${itemPaths.length} path(s)`
+        `services.json: BEGIN service='${serviceName}' (mode=${modeChosen}) for releases ${fromRelease?.name} -> ${toRelease?.name}`
       );
-      let grp = this.serviceGroupsByKey.get(artifactKey);
-      if (!grp) {
-        grp = {
-          artifact: { name: `Service ${service.serviceName}` },
-          changes: [],
-          nonLinkedCommits: [],
-        } as any;
-        this.serviceGroupsByKey.set(artifactKey, grp);
+
+      try {
+        let repoName = service.serviceLocation.gitRepoUrl.split('/').pop();
+        repoName = repoName?.replace(/%20/g, ' ');
+        let serviceGitRepoApiUrl = service.serviceLocation.gitRepoUrl.replace(
+          '/_git/',
+          '/_apis/git/repositories/'
+        );
+
+        // For aggregation (attributionOnly=false) in TAG mode, choose an effective per-service
+        // from/to release based on which tagged releases actually exist in this repo within
+        // the selected global range.
+        let effectiveFromRelease = fromRelease;
+        let effectiveToRelease = toRelease;
+
+        if (!attributionOnly && useTagMode && this.releasesSeq && this.releasesSeq.length > 0) {
+          const globalFromIdx = this.releasesSeq.findIndex((r: any) => r?.id === fromRelease?.id);
+          const globalToIdx = this.releasesSeq.findIndex((r: any) => r?.id === toRelease?.id);
+
+          if (globalFromIdx >= 0 && globalToIdx >= globalFromIdx) {
+            try {
+              if (!repoTagsCache.has(repoName)) {
+                const tagList: any = await provider.GetRepoTagsWithCommits(serviceGitRepoApiUrl);
+                const arr: Array<{ name: string; commitId: string; date?: string }> = Array.isArray(tagList)
+                  ? tagList
+                  : [];
+                repoTagsCache.set(repoName, arr);
+              }
+              const rawTags = repoTagsCache.get(repoName) || [];
+              const suffixes = new Set<string>();
+              rawTags.forEach((t: any) => {
+                if (!t?.name) return;
+                const full = String(t.name);
+                if (tagPrefix && !full.startsWith(tagPrefix)) return;
+                const raw = full.substring(tagPrefix.length).trim();
+                if (raw) suffixes.add(raw);
+              });
+
+              let minIdx = Number.POSITIVE_INFINITY;
+              let maxIdx = -1;
+              suffixes.forEach((suffix) => {
+                const idx = this.releaseIndexByName.has(suffix) ? this.releaseIndexByName.get(suffix)! : -1;
+                if (idx < 0) return;
+                if (idx < globalFromIdx || idx > globalToIdx) return;
+                if (idx < minIdx) minIdx = idx;
+                if (idx > maxIdx) maxIdx = idx;
+              });
+
+              if (minIdx !== Number.POSITIVE_INFINITY && maxIdx >= 0) {
+                effectiveFromRelease = this.releasesSeq[minIdx];
+                effectiveToRelease = this.releasesSeq[maxIdx];
+              } else {
+                // leave effectiveFromRelease/effectiveToRelease as the original global range and
+                // allow resolveServiceRange to apply its existing tag/branch fallback logic
+              }
+            } catch (e: any) {
+              logger.debug(
+                `services.json: failed to resolve effective release range for service ${serviceName}, repo ${repoName}: ${e.message}`
+              );
+            }
+          }
+        }
+
+        const range = await this.resolveServiceRange(
+          provider,
+          service,
+          tagPrefix,
+          effectiveFromRelease,
+          effectiveToRelease,
+          fromBranch,
+          toBranch,
+          hasBranches,
+          serviceGitRepoApiUrl,
+          repoName,
+          useTagMode,
+          useBranchMode,
+          fromBranchVal,
+          toBranchVal
+        );
+
+        if (!range) {
+          logger.info(
+            `services.json: service='${serviceName}' SKIPPED (no comparable version range could be resolved)`
+          );
+          continue;
+        }
+
+        const { fromVersion, toVersion, fromVersionType, toVersionType } = range;
+
+        let itemPaths = service.serviceLocation.pathInGit
+          .split(',')
+          .map((p: string) => p.trim())
+          .filter((p: string) => p.length > 0);
+        const artifactKey = `Service|${repoName}|${service.serviceName}`;
+        const aggLinked: any[] = [];
+        const aggUnlinked: any[] = [];
+        for (const itemPath of itemPaths) {
+          const pathResult = await this.collectPathChangesForService(
+            provider,
+            projectId,
+            service.serviceName,
+            repoName,
+            serviceGitRepoApiUrl,
+            itemPath,
+            fromVersion,
+            fromVersionType,
+            toVersion,
+            toVersionType
+          );
+          if (!pathResult) continue;
+          aggLinked.push(...pathResult.allExtendedCommits);
+          aggUnlinked.push(...pathResult.commitsWithNoRelations);
+        }
+
+        // Build a per-service tag lookup (commitId -> tag info) for tag-based attribution
+        const tagsByCommitId = await this.buildServiceTagMap(
+          provider,
+          serviceGitRepoApiUrl,
+          repoName,
+          tagPrefix,
+          repoTagsCache
+        );
+
+        // Deduplicate per service across all its paths, keeping latest-pair commits
+        const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
+        const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
+
+        // Further dedupe across services for the same repo+commitId to avoid
+        // showing the same commit under multiple services (e.g. shared files like README.md).
+        const crossLinked = this.filterServiceCommitsAcrossServices(
+          uniqueLinked,
+          repoName,
+          seenCommitsAcrossServices
+        );
+        const crossUnlinked = this.filterServiceCommitsAcrossServices(
+          uniqueUnlinked,
+          repoName,
+          seenCommitsAcrossServices
+        );
+
+        // Annotate with release metadata using per-service reverse tag grouping.
+        this.applyServiceReleaseGrouping(
+          crossLinked,
+          crossUnlinked,
+          tagPrefix,
+          fromRelease,
+          toRelease,
+          effectiveFromRelease,
+          effectiveToRelease,
+          tagsByCommitId
+        );
+
+        let grp = this.serviceGroupsByKey.get(artifactKey);
+        if (!grp) {
+          grp = {
+            artifact: { name: `Service ${service.serviceName}` },
+            changes: [],
+            nonLinkedCommits: [],
+          } as any;
+          this.serviceGroupsByKey.set(artifactKey, grp);
+        }
+        grp.changes.push(...crossLinked);
+        grp.nonLinkedCommits.push(...crossUnlinked);
+
+        const linkedCount = crossLinked.length;
+        const unlinkedCount = crossUnlinked.length;
+        const versionsSet = new Set<string>();
+        for (const c of [...crossLinked, ...crossUnlinked]) {
+          const v = (c as any).releaseVersion;
+          if (v) {
+            versionsSet.add(String(v));
+          }
+        }
+        const versionsList = Array.from(versionsSet);
+
+        logger.info(
+          `services.json: service='${serviceName}' PASSED; repo='${repoName}', linkedCommits=${linkedCount}, unlinkedCommits=${unlinkedCount}, releaseVersions=[${versionsList.join(
+            ', '
+          )}]`
+        );
+      } catch (e: any) {
+        logger.error(
+          `services.json: service='${serviceName}' FAILED during processing: ${e?.message || e}`,
+          e
+        );
+        throw e;
+      } finally {
+        logger.info(`services.json: END service='${serviceName}'`);
+        logger.info('================================================================');
       }
-      grp.changes.push(...uniqueLinked);
-      grp.nonLinkedCommits.push(...uniqueUnlinked);
     }
 
     // Clear caches to avoid stale data in subsequent runs
     this.pathExistenceCache.clear();
 
     return true;
+  }
+
+  /**
+   * Filters a list of service commits so that a given repository+commitId pair
+   * is only attributed to the first service that encounters it in the current
+   * services.json processing pass.
+   *
+   * Commits that do not expose a stable commit identifier are passed through
+   * unchanged.
+   *
+   * @param commits             Deduplicated commits for a single service.
+   * @param repoName            Git repository name used as part of the global key.
+   * @param seenRepoCommitIds   Global set of `${repoName}|${commitId}` combinations.
+   * @returns                   A filtered array containing only commits unique to this service.
+   */
+  private filterServiceCommitsAcrossServices(
+    commits: any[],
+    repoName: string,
+    seenRepoCommitIds: Set<string>
+  ): any[] {
+    if (!Array.isArray(commits) || commits.length === 0) {
+      return [];
+    }
+
+    const result: any[] = [];
+    for (const c of commits) {
+      const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+      if (!id) {
+        result.push(c);
+        continue;
+      }
+      const key = `${repoName}|${id}`;
+      if (seenRepoCommitIds.has(key)) {
+        continue;
+      }
+      seenRepoCommitIds.add(key);
+      result.push(c);
+    }
+
+    return result;
+  }
+
+  /**
+   * Builds a per-repository map from commitId to tag metadata for services.json
+   * processing. Tags are fetched once per repository and cached in
+   * repoTagsCache. Only tags whose names start with the configured prefix are
+   * included in the resulting map.
+   *
+   * @param gitProvider    Git data provider used to query repository tags.
+   * @param repoApiUrl     Repository API URL (/_apis/git/repositories/<name>).
+   * @param repoName       Logical repository name used as cache key.
+   * @param tagPrefix      Tag name prefix configured for services.json (may be empty).
+   * @param repoTagsCache  Shared cache of raw tag lists per repository.
+   * @returns              A map from commitId to `{ name, date }` for matching tags, or undefined on error.
+   */
+  private async buildServiceTagMap(
+    gitProvider: any,
+    repoApiUrl: string,
+    repoName: string,
+    tagPrefix: string,
+    repoTagsCache: Map<string, RepoTagInfo[]>
+  ): Promise<Map<string, TagCommitMeta> | undefined> {
+    try {
+      if (!repoTagsCache.has(repoName)) {
+        const tagList: any = await gitProvider.GetRepoTagsWithCommits(repoApiUrl);
+        const arr: RepoTagInfo[] = Array.isArray(tagList) ? tagList : [];
+        repoTagsCache.set(repoName, arr);
+      }
+      const rawTags = repoTagsCache.get(repoName) || [];
+      const tagMap = new Map<string, TagCommitMeta>();
+      rawTags.forEach((t: any) => {
+        if (!t?.name || !t?.commitId) {
+          return;
+        }
+        if (tagPrefix && !String(t.name).startsWith(tagPrefix)) {
+          return;
+        }
+        tagMap.set(String(t.commitId), { name: String(t.name), date: t.date });
+      });
+      return tagMap;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Applies the reverse-order tag-based release grouping algorithm to the
+   * linked and unlinked commit lists of a single service. Commits are sorted
+   * newest-first and then assigned to release buckets derived from tag
+   * suffixes, constrained by the effective release window. The method mutates
+   * the provided commit objects in-place by setting `releaseVersion` and
+   * `releaseRunDate`.
+   *
+   * @param linkedCommits        Linked commits (with work items) for the service.
+   * @param unlinkedCommits      Unlinked commits for the service.
+   * @param tagPrefix            Tag prefix used for services.json (may be empty).
+   * @param fromRelease          Global from release of the comparison window.
+   * @param toRelease            Global to release of the comparison window.
+   * @param effectiveFromRelease Per-service effective from release (may equal fromRelease).
+   * @param effectiveToRelease   Per-service effective to release (may equal toRelease).
+   * @param tagMap               Optional map from commitId to tag metadata filtered by prefix.
+   */
+  private applyServiceReleaseGrouping(
+    linkedCommits: any[],
+    unlinkedCommits: any[],
+    tagPrefix: string,
+    fromRelease: any,
+    toRelease: any,
+    effectiveFromRelease: any,
+    effectiveToRelease: any,
+    tagMap?: Map<string, TagCommitMeta>
+  ): void {
+    const releaseVersionDefault = effectiveToRelease?.name ?? toRelease?.name;
+    const releaseRunDateDefault =
+      effectiveToRelease?.createdOn ||
+      effectiveToRelease?.created ||
+      effectiveToRelease?.createdDate ||
+      toRelease?.createdOn ||
+      toRelease?.created ||
+      toRelease?.createdDate;
+
+    const fromReleaseName = effectiveFromRelease?.name ?? fromRelease?.name;
+    const toReleaseName = effectiveToRelease?.name ?? toRelease?.name;
+    const fromIdx = fromReleaseName ? this.releaseIndexByName.get(fromReleaseName) : undefined;
+    const toIdx = toReleaseName ? this.releaseIndexByName.get(toReleaseName) : undefined;
+
+    const bucketsByRelease = new Map<string, ServiceBucket>();
+
+    const allForGrouping: ServiceGroupingEntry[] = [
+      ...linkedCommits.map((c) => ({ kind: 'linked' as const, item: c })),
+      ...unlinkedCommits.map((c) => ({ kind: 'unlinked' as const, item: c })),
+    ];
+
+    allForGrouping.sort((a, b) => {
+      const da =
+        a.kind === 'linked'
+          ? new Date(a.item?.commit?.committer?.date || a.item?.commitDate || 0).getTime()
+          : new Date(a.item?.commitDate || a.item?.commit?.committer?.date || 0).getTime();
+      const db =
+        b.kind === 'linked'
+          ? new Date(b.item?.commit?.committer?.date || b.item?.commitDate || 0).getTime()
+          : new Date(b.item?.commitDate || b.item?.commit?.committer?.date || 0).getTime();
+      return db - da; // newest first
+    });
+
+    let currentBucketName: string | undefined;
+    let currentBucketIdx: number | undefined;
+
+    const isIdxInWindow = (idx: number | undefined): boolean => {
+      if (typeof idx !== 'number') return false;
+      if (typeof fromIdx === 'number' && idx < fromIdx) return false;
+      if (typeof toIdx === 'number' && idx > toIdx) return false;
+      return true;
+    };
+
+    for (const entry of allForGrouping) {
+      const obj = entry.item;
+      const commitId: string | undefined = obj?.commit?.commitId || obj?.commitId || obj?.id;
+      if (!commitId) continue;
+
+      let tagReleaseName: string | undefined;
+      let tagReleaseIdx: number | undefined;
+      let tagReleaseDate: any;
+
+      if (tagMap && tagMap.has(commitId)) {
+        const tagInfo = tagMap.get(commitId)!;
+        const raw = String(tagInfo.name).substring(tagPrefix.length).trim();
+        const relMeta = this.releasesBySuffix.get(raw);
+        if (relMeta) {
+          tagReleaseName = relMeta.name;
+          tagReleaseDate = relMeta.date ?? tagInfo.date;
+        } else {
+          tagReleaseName = raw;
+          tagReleaseDate = tagInfo.date;
+        }
+        if (tagReleaseName && this.releaseIndexByName.has(tagReleaseName)) {
+          tagReleaseIdx = this.releaseIndexByName.get(tagReleaseName)!;
+        }
+      }
+
+      if (tagReleaseName && isIdxInWindow(tagReleaseIdx)) {
+        if (
+          typeof currentBucketIdx !== 'number' ||
+          (typeof tagReleaseIdx === 'number' && tagReleaseIdx <= currentBucketIdx)
+        ) {
+          currentBucketName = tagReleaseName;
+          currentBucketIdx = tagReleaseIdx;
+          if (!bucketsByRelease.has(currentBucketName)) {
+            bucketsByRelease.set(currentBucketName, {
+              commitIds: new Set<string>(),
+              runDate: tagReleaseDate,
+            });
+          } else {
+            const bucket = bucketsByRelease.get(currentBucketName)!;
+            if (!bucket.runDate && tagReleaseDate) {
+              bucket.runDate = tagReleaseDate;
+            }
+          }
+        }
+      }
+
+      if (!currentBucketName) {
+        continue;
+      }
+      const bucket = bucketsByRelease.get(currentBucketName);
+      if (!bucket) continue;
+      bucket.commitIds.add(commitId);
+    }
+
+    const assignFromBuckets = (list: any[]) => {
+      for (const c of list) {
+        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+        if (!id) {
+          c.releaseVersion = releaseVersionDefault;
+          c.releaseRunDate = releaseRunDateDefault;
+          continue;
+        }
+        let chosenVersion: string | undefined;
+        let chosenDate: any;
+        for (const [relName, bucket] of bucketsByRelease.entries()) {
+          if (bucket.commitIds.has(id)) {
+            chosenVersion = relName;
+            chosenDate = bucket.runDate;
+            break;
+          }
+        }
+        c.releaseVersion = chosenVersion || releaseVersionDefault;
+        c.releaseRunDate = chosenDate || releaseRunDateDefault;
+      }
+    };
+
+    assignFromBuckets(linkedCommits);
+    assignFromBuckets(unlinkedCommits);
   }
 
   /**
@@ -2037,25 +2434,6 @@ export default class ChangeDataFactory {
             return null;
           }
         } else {
-          // TAG mode: compare commit IDs to determine if we should proceed
-          const fromId = fromTagData.peeledObjectId || fromTagData.objectId;
-          const toId = toTagData.peeledObjectId || toTagData.objectId;
-          if (fromId === toId) {
-            logger.warn(
-              `Service ${service.serviceName}: from and to tag resolve to the same object ID: ${fromId}`
-            );
-            return null;
-          }
-
-          // Check if the target commit is a descendant of the source commit
-          const isCommitDescendant = await provider.isCommitDescendant(serviceGitRepoApiUrl, toId, fromId);
-          if (!isCommitDescendant) {
-            logger.warn(
-              `Service ${service.serviceName}: Target tag ${toTag} is older than or not descendant of source tag ${fromTag} in repository ${repoName}; skipping`
-            );
-            return null;
-          }
-
           fromVersion = fromTag;
           toVersion = toTag;
           fromVersionType = 'Tag';
@@ -2110,39 +2488,54 @@ export default class ChangeDataFactory {
   ) {
     logger.debug(`Checking path '${itemPath}' exists in source ${fromVersionType} '${fromVersion}'`);
     const srcKey = `${serviceGitRepoApiUrl}|${itemPath}|${fromVersionType}|${fromVersion}`;
-    let itemExistingInVersion: boolean;
+    let srcExists: boolean;
     if (this.pathExistenceCache.has(srcKey)) {
-      itemExistingInVersion = this.pathExistenceCache.get(srcKey)!;
+      srcExists = this.pathExistenceCache.get(srcKey)!;
     } else {
-      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      srcExists = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
         version: fromVersion,
         versionType: fromVersionType,
       });
-      this.pathExistenceCache.set(srcKey, !!itemExistingInVersion);
+      this.pathExistenceCache.set(srcKey, !!srcExists);
     }
-    if (!itemExistingInVersion) {
-      logger.warn(
-        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}'`
-      );
-      return null;
-    }
+
     logger.debug(`Checking path '${itemPath}' exists in target ${toVersionType} '${toVersion}'`);
     const dstKey = `${serviceGitRepoApiUrl}|${itemPath}|${toVersionType}|${toVersion}`;
+    let dstExists: boolean;
     if (this.pathExistenceCache.has(dstKey)) {
-      itemExistingInVersion = this.pathExistenceCache.get(dstKey)!;
+      dstExists = this.pathExistenceCache.get(dstKey)!;
     } else {
-      itemExistingInVersion = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
+      dstExists = await provider.CheckIfItemExist(serviceGitRepoApiUrl, itemPath, {
         version: toVersion,
         versionType: toVersionType,
       });
-      this.pathExistenceCache.set(dstKey, !!itemExistingInVersion);
+      this.pathExistenceCache.set(dstKey, !!dstExists);
     }
-    if (!itemExistingInVersion) {
+
+    if (!srcExists && !dstExists) {
       logger.warn(
-        `Service ${serviceName}: Path '${itemPath}' does not exist in target ${toVersionType.toLowerCase()} '${toVersion}'`
+        `Service ${serviceName}: Path '${itemPath}' does not exist in either source ${fromVersionType.toLowerCase()} '${fromVersion}' or target ${toVersionType.toLowerCase()} '${toVersion}'; skipping path`
       );
       return null;
     }
+
+    // Decide how to query commits. When the path exists in the source, we can safely
+    // use itemPath in the commitsbatch request. When it only exists in the target,
+    // Azure DevOps will return 404 if we specify itemPath against a source version
+    // that never contained it. In that case, fall back to a repo-level diff and rely
+    // on the service-level scoping (pathInGit) to keep things reasonably tight.
+    let effectiveItemPath = itemPath;
+    if (!srcExists && dstExists) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' does not exist in source ${fromVersionType.toLowerCase()} '${fromVersion}' but exists in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as newly added path in range and falling back to repo-level diff (no itemPath) to avoid 404`
+      );
+      effectiveItemPath = '';
+    } else if (srcExists && !dstExists) {
+      logger.warn(
+        `Service ${serviceName}: Path '${itemPath}' exists in source ${fromVersionType.toLowerCase()} '${fromVersion}' but not in target ${toVersionType.toLowerCase()} '${toVersion}'; treating as deleted path in range`
+      );
+    }
+
     logger.info(
       `Service ${serviceName}: Getting commit changes for path '${itemPath}' from ${fromVersionType.toLowerCase()} '${fromVersion}' to ${toVersionType.toLowerCase()} '${toVersion}'`
     );
@@ -2157,7 +2550,7 @@ export default class ChangeDataFactory {
       serviceGitRepoApiUrl,
       new Set<number>(),
       undefined,
-      itemPath,
+      effectiveItemPath,
       this.linkedWiOptions
     );
     this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
