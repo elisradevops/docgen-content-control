@@ -1896,9 +1896,41 @@ export default class ChangeDataFactory {
     if (!serviceJsonFile) return false;
 
     const repoTagsCache = new Map<string, Array<{ name: string; commitId: string; date?: string }>>();
-
     const services = serviceJsonFile.services;
     logger.debug(`Found ${services.length} services in ${servicesJsonFileName}`);
+    const seenCommitsAcrossServices = new Set<string>();
+
+    const filterCrossServiceDuplicates = (
+      list: any[],
+      repoNameForKey: string,
+      serviceNameForLog: string,
+      listLabel: string
+    ): any[] => {
+      if (!Array.isArray(list) || list.length === 0) return [];
+      const out: any[] = [];
+      let skipped = 0;
+      for (const c of list) {
+        const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+        if (!id) {
+          out.push(c);
+          continue;
+        }
+        const key = `${repoNameForKey}|${id}`;
+        if (seenCommitsAcrossServices.has(key)) {
+          skipped++;
+          continue;
+        }
+        seenCommitsAcrossServices.add(key);
+        out.push(c);
+      }
+      if (skipped > 0) {
+        logger.info(
+          `Service ${serviceNameForLog}: cross-service dedupe (${listLabel}) skipped ${skipped} commits already attributed to previous services (repo=${repoNameForKey})`
+        );
+      }
+      return out;
+    };
+
     for (const service of services) {
       logger.debug('---------------Iterating service-----------------');
       logger.debug(`Processing service: ${service.serviceName}`);
@@ -2050,6 +2082,19 @@ export default class ChangeDataFactory {
         `Service ${service.serviceName}: uniqueLinked=${uniqueLinked.length}, uniqueUnlinked=${uniqueUnlinked.length}`
       );
 
+      // Further dedupe across services for the same repo+commitId to avoid
+      // showing the same commit under multiple services (e.g. shared files like README.md).
+      const crossLinked = filterCrossServiceDuplicates(uniqueLinked, repoName, service.serviceName, 'linked');
+      const crossUnlinked = filterCrossServiceDuplicates(
+        uniqueUnlinked,
+        repoName,
+        service.serviceName,
+        'unlinked'
+      );
+      logger.info(
+        `Service ${service.serviceName}: after cross-service dedupe linked=${crossLinked.length}, unlinked=${crossUnlinked.length}`
+      );
+
       // Annotate with release metadata using per-service reverse tag grouping.
       const relVersionDefault = effectiveToRelease?.name ?? toRelease?.name;
       const relRunDateDefault =
@@ -2074,25 +2119,13 @@ export default class ChangeDataFactory {
       const bucketsByRelease = new Map<string, ServiceBucket>();
 
       const allForGrouping: Array<{ kind: 'linked' | 'unlinked'; item: any }> = [
-        ...uniqueLinked.map((c) => ({ kind: 'linked' as const, item: c })),
-        ...uniqueUnlinked.map((c) => ({ kind: 'unlinked' as const, item: c })),
+        ...crossLinked.map((c) => ({ kind: 'linked' as const, item: c })),
+        ...crossUnlinked.map((c) => ({ kind: 'unlinked' as const, item: c })),
       ];
 
       logger.debug(
         `Service ${service.serviceName}: starting reverse grouping walk over ${allForGrouping.length} commits (linked+unlinked)`
       );
-
-      allForGrouping.sort((a, b) => {
-        const da =
-          a.kind === 'linked'
-            ? new Date(a.item?.commit?.committer?.date || a.item?.commitDate || 0).getTime()
-            : new Date(a.item?.commitDate || a.item?.commit?.committer?.date || 0).getTime();
-        const db =
-          b.kind === 'linked'
-            ? new Date(b.item?.commit?.committer?.date || b.item?.commitDate || 0).getTime()
-            : new Date(b.item?.commitDate || b.item?.commit?.committer?.date || 0).getTime();
-        return db - da; // newest first
-      });
 
       let currentBucketName: string | undefined;
       let currentBucketIdx: number | undefined;
@@ -2248,8 +2281,8 @@ export default class ChangeDataFactory {
         );
       };
 
-      assignFromBuckets(uniqueLinked, 'linked');
-      assignFromBuckets(uniqueUnlinked, 'unlinked');
+      assignFromBuckets(crossLinked, 'linked');
+      assignFromBuckets(crossUnlinked, 'unlinked');
       let grp = this.serviceGroupsByKey.get(artifactKey);
       if (!grp) {
         grp = {
@@ -2259,8 +2292,8 @@ export default class ChangeDataFactory {
         } as any;
         this.serviceGroupsByKey.set(artifactKey, grp);
       }
-      grp.changes.push(...uniqueLinked);
-      grp.nonLinkedCommits.push(...uniqueUnlinked);
+      grp.changes.push(...crossLinked);
+      grp.nonLinkedCommits.push(...crossUnlinked);
     }
 
     // Clear caches to avoid stale data in subsequent runs
