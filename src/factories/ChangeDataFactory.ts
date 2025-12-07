@@ -2028,21 +2028,36 @@ export default class ChangeDataFactory {
           repoTagsCache
         );
 
+        // Log raw counts before deduplication
+        logger.info(
+          `services.json: service='${serviceName}' RAW counts before dedup: aggLinked=${aggLinked.length}, aggUnlinked=${aggUnlinked.length}`
+        );
+
         // Deduplicate per service across all its paths, keeping latest-pair commits
         const uniqueLinked = this.takeNewCommits(artifactKey, aggLinked);
         const uniqueUnlinked = this.takeNewCommits(artifactKey, aggUnlinked);
+
+        logger.info(
+          `services.json: service='${serviceName}' after takeNewCommits: uniqueLinked=${uniqueLinked.length}, uniqueUnlinked=${uniqueUnlinked.length}`
+        );
 
         // Further dedupe across services for the same repo+commitId to avoid
         // showing the same commit under multiple services (e.g. shared files like README.md).
         const crossLinked = this.filterServiceCommitsAcrossServices(
           uniqueLinked,
           repoName,
-          seenCommitsAcrossServices
+          seenCommitsAcrossServices,
+          serviceName
         );
         const crossUnlinked = this.filterServiceCommitsAcrossServices(
           uniqueUnlinked,
           repoName,
-          seenCommitsAcrossServices
+          seenCommitsAcrossServices,
+          serviceName
+        );
+
+        logger.info(
+          `services.json: service='${serviceName}' after filterServiceCommitsAcrossServices: crossLinked=${crossLinked.length}, crossUnlinked=${crossUnlinked.length}`
         );
 
         // Annotate with release metadata using per-service reverse tag grouping.
@@ -2104,41 +2119,80 @@ export default class ChangeDataFactory {
   }
 
   /**
-   * Filters a list of service commits so that a given repository+commitId pair
-   * is only attributed to the first service that encounters it in the current
+   * Filters a list of service commits so that a given repository+commitId+workItemId
+   * combination is only attributed to the first service that encounters it in the current
    * services.json processing pass.
+   *
+   * For linked commits (with a workItem), the key includes the work item ID so that
+   * multiple work items on the same commit are preserved as separate rows.
+   * For unlinked commits (no workItem), the key is just repoName|commitId.
    *
    * Commits that do not expose a stable commit identifier are passed through
    * unchanged.
    *
    * @param commits             Deduplicated commits for a single service.
    * @param repoName            Git repository name used as part of the global key.
-   * @param seenRepoCommitIds   Global set of `${repoName}|${commitId}` combinations.
+   * @param seenRepoCommitIds   Global set of `${repoName}|${commitId}` or `${repoName}|${commitId}|wi:${workItemId}` combinations.
    * @returns                   A filtered array containing only commits unique to this service.
    */
   private filterServiceCommitsAcrossServices(
     commits: any[],
     repoName: string,
-    seenRepoCommitIds: Set<string>
+    seenRepoCommitIds: Set<string>,
+    serviceName?: string
   ): any[] {
     if (!Array.isArray(commits) || commits.length === 0) {
+      logger.debug(
+        `filterServiceCommitsAcrossServices: repo='${repoName}', service='${
+          serviceName || 'N/A'
+        }' - input is empty`
+      );
       return [];
     }
 
+    logger.debug(
+      `filterServiceCommitsAcrossServices: repo='${repoName}', service='${
+        serviceName || 'N/A'
+      }' - processing ${commits.length} commits, seenKeys=${seenRepoCommitIds.size}`
+    );
+
     const result: any[] = [];
+    let keptCount = 0;
+    let droppedCount = 0;
+    const droppedKeys: string[] = [];
+
     for (const c of commits) {
-      const id: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
-      if (!id) {
+      const commitId: string | undefined = c?.commit?.commitId || c?.commitId || c?.id;
+      if (!commitId) {
         result.push(c);
+        keptCount++;
         continue;
       }
-      const key = `${repoName}|${id}`;
+      // For linked commits (with a workItem), include the work item ID in the key
+      // so that multiple work items on the same commit are preserved as separate rows.
+      const wid = c?.workItem?.id;
+      const key = typeof wid === 'number' ? `${repoName}|${commitId}|wi:${wid}` : `${repoName}|${commitId}`;
       if (seenRepoCommitIds.has(key)) {
+        droppedCount++;
+        if (droppedKeys.length < 10) {
+          droppedKeys.push(key);
+        }
         continue;
       }
       seenRepoCommitIds.add(key);
       result.push(c);
+      keptCount++;
     }
+
+    logger.debug(
+      `filterServiceCommitsAcrossServices: repo='${repoName}', service='${
+        serviceName || 'N/A'
+      }' - kept=${keptCount}, dropped=${droppedCount}${
+        droppedKeys.length > 0
+          ? `, droppedSample=[${droppedKeys.slice(0, 5).join(', ')}${droppedKeys.length > 5 ? '...' : ''}]`
+          : ''
+      }`
+    );
 
     return result;
   }
@@ -3125,13 +3179,27 @@ export default class ChangeDataFactory {
    * Used to ensure earliest-introduction semantics across edges and long-hop fallbacks.
    */
   private takeNewCommits(artifactKey: string, arr: any[]): any[] {
-    if (!Array.isArray(arr) || arr.length === 0) return [];
+    if (!Array.isArray(arr) || arr.length === 0) {
+      logger.debug(`takeNewCommits: artifactKey='${artifactKey}' - input is empty`);
+      return [];
+    }
+
+    const initialSetSize = this.includedCommitIdsByArtifact.get(artifactKey)?.size || 0;
     let set = this.includedCommitIdsByArtifact.get(artifactKey);
     if (!set) {
       set = new Set<string>();
       this.includedCommitIdsByArtifact.set(artifactKey, set);
     }
+
+    logger.debug(
+      `takeNewCommits: artifactKey='${artifactKey}' - processing ${arr.length} items, existingKeys=${initialSetSize}`
+    );
+
     const out: any[] = [];
+    let keptCount = 0;
+    let droppedCount = 0;
+    const droppedIds: string[] = [];
+
     for (const item of arr) {
       let id: string | undefined = undefined;
       // For linked changes (with a workItem), dedupe by commitId+workItem.id so that
@@ -3144,11 +3212,27 @@ export default class ChangeDataFactory {
         id = item.commitId;
       }
       if (id) {
-        if (set.has(id)) continue;
+        if (set.has(id)) {
+          droppedCount++;
+          if (droppedIds.length < 10) {
+            droppedIds.push(id);
+          }
+          continue;
+        }
         set.add(id);
       }
       out.push(item);
+      keptCount++;
     }
+
+    logger.debug(
+      `takeNewCommits: artifactKey='${artifactKey}' - kept=${keptCount}, dropped=${droppedCount}${
+        droppedIds.length > 0
+          ? `, droppedSample=[${droppedIds.slice(0, 5).join(', ')}${droppedIds.length > 5 ? '...' : ''}]`
+          : ''
+      }`
+    );
+
     return out;
   }
   //#endregion
