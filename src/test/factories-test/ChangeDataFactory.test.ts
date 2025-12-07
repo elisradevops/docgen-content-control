@@ -902,6 +902,56 @@ describe('ChangeDataFactory', () => {
         const second = factory.filterServiceCommitsAcrossServices(secondInput, repo, seen);
         expect(second.map((c: any) => c.commit.commitId)).toEqual(['C']);
       });
+
+      it('filterServiceCommitsAcrossServices should preserve multiple work items on the same commit', () => {
+        const factory = changeDataFactory as any;
+        const seen = new Set<string>();
+        const repo = 'repo1';
+
+        // Same commit with 3 different work items - should all be preserved
+        const commits = [
+          { commit: { commitId: 'A' }, workItem: { id: 100 } },
+          { commit: { commitId: 'A' }, workItem: { id: 101 } },
+          { commit: { commitId: 'A' }, workItem: { id: 102 } },
+          { commit: { commitId: 'B' }, workItem: { id: 200 } },
+        ];
+
+        const result = factory.filterServiceCommitsAcrossServices(commits, repo, seen);
+
+        // All 4 entries should be preserved because they have different work item IDs
+        expect(result.length).toBe(4);
+        expect(result.map((c: any) => ({ commitId: c.commit.commitId, wiId: c.workItem.id }))).toEqual([
+          { commitId: 'A', wiId: 100 },
+          { commitId: 'A', wiId: 101 },
+          { commitId: 'A', wiId: 102 },
+          { commitId: 'B', wiId: 200 },
+        ]);
+      });
+
+      it('filterServiceCommitsAcrossServices should drop duplicate commit+workItem combinations across services', () => {
+        const factory = changeDataFactory as any;
+        const seen = new Set<string>();
+        const repo = 'repo1';
+
+        // First service has commit A with work items 100 and 101
+        const firstServiceCommits = [
+          { commit: { commitId: 'A' }, workItem: { id: 100 } },
+          { commit: { commitId: 'A' }, workItem: { id: 101 } },
+        ];
+
+        const first = factory.filterServiceCommitsAcrossServices(firstServiceCommits, repo, seen);
+        expect(first.length).toBe(2);
+
+        // Second service has commit A with work item 100 (duplicate) and 102 (new)
+        const secondServiceCommits = [
+          { commit: { commitId: 'A' }, workItem: { id: 100 } }, // duplicate - should be dropped
+          { commit: { commitId: 'A' }, workItem: { id: 102 } }, // new - should be kept
+        ];
+
+        const second = factory.filterServiceCommitsAcrossServices(secondServiceCommits, repo, seen);
+        expect(second.length).toBe(1);
+        expect(second[0].workItem.id).toBe(102);
+      });
     });
 
     describe('jsonSkinDataAdapter', () => {
