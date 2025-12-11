@@ -2512,6 +2512,116 @@ describe('ChangeDataFactory', () => {
         ).toBe(false);
       });
 
+      it('applyTaskParentReplacement should replace Task work items with Change Request parents and deduplicate by parent id', async () => {
+        const factory = changeDataFactory as any;
+
+        // Ensure tickets data provider has GetWorkItemByUrl returning a Change Request parent
+        mockTicketsDataProvider.GetWorkItemByUrl = jest.fn().mockResolvedValue({
+          id: 301,
+          fields: { 'System.WorkItemType': 'Change Request' },
+        });
+
+        const rawGroups = [
+          {
+            artifact: { name: 'Repo' },
+            changes: [
+              // Non-task change should be preserved as-is
+              {
+                workItem: {
+                  id: 'BUG1',
+                  fields: { 'System.WorkItemType': 'Bug' },
+                },
+                commit: { committer: { date: '2024-02-01T00:00:00Z' } },
+              },
+              // Two Task changes pointing to same Change Request parent; later commit should win
+              {
+                workItem: {
+                  id: 201,
+                  fields: { 'System.WorkItemType': 'Task' },
+                  relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/cr-parent' }],
+                },
+                commit: { committer: { date: '2024-02-01T01:00:00Z' } },
+              },
+              {
+                workItem: {
+                  id: 202,
+                  fields: { 'System.WorkItemType': 'Task' },
+                  relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/cr-parent' }],
+                },
+                commit: { committer: { date: '2024-02-01T02:00:00Z' } },
+              },
+            ],
+          },
+        ];
+
+        const result = await factory.applyTaskParentReplacement(rawGroups);
+
+        expect(result).toHaveLength(1);
+        const changes = result[0].changes;
+        // One original non-task + one Change Request parent entry
+        expect(changes.length).toBe(2);
+
+        const parentChange = changes.find((c: any) => c.workItem && c.workItem.id === 301);
+        expect(parentChange).toBeDefined();
+        // Should have been replaced from the Task with the later commit timestamp (id 202)
+        expect(parentChange.replacedFromTaskId).toBe(202);
+        // Ensure no remaining Task-type work items
+        expect(
+          changes.some(
+            (c: any) =>
+              c.workItem?.fields?.['System.WorkItemType'] &&
+              c.workItem.fields['System.WorkItemType'] === 'Task'
+          )
+        ).toBe(false);
+      });
+
+      it('applyTaskParentReplacement should drop Task work items whose parent type is not Requirement or Change Request', async () => {
+        const factory = changeDataFactory as any;
+
+        mockTicketsDataProvider.GetWorkItemByUrl = jest.fn().mockResolvedValue({
+          id: 401,
+          fields: { 'System.WorkItemType': 'Bug' },
+        });
+
+        const rawGroups = [
+          {
+            artifact: { name: 'Repo' },
+            changes: [
+              {
+                workItem: {
+                  id: 'USR2',
+                  fields: { 'System.WorkItemType': 'User Story' },
+                },
+                commit: { committer: { date: '2024-03-01T00:00:00Z' } },
+              },
+              {
+                workItem: {
+                  id: 301,
+                  fields: { 'System.WorkItemType': 'Task' },
+                  relations: [{ rel: 'System.LinkTypes.Hierarchy-Reverse', url: 'http://wi/non-req-parent' }],
+                },
+                commit: { committer: { date: '2024-03-01T01:00:00Z' } },
+              },
+            ],
+          },
+        ];
+
+        const result = await factory.applyTaskParentReplacement(rawGroups);
+
+        expect(result).toHaveLength(1);
+        const changes = result[0].changes;
+
+        expect(changes).toHaveLength(1);
+        expect(changes[0].workItem.id).toBe('USR2');
+        expect(
+          changes.some(
+            (c: any) =>
+              c.workItem?.fields?.['System.WorkItemType'] &&
+              c.workItem.fields['System.WorkItemType'] === 'Task'
+          )
+        ).toBe(false);
+      });
+
       it('handleServiceJsonFile should return false and log when required variables are missing', async () => {
         const factory = changeDataFactory as any;
 
