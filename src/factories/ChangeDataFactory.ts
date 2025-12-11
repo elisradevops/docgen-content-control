@@ -1704,7 +1704,7 @@ export default class ChangeDataFactory {
   }
 
   /**
-   * When enabled, replaces change.workItem of type Task with its immediate Requirement parent (if any).
+   * When enabled, replaces change.workItem of type Task with its immediate Requirement or Change Request parent (if any).
    * Adds a marker field 'replacedFromTaskId' so UI can indicate the substitution.
    */
   private async applyTaskParentReplacement(rawGroups: any[]): Promise<any[]> {
@@ -1723,8 +1723,8 @@ export default class ChangeDataFactory {
           );
           if (!parentRel?.url) return null;
           const parent = await ticketsDataProvider.GetWorkItemByUrl(parentRel.url);
-          const parentType = parent?.fields?.['System.WorkItemType'];
-          if (parent && parentType === 'Requirement') {
+          const parentType = parent?.fields?.['System.WorkItemType'].toLowerCase();
+          if (parent && (parentType === 'requirement' || parentType === 'change request')) {
             return { ...change, workItem: parent, replacedFromTaskId: wi.id };
           }
         } catch (e: any) {
