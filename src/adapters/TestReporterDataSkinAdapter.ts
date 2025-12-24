@@ -1,6 +1,7 @@
 import RichTextDataFactory from '../factories/RichTextDataFactory';
 import HtmlUtils from '../services/htmlUtils';
 import logger from '../services/logger';
+import { formatLocalIL, toTimestamp } from '../services/adapterUtils';
 
 export default class TestReporterDataSkinAdapter {
   htmlUtils: HtmlUtils;
@@ -12,6 +13,67 @@ export default class TestReporterDataSkinAdapter {
     this.templatePath = templatePath;
     this.teamProject = teamProject;
     this.formattingSettings = formattingSettings || {};
+  }
+
+  private async normalizeHistoryEntries(value: any): Promise<string[]> {
+    // Preferred shape coming from the data-provider: [{ createdDate, createdBy, text }]
+    if (Array.isArray(value)) {
+      const entries = value
+        .map((e: any, idx: number) => ({
+          idx,
+          createdDate: e?.createdDate ?? '',
+          createdBy: e?.createdBy ?? '',
+          text: e?.text ?? '',
+        }))
+        .filter((e: any) => e.createdDate || e.createdBy || e.text);
+
+      entries.sort((a: any, b: any) => {
+        const ta = toTimestamp(a.createdDate);
+        const tb = toTimestamp(b.createdDate);
+        if (tb !== ta) return tb - ta;
+        return a.idx - b.idx;
+      });
+
+      const rows = await Promise.all(
+        entries.map(async (e: any) => {
+          const date = e.createdDate ? formatLocalIL(e.createdDate) || e.createdDate : '';
+          const by = String(e.createdBy || '').trim();
+          const text = await this.htmlUtils.htmlToPlainText(String(e.text || ''), true);
+          const header = `${date}${by ? ` - ${by}` : ''}`.trim();
+          return `${header}${header ? ': ' : ''}${text || ''}`.trim();
+        })
+      );
+      return rows.filter((r) => r && r.trim() !== '');
+    }
+
+    // Backward-compatible fallback: old string format "ISO - Name: html" separated by blank lines
+    if (typeof value === 'string') {
+      const blocks = value
+        .trim()
+        .replace(/\r\n/g, '\n')
+        .split(/\n{2,}/)
+        .map((b) => b.trim())
+        .filter(Boolean);
+
+      const rows = await Promise.all(
+        blocks.map(async (block) => {
+          const dashIdx = block.indexOf(' - ');
+          const dateRaw = dashIdx >= 0 ? block.slice(0, dashIdx).trim() : '';
+          const rest = dashIdx >= 0 ? block.slice(dashIdx + 3) : block;
+          const colonIdx = rest.indexOf(': ');
+          const by = colonIdx >= 0 ? rest.slice(0, colonIdx).trim() : '';
+          const textRaw = colonIdx >= 0 ? rest.slice(colonIdx + 2) : rest;
+          const date = dateRaw ? formatLocalIL(dateRaw) || dateRaw : '';
+          const text = await this.htmlUtils.htmlToPlainText(String(textRaw || ''), true);
+          const header = `${date}${by ? ` - ${by}` : ''}`.trim();
+          return `${header}${header ? ': ' : ''}${text || ''}`.trim();
+        })
+      );
+
+      return rows.filter((r) => r && r.trim() !== '');
+    }
+
+    return [];
   }
 
   private async htmlStrip(text): Promise<any> {
@@ -94,6 +156,11 @@ export default class TestReporterDataSkinAdapter {
               // Special mapping for configurationName
               if (key === 'configurationName') {
                 testCaseObject.configuration = item[key] || null;
+              } else if (key.toLowerCase() === 'history') {
+                const normalized = await this.normalizeHistoryEntries(item[key]);
+                if (normalized.length > 0) testCaseObject.historyEntries = normalized;
+                // History is mapped to `historyEntries` on the test case model (not a custom field).
+                continue;
               } else {
                 // All other properties on 'item' are copied directly.
                 // These will be caught by [JsonExtensionData] in the C# model.
@@ -106,6 +173,12 @@ export default class TestReporterDataSkinAdapter {
 
         // Process test step if present
         const testCase = suite.testCases.get(testCaseId);
+
+        // Prefer setting historyEntries from any row (not just the first).
+        if (!testCase.historyEntries && item.history) {
+          const normalized = await this.normalizeHistoryEntries(item.history);
+          if (normalized.length > 0) testCase.historyEntries = normalized;
+        }
 
         // Clean HTML content
         let action = null;

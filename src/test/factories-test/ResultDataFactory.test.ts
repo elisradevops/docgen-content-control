@@ -339,7 +339,8 @@ describe('ResultDataFactory', () => {
         true, // enableRunTestCaseFilter
         true, // enableRunStepStatusFilter
         undefined, // linkedQueryRequest
-        'none' // errorFilterMode
+        'none', // errorFilterMode
+        false // includeAllHistory (default)
       );
     });
 
@@ -837,7 +838,8 @@ describe('ResultDataFactory', () => {
         true, // enableRunTestCaseFilter
         true, // enableRunStepStatusFilter
         undefined, // linkedQueryRequest
-        'none' // errorFilterMode
+        'none', // errorFilterMode
+        false // includeAllHistory (default)
       );
     });
 

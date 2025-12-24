@@ -165,7 +165,8 @@ export default class DgContentControls {
             contentControlOptions.data.enableRunStepStatusFilter,
             contentControlOptions.data.allowGrouping,
             contentControlOptions.data.linkedQueryRequest,
-            contentControlOptions.data.errorFilterMode
+            contentControlOptions.data.errorFilterMode,
+            contentControlOptions.data.includeAllHistory
           );
           break;
         case 'change-description-table':
@@ -848,7 +849,8 @@ export default class DgContentControls {
     enableRunStepStatusFilter: boolean,
     allowGrouping?: boolean,
     linkedQueryRequest?: any,
-    errorFilterMode?: string
+    errorFilterMode?: string,
+    includeAllHistory?: boolean
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -900,7 +902,8 @@ export default class DgContentControls {
         enableRunTestCaseFilter,
         enableRunStepStatusFilter,
         linkedQueryRequest,
-        errorFilterMode
+        errorFilterMode,
+        includeAllHistory
       );
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);
