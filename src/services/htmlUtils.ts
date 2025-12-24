@@ -773,6 +773,45 @@ export default class HtmlUtils {
     }
   }
 
+  public async htmlToPlainText(html: string, needToRemoveImg: boolean = true): Promise<string> {
+    if (!html) return '';
+    try {
+      // Use a fresh HtmlUtils instance to avoid mutating `this.$` across parallel callers.
+      const htmlUtils = new HtmlUtils();
+      await htmlUtils.cleanHtml(html, needToRemoveImg, false);
+
+      // Preserve human-readable line breaks
+      htmlUtils.$('br').replaceWith('\n');
+      htmlUtils.$('p, div, li, tr, h1, h2, h3, h4, h5, h6').each((_, el) => {
+        const $el = htmlUtils.$(el);
+        const last = $el.contents().last();
+        if (
+          !last ||
+          (last[0] &&
+            last[0].type === 'text' &&
+            String((last[0] as any).data || '').endsWith('\n'))
+        ) {
+          return;
+        }
+        $el.append('\n');
+      });
+
+      const text = htmlUtils.$.root().text();
+      return String(text || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n[ \t]+/g, '\n')
+        .split('\n')
+        .map((l) => l.trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    } catch (e: any) {
+      logger.error(`Error occurred during htmlToPlainText: ${e.message}`);
+      return String(html || '').replace(/<[^>]*>/g, '').trim();
+    }
+  }
+
   private splitParagraphsIntoSeparateElements = () => {
     // Process all elements that might contain text content
     this.$('p, div, td, th, li').each((_, element) => {

@@ -136,11 +136,12 @@ export default class ResultDataFactory {
     enableRunTestCaseFilter: boolean,
     enableRunStepStatusFilter: boolean,
     linkedQueryRequest: any,
-    errorFilterMode: string
+    errorFilterMode: string,
+    includeAllHistory: boolean = false
   ) {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
-      const testResultsItems = await resultDataProvider.getTestReporterResults(
+      const testReporterArgs: any[] = [
         this.testPlanId.toString(),
         this.teamProject,
         this.testSuiteArray,
@@ -149,8 +150,11 @@ export default class ResultDataFactory {
         enableRunTestCaseFilter,
         enableRunStepStatusFilter,
         linkedQueryRequest,
-        errorFilterMode
-      );
+        errorFilterMode,
+      ];
+      // Backward-compatible: older provider versions ignore the 10th argument.
+      testReporterArgs.push(includeAllHistory);
+      const testResultsItems = await (resultDataProvider as any).getTestReporterResults(...testReporterArgs);
 
       if (testResultsItems.length === 0) {
         throw `No test data found for the specified plan ${this.testPlanId}`;
