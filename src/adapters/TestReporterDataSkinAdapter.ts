@@ -38,12 +38,14 @@ export default class TestReporterDataSkinAdapter {
         entries.map(async (e: any) => {
           const date = e.createdDate ? formatLocalIL(e.createdDate) || e.createdDate : '';
           const by = String(e.createdBy || '').trim();
-          const text = await this.htmlUtils.htmlToPlainText(String(e.text || ''), true);
+          if (by.toLowerCase().includes('microsoft.teamfoundation.system')) return null;
+          const text = (await this.htmlUtils.htmlToPlainText(String(e.text || ''), true)).trim();
+          if (!text) return null;
           const header = `${date}${by ? ` - ${by}` : ''}`.trim();
           return `${header}${header ? ': ' : ''}${text || ''}`.trim();
         })
       );
-      return rows.filter((r) => r && r.trim() !== '');
+      return rows.filter((r) => r && String(r).trim() !== '');
     }
 
     // Backward-compatible fallback: old string format "ISO - Name: html" separated by blank lines
@@ -64,13 +66,15 @@ export default class TestReporterDataSkinAdapter {
           const by = colonIdx >= 0 ? rest.slice(0, colonIdx).trim() : '';
           const textRaw = colonIdx >= 0 ? rest.slice(colonIdx + 2) : rest;
           const date = dateRaw ? formatLocalIL(dateRaw) || dateRaw : '';
-          const text = await this.htmlUtils.htmlToPlainText(String(textRaw || ''), true);
+          if (by.toLowerCase().includes('microsoft.teamfoundation.system')) return null;
+          const text = (await this.htmlUtils.htmlToPlainText(String(textRaw || ''), true)).trim();
+          if (!text) return null;
           const header = `${date}${by ? ` - ${by}` : ''}`.trim();
           return `${header}${header ? ': ' : ''}${text || ''}`.trim();
         })
       );
 
-      return rows.filter((r) => r && r.trim() !== '');
+      return rows.filter((r) => r && String(r).trim() !== '');
     }
 
     return [];
