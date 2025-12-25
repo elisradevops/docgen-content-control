@@ -2298,21 +2298,35 @@ describe('ChangeDataFactory', () => {
         );
       });
 
-      it('GetPipelineChanges should skip resource pipelines when names do not match', async () => {
+      it('GetPipelineChanges should recurse even when resource aliases differ (match by definitionId)', async () => {
         const factory = changeDataFactory as any;
         factory.requestedByBuild = false;
 
         const pipelines: any = {
-          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
-            id,
-            result: 'succeeded',
-            definition: { id: 10 },
-          })),
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            const definitionId = id === 250 || id === 300 ? 99 : 10;
+            return {
+              id,
+              result: 'succeeded',
+              definition: { id: definitionId },
+            };
+          }),
           findPreviousPipeline: jest.fn(),
           getPipelineRunDetails: jest.fn().mockResolvedValue({}),
           getPipelineResourcePipelinesFromObject: jest
             .fn()
-            // targetResourcePipelines
+            // sourcePipelineResourcePipelines (alias differs)
+            .mockResolvedValueOnce([
+              {
+                buildId: 250,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '250',
+                name: 'SourceRes',
+                provider: 'TfsGit',
+              },
+            ])
+            // targetPipelineResourcePipelines (alias differs)
             .mockResolvedValueOnce([
               {
                 buildId: 300,
@@ -2323,19 +2337,64 @@ describe('ChangeDataFactory', () => {
                 provider: 'TfsGit',
               },
             ])
-            // sourcePipelineResourcePipelines
-            .mockResolvedValueOnce([
-              {
-                buildId: 250,
-                definitionId: 99,
-                teamProject: defaultParams.teamProject,
-                buildNumber: '250',
-                name: 'SourceRes',
-                provider: 'TfsGit',
-              },
-            ]),
+            // Recursive call: no further resource pipelines
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([]),
           getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
         };
+
+        const spy = jest.spyOn(factory, 'GetPipelineChanges');
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        // One top-level call + one recursive call
+        expect(spy).toHaveBeenCalledTimes(2);
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+      });
+
+      it('GetPipelineChanges should include newly-added resource pipelines by diffing against their previous run', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            const definitionId = id === 250 || id === 300 ? 99 : 10;
+            return {
+              id,
+              result: 'succeeded',
+              definition: { id: definitionId },
+            };
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(250),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // deploy source run: no resource pipelines
+            .mockResolvedValueOnce([])
+            // deploy target run: one new resource pipeline
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '1.0.56',
+                name: 'SOME_PACKAGE',
+                provider: 'TfsGit',
+              },
+            ])
+            // recursive call: no further resource pipelines
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const spy = jest.spyOn(factory, 'GetPipelineChanges');
 
         const result = await factory.GetPipelineChanges(
           pipelines,
@@ -2346,8 +2405,14 @@ describe('ChangeDataFactory', () => {
         );
 
         expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-        expect((logger as any).debug).toHaveBeenCalledWith(
-          expect.stringContaining('resource pipeline TargetRes is not the same as SourceRes, skipping')
+        // One top-level call + one recursive call for the added resource pipeline
+        expect(spy).toHaveBeenCalledTimes(2);
+        expect(pipelines.findPreviousPipeline).toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          '99',
+          300,
+          expect.anything(),
+          true
         );
       });
 
