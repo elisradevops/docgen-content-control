@@ -130,8 +130,8 @@ export default class TestReporterDataSkinAdapter {
           testCaseObject.associatedBugs = item.relatedBugs || null;
           testCaseObject.associatedCRs = item.relatedCRs || null;
 
-          // 3. Initialize testSteps array (it's populated later in the loop)
-          testCaseObject.testSteps = [];
+          // 3. Initialize testSteps lazily (only if we actually have step data)
+          testCaseObject.testSteps = undefined;
           // 4. Iterate over all properties of the top-level 'item' object.
           //    These include predefined fields like 'priority', 'failureType', etc.,
           //    and any other dynamically selected fields.
@@ -194,6 +194,17 @@ export default class TestReporterDataSkinAdapter {
           if (normalized.length > 0) testCase.historyEntries = normalized;
         }
 
+        const hasStepData =
+          item.stepNo !== undefined ||
+          item.stepAction !== undefined ||
+          item.stepExpected !== undefined ||
+          item.stepStatus !== undefined ||
+          item.stepComments !== undefined;
+
+        if (!hasStepData) {
+          continue;
+        }
+
         // Clean HTML content
         let action = null;
         let expected = null;
@@ -215,6 +226,7 @@ export default class TestReporterDataSkinAdapter {
           stepRunStatus: item.stepStatus || '',
           stepErrorMessage: item.stepComments || '',
         };
+        if (!Array.isArray(testCase.testSteps)) testCase.testSteps = [];
         testCase.testSteps.push(testStep);
       }
 
