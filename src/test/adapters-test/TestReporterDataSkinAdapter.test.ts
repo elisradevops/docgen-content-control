@@ -21,6 +21,8 @@ describe('TestReporterDataSkinAdapter - history formatting', () => {
     expect(out[0].testCases).toHaveLength(1);
 
     const historyEntries = out[0].testCases[0].historyEntries as string[];
+    const steps = out[0].testCases[0].testSteps as any[];
+    expect(steps).toBeUndefined();
     expect(historyEntries).toHaveLength(2);
     expect(historyEntries[0]).toContain('24/12/2025, 14:30:52 - Eden: test\n2');
     expect(historyEntries[1]).toContain('24/12/2025, 14:30:48 - Eden: test\n1');
