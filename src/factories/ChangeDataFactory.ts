@@ -1322,7 +1322,8 @@ export default class ChangeDataFactory {
     gitDataProvider: GitDataProvider,
     teamProject: string,
     to: string | number,
-    from: string | number
+    from: string | number,
+    visitedTargetRuns: Set<string> = new Set()
   ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
     const artifactChangesNoLink = [];
@@ -1348,6 +1349,13 @@ export default class ChangeDataFactory {
       }
 
       const targetPipelineId = targetBuild.definition.id;
+
+      const targetRunKey = `${teamProject}:${targetPipelineId}:${targetBuildId}`;
+      if (visitedTargetRuns.has(targetRunKey)) {
+        logger.warn(`Detected cyclic pipeline resource dependency at ${targetRunKey}, skipping recursion`);
+        return { artifactChanges: [], artifactChangesNoLink: [] };
+      }
+      visitedTargetRuns.add(targetRunKey);
 
       const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
         teamProject,
@@ -1392,10 +1400,12 @@ export default class ChangeDataFactory {
       const targetPipelineResourcePipelines =
         await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(targetPipelineRun);
 
-      const sourcePipelineResourcePipelinesArr: any[] =
-        this.coerceIterableToArray<any>(sourcePipelineResourcePipelines);
-      const targetPipelineResourcePipelinesArr: any[] =
-        this.coerceIterableToArray<any>(targetPipelineResourcePipelines);
+      const sourcePipelineResourcePipelinesArr: any[] = this.coerceIterableToArray<any>(
+        sourcePipelineResourcePipelines
+      );
+      const targetPipelineResourcePipelinesArr: any[] = this.coerceIterableToArray<any>(
+        targetPipelineResourcePipelines
+      );
 
       const sourceResourceRepositories =
         await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
@@ -1462,10 +1472,9 @@ export default class ChangeDataFactory {
         if (allExtendedCommits.length > 0) {
           allExtendedCommits.forEach((commit, idx) => {
             logger.debug(
-              `  Commit ${idx + 1}: workItem=${commit.workItem?.id}, commit=${commit.commit?.commitId?.substring(
-                0,
-                7
-              )}`
+              `  Commit ${idx + 1}: workItem=${
+                commit.workItem?.id
+              }, commit=${commit.commit?.commitId?.substring(0, 7)}`
             );
           });
         }
@@ -1503,19 +1512,6 @@ export default class ChangeDataFactory {
         logger.debug(`Processing resource pipeline ${targetResourceBuildNumber}`);
         logger.debug(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
 
-        const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
-          targetResourcePipelineTeamProject,
-          targetResourcePipelineDefinitionId,
-          targetResourcePipelineRunId
-        );
-
-        if (!targetResourcePipeline) {
-          logger.debug(
-            `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
-          );
-          continue;
-        }
-
         const matchKey = this.buildResourcePipelineKey({
           teamProject: targetResourcePipelineTeamProject,
           definitionId: targetResourcePipelineDefinitionId,
@@ -1525,6 +1521,19 @@ export default class ChangeDataFactory {
         // Resource pipeline is present only on the target run (added dependency):
         // compare it against its previous successful run so its changes/WIs are included.
         if (matchingSourcePipelines.length === 0) {
+          const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
+            targetResourcePipelineTeamProject,
+            targetResourcePipelineDefinitionId,
+            targetResourcePipelineRunId
+          );
+
+          if (!targetResourcePipeline) {
+            logger.debug(
+              `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
+            );
+            continue;
+          }
+
           logger.debug(
             `resource pipeline ${targetResourcePipelineName} (${targetResourcePipelineTeamProject}/${targetResourcePipelineDefinitionId}) is new in target run, resolving previous run`
           );
@@ -1552,7 +1561,8 @@ export default class ChangeDataFactory {
                 gitDataProvider,
                 targetResourcePipelineTeamProject,
                 targetResourcePipelineRunId,
-                Number(prevRunId)
+                Number(prevRunId),
+                visitedTargetRuns
               );
             if (reportPartsForRepo) {
               artifactChanges.push(...reportPartsForRepo);
@@ -1560,7 +1570,9 @@ export default class ChangeDataFactory {
             }
           } catch (e: any) {
             logger.error(
-              `Failed handling newly-added resource pipeline ${targetResourcePipelineName}: ${e?.message || e}`
+              `Failed handling newly-added resource pipeline ${targetResourcePipelineName}: ${
+                e?.message || e
+              }`
             );
           }
           continue;
@@ -1591,6 +1603,21 @@ export default class ChangeDataFactory {
             break;
           }
 
+          const targetResourceRunKey = `${String(targetResourcePipelineTeamProject)}:${Number(
+            targetResourcePipelineDefinitionId
+          )}:${Number(targetResourcePipelineRunId)}`;
+          if (visitedTargetRuns.has(targetResourceRunKey)) {
+            await this.GetPipelineChanges(
+              pipelinesDataProvider,
+              gitDataProvider,
+              targetResourcePipelineTeamProject,
+              targetResourcePipelineRunId,
+              sourceResourcePipelineRunId,
+              visitedTargetRuns
+            );
+            continue;
+          }
+
           logger.debug(
             `Locate the previous pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber}`
           );
@@ -1614,7 +1641,8 @@ export default class ChangeDataFactory {
               gitDataProvider,
               targetResourcePipelineTeamProject,
               targetResourcePipelineRunId,
-              sourceResourcePipelineRunId
+              sourceResourcePipelineRunId,
+              visitedTargetRuns
             );
 
           if (reportPartsForRepo) {

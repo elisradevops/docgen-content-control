@@ -2254,6 +2254,66 @@ describe('ChangeDataFactory', () => {
         expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
       });
 
+      it('GetPipelineChanges should guard against cyclic self-referencing pipeline resources', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            // Always resolve to the same pipeline definition id so the cycle key is stable
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // Source run resources: points to the same pipeline definition (self)
+            .mockResolvedValueOnce([
+              {
+                buildId: 100,
+                definitionId: 10,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '100',
+                name: 'Self',
+                provider: 'TfsGit',
+              },
+            ])
+            // Target run resources: also points to self (this would recurse back to the same target run)
+            .mockResolvedValueOnce([
+              {
+                buildId: 200,
+                definitionId: 10,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '200',
+                name: 'Self',
+                provider: 'TfsGit',
+              },
+            ]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const spy = jest.spyOn(factory, 'GetPipelineChanges');
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        // One top-level call + one recursive call that terminates early due to cycle guard
+        expect(spy).toHaveBeenCalledTimes(2);
+        // getPipelineRunDetails should be called only for the top-level target + source runs.
+        expect(pipelines.getPipelineRunDetails).toHaveBeenCalledTimes(2);
+        expect((logger as any).warn).toHaveBeenCalledWith(
+          expect.stringContaining('Detected cyclic pipeline resource dependency')
+        );
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+      });
+
       it('GetPipelineChanges should skip resource pipelines that are not TfsGit', async () => {
         const factory = changeDataFactory as any;
         factory.requestedByBuild = false;
@@ -2356,6 +2416,101 @@ describe('ChangeDataFactory', () => {
         // One top-level call + one recursive call
         expect(spy).toHaveBeenCalledTimes(2);
         expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+      });
+
+      it('GetPipelineChanges should include work items from nested pipeline repository resources', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        // Mock commit->work item resolution for the nested repo diff
+        mockGitDataProvider.GetCommitBatch.mockResolvedValue([{ commitId: 'c1' }]);
+        mockGitDataProvider.getItemsForPipelineRange.mockResolvedValue({
+          commitChangesArray: [
+            {
+              commit: { commitId: 'c1' },
+              workItem: { id: 123, fields: {}, _links: {} },
+            },
+          ],
+          commitsWithNoRelations: [],
+        });
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            // Top-level pipeline builds (100/200) belong to definition 10.
+            // Nested resource pipeline builds (250/300) belong to definition 99.
+            const definitionId = id === 250 || id === 300 ? 99 : 10;
+            return {
+              id,
+              result: 'succeeded',
+              definition: { id: definitionId },
+            };
+          }),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockImplementation((tp: string, pid: number, rid: number) => ({
+            id: rid,
+            url: `https://dev.azure.com/org/${tp}/_apis/pipelines/${pid}/runs/${rid}`,
+            resources: {},
+          })),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            // Top-level: source run then target run include a nested resource pipeline (definition 99)
+            .mockResolvedValueOnce([
+              {
+                buildId: 250,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '250',
+                name: 'Test2',
+                provider: 'TfsGit',
+              },
+            ])
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '300',
+                name: 'Test2',
+                provider: 'TfsGit',
+              },
+            ])
+            // Recursive call (nested pipeline): no further nested pipelines
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockImplementation((run: any) => {
+            // Only the nested pipeline runs (250/300) contain repository resources
+            if (run?.id === 250) {
+              return [
+                {
+                  repoName: 'NestedRepo',
+                  repoSha1: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  url: 'https://dev.azure.com/org/project/_git/NestedRepo',
+                },
+              ];
+            }
+            if (run?.id === 300) {
+              return [
+                {
+                  repoName: 'NestedRepo',
+                  repoSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                  url: 'https://dev.azure.com/org/project/_git/NestedRepo',
+                },
+              ];
+            }
+            return [];
+          }),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result.artifactChanges.length).toBe(1);
+        expect(result.artifactChanges[0].workItem.id).toBe(123);
       });
 
       it('GetPipelineChanges should include newly-added resource pipelines by diffing against their previous run', async () => {
