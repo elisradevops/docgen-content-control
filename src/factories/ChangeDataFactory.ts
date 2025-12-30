@@ -1512,19 +1512,6 @@ export default class ChangeDataFactory {
         logger.debug(`Processing resource pipeline ${targetResourceBuildNumber}`);
         logger.debug(`Locate the pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}`);
 
-        const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
-          targetResourcePipelineTeamProject,
-          targetResourcePipelineDefinitionId,
-          targetResourcePipelineRunId
-        );
-
-        if (!targetResourcePipeline) {
-          logger.debug(
-            `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
-          );
-          continue;
-        }
-
         const matchKey = this.buildResourcePipelineKey({
           teamProject: targetResourcePipelineTeamProject,
           definitionId: targetResourcePipelineDefinitionId,
@@ -1534,6 +1521,19 @@ export default class ChangeDataFactory {
         // Resource pipeline is present only on the target run (added dependency):
         // compare it against its previous successful run so its changes/WIs are included.
         if (matchingSourcePipelines.length === 0) {
+          const targetResourcePipeline = await pipelinesDataProvider.getPipelineRunDetails(
+            targetResourcePipelineTeamProject,
+            targetResourcePipelineDefinitionId,
+            targetResourcePipelineRunId
+          );
+
+          if (!targetResourcePipeline) {
+            logger.debug(
+              `Could not find pipeline ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
+            );
+            continue;
+          }
+
           logger.debug(
             `resource pipeline ${targetResourcePipelineName} (${targetResourcePipelineTeamProject}/${targetResourcePipelineDefinitionId}) is new in target run, resolving previous run`
           );
@@ -1601,6 +1601,21 @@ export default class ChangeDataFactory {
               `resource pipeline ${sourceResourcePipelineName} ${sourceResourceBuildNumber} is the same as ${targetResourcePipelineName} ${targetResourceBuildNumber}, skipping`
             );
             break;
+          }
+
+          const targetResourceRunKey = `${String(targetResourcePipelineTeamProject)}:${Number(
+            targetResourcePipelineDefinitionId
+          )}:${Number(targetResourcePipelineRunId)}`;
+          if (visitedTargetRuns.has(targetResourceRunKey)) {
+            await this.GetPipelineChanges(
+              pipelinesDataProvider,
+              gitDataProvider,
+              targetResourcePipelineTeamProject,
+              targetResourcePipelineRunId,
+              sourceResourcePipelineRunId,
+              visitedTargetRuns
+            );
+            continue;
           }
 
           logger.debug(
