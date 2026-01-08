@@ -176,13 +176,16 @@ export default class ChangesTableDataSkinAdapter {
     );
 
     for (const artifactGroup of this.rawChangesArray) {
+      const artifactName = artifactGroup.artifact?.name || 'N/A';
+      const changesCount = artifactGroup.changes?.length || 0;
+      const nonLinkedCount = artifactGroup.nonLinkedCommits?.length || 0;
       try {
-        logger.debug(`Processing artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
-        logger.debug(`  - Changes count: ${artifactGroup.changes?.length || 0}`);
-        logger.debug(`  - NonLinkedCommits count: ${artifactGroup.nonLinkedCommits?.length || 0}`);
+        logger.debug(
+          `adoptSkinData: Processing artifact "${artifactName}" (changes=${changesCount}, nonLinked=${nonLinkedCount})`
+        );
         // If no changes exist for this artifact, push an error message and move on.
         if (!artifactGroup.changes || artifactGroup.changes.length === 0) {
-          logger.warn(`No changes found for artifact: "${artifactGroup.artifact?.name || 'N/A'}"`);
+          logger.warn(`No changes found for artifact: "${artifactName}"`);
           logger.warn(
             `  - rawChange.changes is ${
               artifactGroup.changes === undefined
@@ -196,9 +199,7 @@ export default class ChangesTableDataSkinAdapter {
           continue;
         }
 
-        logger.info(
-          `Processing ${artifactGroup.changes.length} changes for artifact: "${artifactGroup.artifact?.name}"`
-        );
+        logger.debug(`adoptSkinData: Building rows for "${artifactName}"`);
 
         const artifactSection: any = {};
 
@@ -241,9 +242,7 @@ export default class ChangesTableDataSkinAdapter {
           changeCounter++;
         }
         // non-linked commits are handled exclusively by NonAssociatedCommitsDataSkinAdapter
-        logger.info(
-          `Built ${artifactChanges.length} artifact change rows for "${artifactGroup.artifact?.name}"`
-        );
+        logger.debug(`adoptSkinData: Built ${artifactChanges.length} rows for "${artifactName}"`);
         artifactSection.artifactChanges = artifactChanges;
         this.adoptedData.push(artifactSection);
       } catch (err) {
@@ -260,7 +259,7 @@ export default class ChangesTableDataSkinAdapter {
       if (item.errorMessage) {
         logger.warn(`  Artifact #${index + 1}: ERROR - ${item.errorMessage[0]?.fields[0]?.value}`);
       } else {
-        logger.info(`  Artifact #${index + 1}: ${item.artifactChanges?.length || 0} changes`);
+        logger.debug(`  Artifact #${index + 1}: ${item.artifactChanges?.length || 0} changes`);
       }
     });
     logger.debug('adoptSkinData: Completed adopting skin data');

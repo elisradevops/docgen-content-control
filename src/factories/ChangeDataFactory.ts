@@ -1470,13 +1470,15 @@ export default class ChangeDataFactory {
           `getCommitRangeChanges returned: ${allExtendedCommits.length} commits with work items, ${commitsWithNoRelations.length} without`
         );
         if (allExtendedCommits.length > 0) {
-          allExtendedCommits.forEach((commit, idx) => {
-            logger.debug(
-              `  Commit ${idx + 1}: workItem=${
-                commit.workItem?.id
-              }, commit=${commit.commit?.commitId?.substring(0, 7)}`
-            );
+          const sampleSize = Math.min(allExtendedCommits.length, 5);
+          const sample = allExtendedCommits.slice(0, sampleSize).map((commit) => {
+            const workItemId = commit.workItem?.id ?? 'none';
+            const commitId = commit.commit?.commitId?.substring(0, 7) || 'unknown';
+            return `${workItemId}:${commitId}`;
           });
+          logger.debug(
+            `  Commit sample (${sampleSize}/${allExtendedCommits.length}): ${sample.join(', ')}`
+          );
         }
 
         artifactChanges.push(...allExtendedCommits);
@@ -1646,8 +1648,11 @@ export default class ChangeDataFactory {
             );
 
           if (reportPartsForRepo) {
-            logger.debug(`reportPartsForRepo: ${JSON.stringify(reportPartsForRepo)}`);
-            logger.debug(`reportPartsForRepoNoLink: ${JSON.stringify(reportPartsForRepoNoLink)}`);
+            const linkedCount = reportPartsForRepo?.length || 0;
+            const unlinkedCount = reportPartsForRepoNoLink?.length || 0;
+            logger.debug(
+              `reportPartsForRepo summary: linked=${linkedCount}, unlinked=${unlinkedCount}`
+            );
             artifactChanges.push(...reportPartsForRepo);
             artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
