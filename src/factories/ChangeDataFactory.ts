@@ -2113,10 +2113,14 @@ export default class ChangeDataFactory {
 
         const { fromVersion, toVersion, fromVersionType, toVersionType } = range;
 
-        let itemPaths = service.serviceLocation.pathInGit
+        const rawPathInGit = (service.serviceLocation?.pathInGit ?? '').trim();
+        let itemPaths = rawPathInGit
           .split(',')
           .map((p: string) => p.trim())
           .filter((p: string) => p.length > 0);
+        if (itemPaths.length === 0) {
+          itemPaths = [''];
+        }
         const artifactKey = `Service|${repoName}|${service.serviceName}`;
         const aggLinked: any[] = [];
         const aggUnlinked: any[] = [];
@@ -2659,6 +2663,27 @@ export default class ChangeDataFactory {
     toVersion: string,
     toVersionType: string
   ) {
+    if (!itemPath) {
+      logger.info(
+        `Service ${serviceName}: Empty pathInGit treated as repo root; using repo-level diff`
+      );
+      const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
+        provider,
+        projectId,
+        fromVersion,
+        fromVersionType,
+        toVersion,
+        toVersionType,
+        repoName,
+        serviceGitRepoApiUrl,
+        new Set<number>(),
+        undefined,
+        '',
+        this.linkedWiOptions
+      );
+      this.isChangesReachedMaxSize(this.rangeType, allExtendedCommits?.length);
+      return { allExtendedCommits, commitsWithNoRelations };
+    }
     logger.debug(`Checking path '${itemPath}' exists in source ${fromVersionType} '${fromVersion}'`);
     const srcKey = `${serviceGitRepoApiUrl}|${itemPath}|${fromVersionType}|${fromVersion}`;
     let srcExists: boolean;
