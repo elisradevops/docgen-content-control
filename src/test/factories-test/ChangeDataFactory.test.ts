@@ -3100,6 +3100,46 @@ describe('ChangeDataFactory', () => {
         expect(provider.CheckIfItemExist).not.toHaveBeenCalled();
       });
 
+      it('collectPathChangesForService should treat empty path as repo root', async () => {
+        const factory = changeDataFactory as any;
+
+        const provider: any = {
+          CheckIfItemExist: jest.fn(),
+        };
+
+        const commitResult = {
+          allExtendedCommits: [{ id: 'c1' }],
+          commitsWithNoRelations: [{ id: 'u1' }],
+        };
+
+        const getCommitRangeSpy = jest
+          .spyOn(factory, 'getCommitRangeChanges')
+          .mockResolvedValue(commitResult);
+
+        const result = await factory.collectPathChangesForService(
+          provider,
+          defaultParams.teamProject,
+          'Svc',
+          'repo',
+          'https://server/org/project/_apis/git/repositories/repo',
+          '',
+          'fromVer',
+          'Branch',
+          'toVer',
+          'Branch'
+        );
+
+        expect(result).toEqual(commitResult);
+        expect(provider.CheckIfItemExist).not.toHaveBeenCalled();
+        expect(getCommitRangeSpy).toHaveBeenCalledTimes(1);
+        const callArgs = getCommitRangeSpy.mock.calls[0];
+        expect(callArgs[8]).toBeInstanceOf(Set);
+        expect(callArgs[10]).toBe('');
+        expect((logger as any).info).toHaveBeenCalledWith(
+          expect.stringContaining('Empty pathInGit treated as repo root')
+        );
+      });
+
       it('collectPathChangesForService should return null when source path does not exist', async () => {
         const factory = changeDataFactory as any;
 
