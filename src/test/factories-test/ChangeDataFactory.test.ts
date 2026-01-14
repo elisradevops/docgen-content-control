@@ -2146,16 +2146,19 @@ describe('ChangeDataFactory', () => {
         expect(group.nonLinkedCommits[0].releaseRunDate).toBe(toRelease.createdOn);
       });
 
-      it('GetPipelineChanges should log error when target build has not succeeded and requestedByBuild is false', async () => {
+      it('GetPipelineChanges should proceed even when target build is failed and requestedByBuild is false', async () => {
         const factory = changeDataFactory as any;
         factory.requestedByBuild = false;
 
         const pipelines = {
-          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
-            id: 200,
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
             result: 'failed',
             definition: { id: 1 },
-          }),
+          })),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
         } as any;
 
         const result = await factory.GetPipelineChanges(
@@ -2167,21 +2170,22 @@ describe('ChangeDataFactory', () => {
         );
 
         expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-        expect((logger as any).error).toHaveBeenCalledWith(
-          expect.stringContaining('could not handle pipeline The selected 200 build has not been succeeded')
-        );
+        expect((logger as any).error).not.toHaveBeenCalled();
       });
 
-      it('GetPipelineChanges should log error when target build is canceled and requestedByBuild is true', async () => {
+      it('GetPipelineChanges should proceed even when target build is canceled and requestedByBuild is true', async () => {
         const factory = changeDataFactory as any;
         factory.requestedByBuild = true;
 
         const pipelines = {
-          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({
-            id: 200,
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
             result: 'canceled',
             definition: { id: 1 },
-          }),
+          })),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
         } as any;
 
         const result = await factory.GetPipelineChanges(
@@ -2193,9 +2197,7 @@ describe('ChangeDataFactory', () => {
         );
 
         expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
-        expect((logger as any).error).toHaveBeenCalledWith(
-          expect.stringContaining('could not handle pipeline The selected 200 build has canceled')
-        );
+        expect((logger as any).error).not.toHaveBeenCalled();
       });
 
       it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {
