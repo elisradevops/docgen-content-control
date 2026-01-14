@@ -1333,21 +1333,6 @@ export default class ChangeDataFactory {
 
       let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
 
-      //if requested by user and target build is not succeeded throw error
-      if (!this.requestedByBuild && targetBuild.result !== 'succeeded') {
-        throw new Error(`The selected ${to} build has not been succeeded`);
-      }
-      //if requested by build and target build is not succeeded throw error
-      else {
-        if (
-          targetBuild.result === 'canceled' ||
-          targetBuild.result === 'failed' ||
-          targetBuild.result === 'none'
-        ) {
-          throw new Error(`The selected ${to} build has ${targetBuild.result}`);
-        }
-      }
-
       const targetPipelineId = targetBuild.definition.id;
 
       const targetRunKey = `${teamProject}:${targetPipelineId}:${targetBuildId}`;
