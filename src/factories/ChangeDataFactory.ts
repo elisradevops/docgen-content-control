@@ -436,6 +436,8 @@ export default class ChangeDataFactory {
 
           let affectedArtifacts = 0;
           let removedChangesTotal = 0;
+          let dedupeAffectedArtifacts = 0;
+          let dedupeRemovedTotal = 0;
           // Optionally replace Task with parent Requirement (1 level) before filtering
           const baseArray = this.replaceTaskWithParent
             ? await this.applyTaskParentReplacement(this.rawChangesArray)
@@ -449,9 +451,15 @@ export default class ChangeDataFactory {
               affectedArtifacts++;
               removedChangesTotal += originalCount - filteredCount;
             }
+            const dedupedChanges = this.dedupeChangesByWorkItemLatest(filteredChanges);
+            const dedupedCount = dedupedChanges.length;
+            if (filteredCount !== dedupedCount) {
+              dedupeAffectedArtifacts++;
+              dedupeRemovedTotal += filteredCount - dedupedCount;
+            }
             return {
               ...item,
-              changes: filteredChanges,
+              changes: dedupedChanges,
             };
           });
 
@@ -460,7 +468,7 @@ export default class ChangeDataFactory {
             0
           );
           logger.info(
-            `jsonSkinDataAdapter: 'changes' after filter: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, affectedArtifacts=${affectedArtifacts}, changesRemoved=${removedChangesTotal}`
+            `jsonSkinDataAdapter: 'changes' after filter/dedupe: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, filterAffected=${affectedArtifacts}, filterRemoved=${removedChangesTotal}, dedupeAffected=${dedupeAffectedArtifacts}, dedupeRemoved=${dedupeRemovedTotal}`
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
           const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
@@ -1866,6 +1874,42 @@ export default class ChangeDataFactory {
       logger.debug(`applyTaskParentReplacement failed: ${e.message}`);
       return rawGroups;
     }
+  }
+
+  private getChangeCommitTimestamp(change: any): number {
+    const raw =
+      change?.commit?.committer?.date || change?.commit?.author?.date || change?.commitDate || undefined;
+    const ts = new Date(raw || 0).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  private dedupeChangesByWorkItemLatest(changes: any[] = []): any[] {
+    if (!Array.isArray(changes) || changes.length === 0) {
+      return changes;
+    }
+
+    const latestByWorkItem = new Map<number, any>();
+    const passthrough: any[] = [];
+
+    for (const change of changes) {
+      const wid = change?.workItem?.id;
+      if (typeof wid !== 'number') {
+        passthrough.push(change);
+        continue;
+      }
+      const prev = latestByWorkItem.get(wid);
+      if (!prev) {
+        latestByWorkItem.set(wid, change);
+        continue;
+      }
+      const ts = this.getChangeCommitTimestamp(change);
+      const prevTs = this.getChangeCommitTimestamp(prev);
+      if (ts >= prevTs) {
+        latestByWorkItem.set(wid, change);
+      }
+    }
+
+    return [...passthrough, ...latestByWorkItem.values()];
   }
 
   private filterChangesByWorkItemOptions(changes: any[] = []): any[] {

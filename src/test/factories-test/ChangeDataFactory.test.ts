@@ -1118,6 +1118,41 @@ describe('ChangeDataFactory', () => {
         expect(result).toBeDefined();
       });
 
+      it('changes adapter should keep only the latest commit per work item', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Repo 1' },
+            changes: [
+              {
+                workItem: { id: 1, fields: {}, _links: { html: { href: 'u1' } } },
+                commit: { commitId: 'c1', committer: { date: '2025-01-01T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 1, fields: {}, _links: { html: { href: 'u1' } } },
+                commit: { commitId: 'c2', committer: { date: '2025-02-01T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 2, fields: {}, _links: { html: { href: 'u2' } } },
+                commit: { commitId: 'c3', committer: { date: '2025-01-15T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges[0].changes).toHaveLength(2);
+        const wi1 = passedChanges[0].changes.find((c: any) => c.workItem.id === 1);
+        expect(wi1.commit.commitId).toBe('c2');
+      });
+
       it('jsonSkinDataAdapter changes should adapt changes data', async () => {
         const mockRawData = [
           {
