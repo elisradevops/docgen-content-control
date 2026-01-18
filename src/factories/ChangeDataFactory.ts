@@ -1475,9 +1475,7 @@ export default class ChangeDataFactory {
             const commitId = commit.commit?.commitId?.substring(0, 7) || 'unknown';
             return `${workItemId}:${commitId}`;
           });
-          logger.debug(
-            `  Commit sample (${sampleSize}/${allExtendedCommits.length}): ${sample.join(', ')}`
-          );
+          logger.debug(`  Commit sample (${sampleSize}/${allExtendedCommits.length}): ${sample.join(', ')}`);
         }
 
         artifactChanges.push(...allExtendedCommits);
@@ -1649,9 +1647,7 @@ export default class ChangeDataFactory {
           if (reportPartsForRepo) {
             const linkedCount = reportPartsForRepo?.length || 0;
             const unlinkedCount = reportPartsForRepoNoLink?.length || 0;
-            logger.debug(
-              `reportPartsForRepo summary: linked=${linkedCount}, unlinked=${unlinkedCount}`
-            );
+            logger.debug(`reportPartsForRepo summary: linked=${linkedCount}, unlinked=${unlinkedCount}`);
             artifactChanges.push(...reportPartsForRepo);
             artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
@@ -1723,6 +1719,19 @@ export default class ChangeDataFactory {
       logger.debug(`GetCommitBatch returned ${extendedCommits?.length || 0} commits`);
 
       if (extendedCommits?.length > 0) {
+        const workItemCommitIds = new Map<number, Set<string>>();
+        for (const entry of extendedCommits) {
+          const commit = entry?.commit;
+          const commitId = commit?.commitId;
+          if (!commitId || !Array.isArray(commit?.workItems)) continue;
+          for (const wi of commit.workItems) {
+            const workItemId = wi?.id;
+            if (typeof workItemId !== 'number') continue;
+            const ids = workItemCommitIds.get(workItemId) || new Set<string>();
+            ids.add(commitId);
+            workItemCommitIds.set(workItemId, ids);
+          }
+        }
         const targetRepo = {
           repoName: gitRepoName,
           gitSubModuleName: gitSubModuleName,
@@ -1757,21 +1766,7 @@ export default class ChangeDataFactory {
         commitsWithNoRelations.push(...commitsWithNoRelationsSubmodule);
 
         if (this.includePullRequestWorkItems) {
-          const workItemCommitIds = new Map<number, Set<string>>();
-          for (const entry of extendedCommits) {
-            const commit = entry?.commit;
-            const commitId = commit?.commitId;
-            if (!commitId || !Array.isArray(commit?.workItems)) continue;
-            for (const wi of commit.workItems) {
-              const workItemId = wi?.id;
-              if (typeof workItemId !== 'number') continue;
-              const ids = workItemCommitIds.get(workItemId) || new Set<string>();
-              ids.add(commitId);
-              workItemCommitIds.set(workItemId, ids);
-            }
-          }
-          const repoIdForPr =
-            gitRepoName || gitApisUrl?.split('/').filter(Boolean).pop() || this.repoId;
+          const repoIdForPr = gitRepoName || gitApisUrl?.split('/').filter(Boolean).pop() || this.repoId;
           if (repoIdForPr) {
             const commits = extendedCommits
               .map((entry: any) => entry?.commit)
@@ -2785,9 +2780,7 @@ export default class ChangeDataFactory {
     toVersionType: string
   ) {
     if (!itemPath) {
-      logger.info(
-        `Service ${serviceName}: Empty pathInGit treated as repo root; using repo-level diff`
-      );
+      logger.info(`Service ${serviceName}: Empty pathInGit treated as repo root; using repo-level diff`);
       const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
         provider,
         projectId,
@@ -3333,14 +3326,14 @@ export default class ChangeDataFactory {
       '',
       fromBuildId,
       toBuildId,
-    jfrogUploader,
-    null,
-    '',
-    true,
-    this.includePullRequestWorkItems,
-    '',
-    false,
-    false,
+      jfrogUploader,
+      null,
+      '',
+      true,
+      this.includePullRequestWorkItems,
+      '',
+      false,
+      false,
       this.dgDataProviderAzureDevOps,
       this.attachmentsBucketName,
       this.minioEndPoint,
