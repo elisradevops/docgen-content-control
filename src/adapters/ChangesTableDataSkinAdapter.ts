@@ -98,12 +98,12 @@ export default class ChangesTableDataSkinAdapter {
       return { value: change.build, url: change.workItem.url };
     }
 
-    if (change.pullrequest) {
-      return { value: change.pullrequest.description, url: change.pullrequest.url };
-    }
-
     if (change.commit) {
       return { value: change.commit.commitId.substring(0, 5), url: change.commit.remoteUrl };
+    }
+
+    if (change.pullrequest) {
+      return { value: change.pullrequest.description, url: change.pullrequest.url };
     }
   };
 
@@ -119,15 +119,15 @@ export default class ChangesTableDataSkinAdapter {
       };
     }
 
-    if (change.pullrequest) {
-      return {
-        value: this.convertDateToLocalTime(change.pullrequest.closedDate),
-      };
-    }
-
     if (change.commit) {
       return {
         value: this.convertDateToLocalTime(change.commit.author.date),
+      };
+    }
+
+    if (change.pullrequest) {
+      return {
+        value: this.convertDateToLocalTime(change.pullrequest.closedDate),
       };
     }
   };
@@ -144,15 +144,15 @@ export default class ChangesTableDataSkinAdapter {
       };
     }
 
-    if (change.pullrequest) {
-      return {
-        value: change.pullrequest.createdBy.displayName,
-      };
-    }
-
     if (change.commit) {
       return {
         value: change.commit.committer.name,
+      };
+    }
+
+    if (change.pullrequest) {
+      return {
+        value: change.pullrequest.createdBy.displayName,
       };
     }
   };
@@ -339,6 +339,8 @@ export default class ChangesTableDataSkinAdapter {
     });
 
     // Create the base fields for the work item
+    const prOnlyPrefix = change.pullRequestWorkItemOnly ? '[PR] ' : '';
+    const workItemTitle = `${prOnlyPrefix}${change.workItem.fields['System.Title'] || ''}`;
     const baseFields = [
       { name: '#', value: index + 1, width: '3.8%' },
       change.targetRepo
@@ -367,7 +369,7 @@ export default class ChangesTableDataSkinAdapter {
       },
       {
         name: 'WI Title',
-        value: `${change.workItem.fields['System.Title']}`,
+        value: workItemTitle,
       },
       {
         name: 'Change description',

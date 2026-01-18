@@ -36,6 +36,7 @@ export default class ChangeDataFactory {
   adoptedChangeData: any[] = [];
   branchName: string;
   includePullRequests: boolean;
+  includePullRequestWorkItems: boolean;
   attachmentWikiUrl: string = '';
   includeChangeDescription: boolean;
   includeCommittedBy: boolean;
@@ -77,6 +78,7 @@ export default class ChangeDataFactory {
     linkTypeFilterArray: string[],
     branchName: string,
     includePullRequests: boolean,
+    includePullRequestWorkItems: boolean,
     attachmentWikiUrl: string,
     includeChangeDescription: boolean,
     includeCommittedBy: boolean,
@@ -106,6 +108,7 @@ export default class ChangeDataFactory {
     this.linkTypeFilterArray = linkTypeFilterArray;
     this.branchName = branchName;
     this.includePullRequests = includePullRequests;
+    this.includePullRequestWorkItems = includePullRequestWorkItems;
     this.attachmentWikiUrl = attachmentWikiUrl;
     this.includeChangeDescription = includeChangeDescription;
     this.includeCommittedBy = includeCommittedBy;
@@ -596,7 +599,8 @@ export default class ChangeDataFactory {
       this.repoId,
       commitsInCommitRange,
       this.linkedWiOptions,
-      this.includeUnlinkedCommits
+      this.includeUnlinkedCommits,
+      this.includePullRequestWorkItems
     );
 
     this.isChangesReachedMaxSize(this.rangeType, commitChangesArray?.length);
@@ -651,7 +655,8 @@ export default class ChangeDataFactory {
         this.repoId,
         commitsInDateRange,
         this.linkedWiOptions,
-        this.includeUnlinkedCommits
+        this.includeUnlinkedCommits,
+        this.includePullRequestWorkItems
       );
       artifactChanges = [...commitChangesArray];
       artifactChangesNoLink = [...commitsWithNoRelations];
@@ -1157,6 +1162,7 @@ export default class ChangeDataFactory {
                   null,
                   '',
                   true,
+                  this.includePullRequestWorkItems,
                   '',
                   false,
                   false,
@@ -1469,9 +1475,7 @@ export default class ChangeDataFactory {
             const commitId = commit.commit?.commitId?.substring(0, 7) || 'unknown';
             return `${workItemId}:${commitId}`;
           });
-          logger.debug(
-            `  Commit sample (${sampleSize}/${allExtendedCommits.length}): ${sample.join(', ')}`
-          );
+          logger.debug(`  Commit sample (${sampleSize}/${allExtendedCommits.length}): ${sample.join(', ')}`);
         }
 
         artifactChanges.push(...allExtendedCommits);
@@ -1643,9 +1647,7 @@ export default class ChangeDataFactory {
           if (reportPartsForRepo) {
             const linkedCount = reportPartsForRepo?.length || 0;
             const unlinkedCount = reportPartsForRepoNoLink?.length || 0;
-            logger.debug(
-              `reportPartsForRepo summary: linked=${linkedCount}, unlinked=${unlinkedCount}`
-            );
+            logger.debug(`reportPartsForRepo summary: linked=${linkedCount}, unlinked=${unlinkedCount}`);
             artifactChanges.push(...reportPartsForRepo);
             artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
@@ -1717,15 +1719,29 @@ export default class ChangeDataFactory {
       logger.debug(`GetCommitBatch returned ${extendedCommits?.length || 0} commits`);
 
       if (extendedCommits?.length > 0) {
+        const workItemCommitIds = new Map<number, Set<string>>();
+        for (const entry of extendedCommits) {
+          const commit = entry?.commit;
+          const commitId = commit?.commitId;
+          if (!commitId || !Array.isArray(commit?.workItems)) continue;
+          for (const wi of commit.workItems) {
+            const workItemId = wi?.id;
+            if (typeof workItemId !== 'number') continue;
+            const ids = workItemCommitIds.get(workItemId) || new Set<string>();
+            ids.add(commitId);
+            workItemCommitIds.set(workItemId, ids);
+          }
+        }
+        const targetRepo = {
+          repoName: gitRepoName,
+          gitSubModuleName: gitSubModuleName,
+          url: gitApisUrl,
+        };
         const { commitChangesArray, commitsWithNoRelations: unrelatedCommits } =
           await gitDataProvider.getItemsForPipelineRange(
             teamProject,
             extendedCommits,
-            {
-              repoName: gitRepoName,
-              gitSubModuleName: gitSubModuleName,
-              url: gitApisUrl,
-            },
+            targetRepo,
             includedWorkItemByIdSet,
             linkedWiOptions,
             this.includeUnlinkedCommits
@@ -1748,12 +1764,83 @@ export default class ChangeDataFactory {
           );
         allExtendedCommits.push(...commitsWithRelatedWi);
         commitsWithNoRelations.push(...commitsWithNoRelationsSubmodule);
+
+        if (this.includePullRequestWorkItems) {
+          const repoIdForPr = gitRepoName || gitApisUrl?.split('/').filter(Boolean).pop() || this.repoId;
+          if (repoIdForPr) {
+            const commits = extendedCommits
+              .map((entry: any) => entry?.commit)
+              .filter((commit: any) => commit && commit.commitId);
+            if (commits.length > 0) {
+              const commitById = new Map(commits.map((commit: any) => [commit.commitId, commit]));
+              const prLinkedItems = await gitDataProvider.GetPullRequestsLinkedItemsInCommitRange(
+                teamProject,
+                repoIdForPr,
+                { value: commits }
+              );
+              this.markPrOnlyOnMergeCommit(allExtendedCommits, workItemCommitIds, prLinkedItems);
+              for (const item of prLinkedItems || []) {
+                const workItemId = item?.workItem?.id;
+                if (typeof workItemId !== 'number') continue;
+                if (includedWorkItemByIdSet?.has(workItemId)) continue;
+                includedWorkItemByIdSet?.add(workItemId);
+                const mergeCommitId = item?.pullrequest?.lastMergeCommit?.commitId;
+                const mergeCommit = mergeCommitId ? commitById.get(mergeCommitId) : undefined;
+                allExtendedCommits.push({
+                  ...item,
+                  commit: mergeCommit ?? item.commit,
+                  targetRepo,
+                  pullRequestWorkItemOnly: true,
+                });
+              }
+            }
+          } else {
+            logger.debug('getCommitRangeChanges: repo identifier missing for PR work items');
+          }
+        }
       }
 
       return { allExtendedCommits, commitsWithNoRelations };
     } catch (error: any) {
       logger.error(`Cannot get commits for commit range ${gitRepoName} - ${error.message}`);
       throw error;
+    }
+  }
+
+  private markPrOnlyOnMergeCommit(
+    changes: any[],
+    workItemCommitIds: Map<number, Set<string>>,
+    prLinkedItems: any[]
+  ) {
+    const prWorkItemIds = new Set(
+      (prLinkedItems || [])
+        .map((item: any) => item?.workItem?.id)
+        .filter((workItemId: any) => typeof workItemId === 'number')
+    );
+    if (prWorkItemIds.size === 0) return;
+
+    const prMergeCommitIds = new Set(
+      (prLinkedItems || [])
+        .map((item: any) => item?.pullrequest?.lastMergeCommit?.commitId)
+        .filter((commitId: any) => typeof commitId === 'string' && commitId !== '')
+    );
+    if (prMergeCommitIds.size === 0) return;
+
+    for (const change of changes || []) {
+      const workItemId = change?.workItem?.id;
+      const commitId = change?.commit?.commitId;
+      if (typeof workItemId !== 'number' || !commitId) {
+        continue;
+      }
+      const commitIds = workItemCommitIds.get(workItemId);
+      if (
+        commitIds &&
+        commitIds.size === 1 &&
+        prWorkItemIds.has(workItemId) &&
+        prMergeCommitIds.has(commitId)
+      ) {
+        change.pullRequestWorkItemOnly = true;
+      }
     }
   }
 
@@ -2693,9 +2780,7 @@ export default class ChangeDataFactory {
     toVersionType: string
   ) {
     if (!itemPath) {
-      logger.info(
-        `Service ${serviceName}: Empty pathInGit treated as repo root; using repo-level diff`
-      );
+      logger.info(`Service ${serviceName}: Empty pathInGit treated as repo root; using repo-level diff`);
       const { allExtendedCommits, commitsWithNoRelations } = await this.getCommitRangeChanges(
         provider,
         projectId,
@@ -3124,6 +3209,7 @@ export default class ChangeDataFactory {
       null,
       '',
       true,
+      this.includePullRequestWorkItems,
       '',
       false,
       false,
@@ -3244,6 +3330,7 @@ export default class ChangeDataFactory {
       null,
       '',
       true,
+      this.includePullRequestWorkItems,
       '',
       false,
       false,

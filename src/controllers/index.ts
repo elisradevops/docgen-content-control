@@ -180,6 +180,7 @@ export default class DgContentControls {
             contentControlOptions.headingLevel,
             contentControlOptions.data.branchName,
             contentControlOptions.data.includePullRequests,
+            contentControlOptions.data.includePullRequestWorkItems,
             contentControlOptions.data.includeChangeDescription,
             contentControlOptions.data.includeCommittedBy,
             contentControlOptions.data.systemOverviewQuery,
@@ -975,6 +976,7 @@ export default class DgContentControls {
     headingLevel?: number,
     branchName?: string,
     includePullRequests?: boolean,
+    includePullRequestWorkItems?: boolean,
     includeChangeDescription: boolean = false,
     includeCommittedBy: boolean = false,
     systemOverviewQuery: any = null,
@@ -996,6 +998,7 @@ export default class DgContentControls {
       teamProjectName:${this.teamProjectName}
       branchName:${branchName}
       includePullRequests:${includePullRequests}
+      includePullRequestWorkItems:${includePullRequestWorkItems}
       attachmentsWikiUrl:${attachmentWikiUrl}
       linkedWiOptions:${JSON.stringify(linkedWiOptions)}`);
     try {
@@ -1008,6 +1011,7 @@ export default class DgContentControls {
         linkTypeFilterArray,
         branchName,
         includePullRequests,
+        includePullRequestWorkItems,
         attachmentWikiUrl,
         includeChangeDescription,
         includeCommittedBy,

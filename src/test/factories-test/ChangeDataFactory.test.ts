@@ -65,6 +65,7 @@ describe('ChangeDataFactory', () => {
     linkTypeFilterArray: ['Related'],
     branchName: 'main',
     includePullRequests: false,
+    includePullRequestWorkItems: false,
     attachmentWikiUrl: 'https://wiki.example.com/file.md',
     includeChangeDescription: true,
     includeCommittedBy: true,
@@ -159,6 +160,7 @@ describe('ChangeDataFactory', () => {
       defaultParams.linkTypeFilterArray,
       defaultParams.branchName,
       defaultParams.includePullRequests,
+      defaultParams.includePullRequestWorkItems,
       defaultParams.attachmentWikiUrl,
       defaultParams.includeChangeDescription,
       defaultParams.includeCommittedBy,
@@ -230,6 +232,7 @@ describe('ChangeDataFactory', () => {
       expect(changeDataFactory.linkTypeFilterArray).toBe(defaultParams.linkTypeFilterArray);
       expect(changeDataFactory.branchName).toBe(defaultParams.branchName);
       expect(changeDataFactory.includePullRequests).toBe(defaultParams.includePullRequests);
+      expect(changeDataFactory.includePullRequestWorkItems).toBe(defaultParams.includePullRequestWorkItems);
       expect(changeDataFactory.attachmentWikiUrl).toBe(defaultParams.attachmentWikiUrl);
       expect(changeDataFactory.includeChangeDescription).toBe(defaultParams.includeChangeDescription);
       expect(changeDataFactory.includeCommittedBy).toBe(defaultParams.includeCommittedBy);
@@ -280,6 +283,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -360,7 +364,8 @@ describe('ChangeDataFactory', () => {
         defaultParams.repoId,
         mockCommits,
         undefined,
-        false
+        false,
+        defaultParams.includePullRequestWorkItems
       );
       expect(changeDataFactory.getRawData()).toEqual([
         {
@@ -413,6 +418,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -460,7 +466,8 @@ describe('ChangeDataFactory', () => {
         defaultParams.repoId,
         mockCommits,
         undefined,
-        false
+        false,
+        defaultParams.includePullRequestWorkItems
       );
     });
 
@@ -477,6 +484,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         true, // includePullRequests
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -524,6 +532,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -584,6 +593,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -694,6 +704,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.linkTypeFilterArray,
         defaultParams.branchName,
         defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
         defaultParams.attachmentWikiUrl,
         defaultParams.includeChangeDescription,
         defaultParams.includeCommittedBy,
@@ -981,6 +992,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.linkTypeFilterArray,
           defaultParams.branchName,
           defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
           defaultParams.attachmentWikiUrl,
           defaultParams.includeChangeDescription,
           defaultParams.includeCommittedBy,
@@ -1022,6 +1034,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.linkTypeFilterArray,
           defaultParams.branchName,
           defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
           defaultParams.attachmentWikiUrl,
           defaultParams.includeChangeDescription,
           defaultParams.includeCommittedBy,
@@ -2678,6 +2691,71 @@ describe('ChangeDataFactory', () => {
           'unlinked-main',
           'unlinked-sub',
         ]);
+      });
+
+      it('getCommitRangeChanges should add PR-linked work items not found on merge commits', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          defaultParams.from,
+          defaultParams.to,
+          defaultParams.rangeType,
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          true,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const gitProvider: any = {
+          GetCommitBatch: jest.fn().mockResolvedValue([{ commit: { commitId: 'merge-1' } }]),
+          getItemsForPipelineRange: jest.fn().mockImplementation(
+            (_teamProject, _extendedCommits, _targetRepo, addedWorkItemByIdSet) => {
+              addedWorkItemByIdSet.add(100);
+              return {
+                commitChangesArray: [{ workItem: { id: 100 }, commit: { commitId: 'merge-1' } }],
+                commitsWithNoRelations: [],
+              };
+            }
+          ),
+          GetPullRequestsLinkedItemsInCommitRange: jest.fn().mockResolvedValue([
+            { workItem: { id: 100 }, pullrequest: { lastMergeCommit: { commitId: 'merge-1' } } },
+            { workItem: { id: 200 }, pullrequest: { lastMergeCommit: { commitId: 'merge-1' } } },
+          ]),
+        };
+
+        jest.spyOn(factory, 'parseSubModules').mockResolvedValue({
+          commitsWithRelatedWi: [],
+          commitsWithNoRelations: [],
+        });
+
+        const result = await factory.getCommitRangeChanges(
+          gitProvider,
+          defaultParams.teamProject,
+          'fromSha',
+          'commit',
+          'toSha',
+          'commit',
+          'repoName',
+          'https://server/org/project/_git/repo',
+          new Set<number>(),
+          'subModule',
+          '/path',
+          factory.linkedWiOptions
+        );
+
+        expect(gitProvider.GetPullRequestsLinkedItemsInCommitRange).toHaveBeenCalled();
+        const prOnlyItem = result.allExtendedCommits.find((c: any) => c?.workItem?.id === 200);
+        expect(prOnlyItem.pullRequestWorkItemOnly).toBe(true);
+        expect(prOnlyItem.commit.commitId).toBe('merge-1');
       });
 
       it('getCommitRangeChanges should log and rethrow when GetCommitBatch fails', async () => {
