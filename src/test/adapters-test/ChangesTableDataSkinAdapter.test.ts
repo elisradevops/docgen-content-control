@@ -297,6 +297,44 @@ describe('ChangesTableDataSkinAdapter', () => {
     dateSpy.mockRestore();
   });
 
+  test('prefixes WI Title for PR-only items without changing Change #', async () => {
+    const commitChange = makeWorkItemChange({
+      build: undefined,
+      commit: {
+        commitId: 'abcde12345',
+        remoteUrl: 'http://commit/abcde',
+        author: { date: '2024-01-06T00:00:00Z' },
+        committer: { name: 'Sam Commit' },
+      },
+      pullRequestWorkItemOnly: true,
+    });
+
+    const groups = [makeArtifactGroup([commitChange])];
+    const adapter = new ChangesTableDataSkinAdapter(
+      groups,
+      true,
+      true,
+      'proj',
+      '/template',
+      'bucket',
+      'endpoint',
+      'access',
+      'secret',
+      'pat',
+      baseFormatting
+    );
+
+    await adapter.adoptSkinData();
+    const data = adapter.getAdoptedData();
+    const fields = data[0].artifactChanges[0].fields;
+
+    const titleField = fields.find((f: any) => f.name === 'WI Title');
+    expect(titleField.value).toBe('[PR] Fix bug');
+
+    const changeField = fields.find((f: any) => f.name === 'Change #');
+    expect(changeField.value).toBe('abcde');
+  });
+
   test('builds pull request change row respecting description and committer flags', async () => {
     const prChange = {
       title: 'PR 1',

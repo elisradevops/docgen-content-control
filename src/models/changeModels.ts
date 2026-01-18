@@ -54,6 +54,7 @@ export interface ChangeEntry {
   workItem?: WorkItemInfo;
   commit?: CommitInfo;
   pullrequest?: PullRequestInfo;
+  pullRequestWorkItemOnly?: boolean;
   linkedItems?: LinkedItemRelation[];
   targetRepo?: TargetRepoInfo;
   build?: number | string;
