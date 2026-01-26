@@ -19,7 +19,7 @@
   "license": "ISC",
   "dependencies": {
     "-": "0.0.1",
-    "@elisra-devops/docgen-data-provider": "^1.69.17",
+    "@elisra-devops/docgen-data-provider": "^1.69.19",
     "@elisra-devops/docgen-skins": "^0.23.0",
     "@types/html-minifier-terser": "^7.0.2",
     "axios": "^1.7.2",

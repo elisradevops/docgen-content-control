@@ -1683,6 +1683,25 @@ export default class ChangeDataFactory {
     return 'https://' + gitRepoUrl.split('@').pop();
   }
 
+  private resolveProjectNameFromGitApiUrl(gitApiUrl: string, fallback: string): string {
+    if (!gitApiUrl) return fallback;
+    const resolveFromPath = (pathname: string) => {
+      const segments = pathname.split('/').filter(Boolean);
+      const apiIndex = segments.indexOf('_apis');
+      return apiIndex > 0 ? segments[apiIndex - 1] : '';
+    };
+    const pathOnly = gitApiUrl.split('?')[0];
+    try {
+      const parsed = new URL(pathOnly);
+      const projectFromUrl = resolveFromPath(parsed.pathname);
+      if (projectFromUrl) return projectFromUrl;
+    } catch {
+      // Ignore URL parsing errors and fall back to raw path parsing.
+    }
+    const projectFromPath = resolveFromPath(pathOnly);
+    return projectFromPath || fallback;
+  }
+
   /**
    * Compute commit-range changes (linked and unlinked) for a repository or submodule path.
    * Wraps provider calls to GetCommitBatch and getItemsForPipelineRange, and also invokes submodule parsing.
@@ -1707,6 +1726,7 @@ export default class ChangeDataFactory {
       let gitApisUrl = gitRepoUrl.includes('/_git/')
         ? gitRepoUrl.replace('/_git/', '/_apis/git/repositories/')
         : gitRepoUrl;
+      const projectForRepo = this.resolveProjectNameFromGitApiUrl(gitApisUrl, teamProject);
 
       logger.debug(`fetching commits for ${gitRepoName} from ${fromVersion} to ${toVersion}`);
       let extendedCommits = await gitDataProvider.GetCommitBatch(
@@ -1752,7 +1772,7 @@ export default class ChangeDataFactory {
         const { commitsWithRelatedWi, commitsWithNoRelations: commitsWithNoRelationsSubmodule } =
           await this.parseSubModules(
             gitDataProvider,
-            teamProject,
+            projectForRepo,
             gitRepoName,
             toVersion,
             fromVersion,
@@ -1774,7 +1794,7 @@ export default class ChangeDataFactory {
             if (commits.length > 0) {
               const commitById = new Map(commits.map((commit: any) => [commit.commitId, commit]));
               const prLinkedItems = await gitDataProvider.GetPullRequestsLinkedItemsInCommitRange(
-                teamProject,
+                projectForRepo,
                 repoIdForPr,
                 { value: commits }
               );
