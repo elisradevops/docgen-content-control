@@ -64,3 +64,4 @@ typings/
 bin
 .vscode
 junit.xml
+.github/.DS_Store
