@@ -11,6 +11,7 @@ import { contentControl } from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
 import RequirementsDataFactory from '../factories/RequirementsDataFactory';
+import { formatLocalILShort } from '../services/adapterUtils';
 
 let defaultStyles = {
   isBold: false,
@@ -21,6 +22,69 @@ let defaultStyles = {
   Font: 'Arial',
   InsertLineBreak: false,
   InsertSpace: false,
+};
+
+const normalizeKey = (value: any) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+
+const normalizeOutcome = (value: any) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Not Run';
+  const normalized = raw.toLowerCase();
+  if (normalized === 'unspecified') return 'Not Run';
+  if (normalized === 'notapplicable' || normalized === 'not applicable') return 'Not Applicable';
+  if (normalized === 'passed') return 'Passed';
+  if (normalized === 'failed') return 'Failed';
+  if (normalized === 'notrun' || normalized === 'not run') return 'Not Run';
+  return raw;
+};
+
+const toCustomFieldKey = (referenceName: any) => {
+  const parts = String(referenceName || '').split('.');
+  const last = parts[parts.length - 1] || '';
+  if (!last) return '';
+  return last.charAt(0).toLowerCase() + last.slice(1);
+};
+
+const valueToString = (value: any) => {
+  if (value == null) return '';
+  if (typeof value === 'object') {
+    if (value.displayName) return String(value.displayName);
+    if (value.name) return String(value.name);
+  }
+  return String(value);
+};
+
+const readCustomField = (
+  customFields: any,
+  referenceName: string | undefined,
+  fallbackLabels: string[] = []
+) => {
+  if (!customFields || typeof customFields !== 'object') return '';
+  if (referenceName) {
+    const key = toCustomFieldKey(referenceName);
+    if (key && Object.prototype.hasOwnProperty.call(customFields, key)) {
+      const direct = customFields[key];
+      if (direct !== undefined && direct !== null && String(direct).trim() !== '') {
+        return valueToString(direct);
+      }
+    }
+  }
+  if (fallbackLabels.length === 0) return '';
+  const fallbackSet = new Set(fallbackLabels.map(normalizeKey));
+  for (const [key, value] of Object.entries(customFields)) {
+    if (fallbackSet.has(normalizeKey(key))) {
+      return valueToString(value);
+    }
+  }
+  return '';
+};
+
+const extractRelNumber = (suiteName: any) => {
+  const match = /\bRel\s*(\d+)\b/i.exec(String(suiteName || ''));
+  return match ? match[1] : '';
 };
 
 //!ADD HANDLING OF DEFUALT STYLES
@@ -958,6 +1022,128 @@ export default class DgContentControls {
       return contentControls;
     } catch (error) {
       logger.error(`Error adding Test Reporter content ${error}`);
+      throw error;
+    }
+  }
+
+  async addTestReporterFlatContent(
+    testPlanId: number,
+    testSuiteArray: number[] | undefined,
+    selectedFields: string[] = [],
+    flatFieldMap: Record<string, string> | undefined,
+    includeAllHistory: boolean = false
+  ) {
+    try {
+      if (!testPlanId) {
+        throw new Error('No plan has been selected');
+      }
+
+      if (!this.teamProjectName) {
+        throw new Error('Project name is not defined');
+      }
+
+      const resultDataProvider = await this.dgDataProviderAzureDevOps.getResultDataProvider();
+      const suiteIds =
+        Array.isArray(testSuiteArray) && testSuiteArray.length > 0 ? testSuiteArray : undefined;
+
+      const flatResults = await (resultDataProvider as any).getTestReporterFlatResults(
+        String(testPlanId),
+        this.teamProjectName,
+        suiteIds,
+        selectedFields,
+        includeAllHistory
+      );
+
+      const loadingData = formatLocalILShort(new Date());
+      const planName = flatResults?.planName || `Test Plan ${testPlanId}`;
+      const rows = Array.isArray(flatResults?.rows) ? flatResults.rows : [];
+
+      const mappedRows = rows.map((row: any) => {
+        const customFields = row?.customFields || {};
+        const suiteName = row?.suiteName || '';
+        const numberRel = extractRelNumber(suiteName);
+
+        const subSystem = readCustomField(customFields, flatFieldMap?.SubSystem, [
+          'subsystem',
+          'sub system',
+          'sub_system',
+        ]);
+        const assignedTo = readCustomField(customFields, flatFieldMap?.['Assigned To Test'], [
+          'assigned to test',
+          'assigned to',
+        ]);
+        const testCaseState = readCustomField(customFields, flatFieldMap?.['testCase.State'], [
+          'state',
+          'testcase state',
+        ]);
+
+        const resultsOutcome = normalizeOutcome(row?.pointOutcome);
+        const runStatsOutcome = normalizeOutcome(row?.runStatsOutcome ?? row?.pointOutcome);
+        const stepOutcome = normalizeOutcome(row?.stepOutcome);
+        const rawRunDate = row?.runDateCompleted || row?.executionDate;
+        const isZeroDate =
+          typeof rawRunDate === 'string' &&
+          (/^0000-00-00/i.test(rawRunDate) || /^0001-01-01/i.test(rawRunDate));
+        const runDateCompleted = isZeroDate ? '' : formatLocalILShort(rawRunDate);
+
+        return {
+          PlanID: row?.planId ?? flatResults?.planId ?? '',
+          PlanName: row?.planName ?? planName,
+          'Suites.parentSuite.name': row?.parentSuiteName ?? '',
+          'Suites.parentSuite.ID': row?.parentSuiteId ?? '',
+          'Suites.name': suiteName,
+          'Suites.id': row?.suiteId ?? '',
+          'Steps.Steps.outcome': stepOutcome,
+          'Steps.Steps.stepIdentifier': row?.stepStepIdentifier ?? '',
+          SubSystem: subSystem,
+          'TestCase.id': row?.testCaseId ?? '',
+          'testCase.State': testCaseState,
+          ResultsOutcome: resultsOutcome,
+          testCaseResults: row?.testCaseResultMessage || resultsOutcome,
+          'TestCaseResults.RunDateCompleted': runDateCompleted,
+          'TestCaseResults.RunStats.outcome': runStatsOutcome,
+          'TestCaseResults.testRunId': row?.testRunId ?? '',
+          'TestCaseResults.testPointId': row?.testPointId ?? '',
+          'Assigned To Test': assignedTo,
+          tester: row?.tester ?? '',
+          'Number Rel': numberRel,
+          'Loading Data': loadingData,
+        };
+      });
+
+      return {
+        title: 'test-reporter-flat-content-control',
+        wordObjects: [
+          {
+            type: 'FlatTestReporter',
+            testPlanName: planName,
+            rows: mappedRows,
+          },
+        ],
+        allowGrouping: false,
+      };
+    } catch (error) {
+      logger.error(`Error adding flat Test Reporter content ${error.message}`);
+      throw error;
+    }
+  }
+
+  async generateTestReporterFlatContent(contentControlOptions: any) {
+    try {
+      const data = contentControlOptions?.data || {};
+      const contentControlData = await this.addTestReporterFlatContent(
+        data.testPlanId,
+        data.testSuiteArray,
+        data.selectedFields,
+        data.flatFieldMap,
+        data.includeAllHistory
+      );
+      let jsonLocalData = await this.writeToJson(contentControlData);
+      let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
+      this.deleteFile(jsonLocalData);
+      return jsonData;
+    } catch (error) {
+      logger.error(`Error generating flat Test Reporter content ${error.message}`);
       throw error;
     }
   }
