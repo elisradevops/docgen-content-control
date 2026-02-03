@@ -23,6 +23,27 @@ export function formatLocalIL(dateLike: string | Date | undefined | null): strin
   }
 }
 
+export function formatLocalILShort(dateLike: string | Date | undefined | null): string {
+  if (!dateLike) return '';
+  try {
+    const date = new Date(dateLike);
+    if (isNaN(date.getTime())) return '';
+    if (date.getFullYear() < 1970) return '';
+    const formatted = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Jerusalem',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(date);
+    return formatted.replace(',', '');
+  } catch {
+    return '';
+  }
+}
+
 export function buildReleaseRunChangeComparator<T>(
   getReleaseVersion: (item: T) => string,
   getReleaseRunDate: (item: T) => any,

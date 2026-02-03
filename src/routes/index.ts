@@ -103,6 +103,36 @@ export class Routes {
       }
     });
 
+    app.route('/generate-test-reporter-flat').post(async ({ body }: Request, res: Response) => {
+      try {
+        const dgContentControls = new DgContentControls(
+          body.orgUrl,
+          body.token,
+          body.attachmentsBucketName,
+          body.projectName,
+          body.outputType,
+          body.templateUrl,
+          body.minioEndPoint,
+          body.minioAccessKey,
+          body.minioSecretKey,
+          undefined,
+          body.formattingSettings,
+        );
+        logger.info(`flat test reporter request recieved with body :
+          ${JSON.stringify(body)}`);
+        await dgContentControls.init();
+        let resJson: any = await dgContentControls.generateTestReporterFlatContent(
+          body.contentControlOptions
+        );
+        resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
+        resJson.isExcelSpreadsheet = true;
+        res.status(StatusCodes.OK).json(resJson);
+      } catch (error) {
+        logger.error(`flat test reporter module error : ${error.message}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      }
+    });
+
     // Azure DevOps data proxy endpoints
     // Management
     app.route('/azure/projects').post(async ({ body }: Request, res: Response) => {
