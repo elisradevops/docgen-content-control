@@ -82,9 +82,13 @@ const readCustomField = (
   return '';
 };
 
-const extractRelNumber = (suiteName: any) => {
-  const match = /\bRel\s*(\d+)\b/i.exec(String(suiteName || ''));
-  return match ? match[1] : '';
+const extractRelNumber = (...suiteNames: any[]) => {
+  const pattern = /(?:^|[^a-z0-9])rel\s*([0-9]+)/i;
+  for (const name of suiteNames) {
+    const match = pattern.exec(String(name || ''));
+    if (match) return match[1];
+  }
+  return '';
 };
 
 //!ADD HANDLING OF DEFUALT STYLES
@@ -1061,7 +1065,7 @@ export default class DgContentControls {
       const mappedRows = rows.map((row: any) => {
         const customFields = row?.customFields || {};
         const suiteName = row?.suiteName || '';
-        const numberRel = extractRelNumber(suiteName);
+        const numberRel = extractRelNumber(suiteName, row?.parentSuiteName, row?.suitePath);
 
         const subSystem = readCustomField(customFields, flatFieldMap?.SubSystem, [
           'subsystem',
