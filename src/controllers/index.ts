@@ -1097,7 +1097,10 @@ export default class DgContentControls {
 
         const resultsOutcome = normalizeOutcome(row?.pointOutcome);
         const runStatsOutcome = normalizeOutcome(row?.runStatsOutcome ?? row?.pointOutcome);
-        const stepOutcome = normalizeOutcome(row?.stepOutcome);
+        const hasStepData =
+          String(row?.stepStepIdentifier ?? '').trim() !== '' ||
+          String(row?.stepOutcome ?? '').trim() !== '';
+        const stepOutcome = hasStepData ? normalizeOutcome(row?.stepOutcome) : '';
         const rawRunDate = row?.runDateCompleted || row?.executionDate;
         const isZeroDate =
           typeof rawRunDate === 'string' &&
