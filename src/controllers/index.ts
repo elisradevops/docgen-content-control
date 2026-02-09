@@ -239,7 +239,8 @@ export default class DgContentControls {
             contentControlOptions.data.allowGrouping,
             contentControlOptions.data.linkedQueryRequest,
             contentControlOptions.data.errorFilterMode,
-            contentControlOptions.data.includeAllHistory
+            contentControlOptions.data.includeAllHistory,
+            contentControlOptions.data.includeMewpL2Coverage
           );
           break;
         case 'change-description-table':
@@ -924,7 +925,8 @@ export default class DgContentControls {
     allowGrouping?: boolean,
     linkedQueryRequest?: any,
     errorFilterMode?: string,
-    includeAllHistory?: boolean
+    includeAllHistory?: boolean,
+    includeMewpL2Coverage?: boolean
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -1028,7 +1030,12 @@ export default class DgContentControls {
         contentControls.push(contentControl);
       });
 
-      await this.addMewpL2CoverageSheetIfNeeded(contentControls, testPlanId, testSuiteArray);
+      await this.addMewpL2CoverageSheetIfNeeded(
+        contentControls,
+        testPlanId,
+        testSuiteArray,
+        includeMewpL2Coverage
+      );
 
       return contentControls;
     } catch (error) {
@@ -1142,9 +1149,10 @@ export default class DgContentControls {
   private async addMewpL2CoverageSheetIfNeeded(
     contentControls: contentControl[],
     testPlanId: number,
-    testSuiteArray: number[]
+    testSuiteArray: number[],
+    includeMewpL2Coverage: boolean = true
   ) {
-    if (!isMewpProject(this.teamProjectName)) return;
+    if (!isMewpProject(this.teamProjectName) || !includeMewpL2Coverage) return;
 
     try {
       const resultDataProvider = await this.dgDataProviderAzureDevOps.getResultDataProvider();
