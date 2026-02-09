@@ -91,6 +91,11 @@ const extractRelNumber = (...suiteNames: any[]) => {
   return '';
 };
 
+const isMewpProject = (projectName: string | undefined) =>
+  String(projectName || '')
+    .trim()
+    .toLowerCase() === 'mewp';
+
 //!ADD HANDLING OF DEFUALT STYLES
 export default class DgContentControls {
   uri: string;
@@ -1023,6 +1028,8 @@ export default class DgContentControls {
         contentControls.push(contentControl);
       });
 
+      await this.addMewpL2CoverageSheetIfNeeded(contentControls, testPlanId, testSuiteArray);
+
       return contentControls;
     } catch (error) {
       logger.error(`Error adding Test Reporter content ${error}`);
@@ -1129,6 +1136,81 @@ export default class DgContentControls {
     } catch (error) {
       logger.error(`Error adding flat Test Reporter content ${error.message}`);
       throw error;
+    }
+  }
+
+  private async addMewpL2CoverageSheetIfNeeded(
+    contentControls: contentControl[],
+    testPlanId: number,
+    testSuiteArray: number[]
+  ) {
+    if (!isMewpProject(this.teamProjectName)) return;
+
+    try {
+      const resultDataProvider = await this.dgDataProviderAzureDevOps.getResultDataProvider();
+      const mewpCoverage = await (resultDataProvider as any).getMewpL2CoverageFlatResults(
+        String(testPlanId),
+        this.teamProjectName,
+        testSuiteArray
+      );
+
+      const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
+      const sheetName =
+        String(mewpCoverage?.sheetName || '').trim() || `MEWP L2 Coverage - Plan ${String(testPlanId)}`;
+
+      const toCount = (value: any) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : 0;
+      };
+      const toRequirementTestCaseId = (requirementId: string, fallbackIndex: number) => {
+        const match = /^SR0*([0-9]+)$/i.exec(requirementId);
+        if (!match) return fallbackIndex + 1;
+        const numeric = Number.parseInt(match[1], 10);
+        return Number.isFinite(numeric) && numeric > 0 ? numeric : fallbackIndex + 1;
+      };
+      const testCases = rows.map((row: any, index: number) => {
+        const requirementId = String(row?.['Requirement ID'] || '').trim();
+        const requirementTitle = String(row?.['Requirement Title'] || '').trim();
+        const customerRequirement = String(row?.['Customer Requirement'] || '').trim();
+        return {
+          testCaseId: toRequirementTestCaseId(requirementId, index),
+          testCaseName:
+            requirementTitle ||
+            customerRequirement ||
+            requirementId ||
+            `Requirement ${String(index + 1)}`,
+          failureType: '',
+          customFields: {
+            customerRequirement,
+            requirementId,
+            requirementTitle,
+            responsibility: String(row?.Responsibility || '').trim(),
+            sapwbsResponsibility: String(row?.['SAPWBS / Responsibility'] || '').trim(),
+            numberOfPassedSteps: toCount(row?.['Number of passed steps']),
+            numberOfFailedSteps: toCount(row?.['Number of failed steps']),
+            numberOfStepsNotRun: toCount(row?.['Number of steps not run']),
+          },
+        };
+      });
+
+      contentControls.push({
+        title: 'mewp-l2-coverage-content-control',
+        wordObjects: [
+          {
+            type: 'testReporter',
+            testPlanName: sheetName,
+            testSuites: [
+              {
+                suiteName: 'L2 Requirement Coverage',
+                testCases,
+              },
+            ],
+          },
+        ],
+        allowGrouping: false,
+      } as any);
+    } catch (error) {
+      logger.error(`Error adding MEWP L2 coverage sheet ${(error as any)?.message || error}`);
     }
   }
 
