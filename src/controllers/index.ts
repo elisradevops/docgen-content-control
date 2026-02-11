@@ -1034,7 +1034,8 @@ export default class DgContentControls {
         contentControls,
         testPlanId,
         testSuiteArray,
-        includeMewpL2Coverage
+        includeMewpL2Coverage,
+        linkedQueryRequest
       );
 
       return contentControls;
@@ -1097,7 +1098,10 @@ export default class DgContentControls {
 
         const resultsOutcome = normalizeOutcome(row?.pointOutcome);
         const runStatsOutcome = normalizeOutcome(row?.runStatsOutcome ?? row?.pointOutcome);
-        const stepOutcome = normalizeOutcome(row?.stepOutcome);
+        const hasStepData =
+          String(row?.stepStepIdentifier ?? '').trim() !== '' ||
+          String(row?.stepOutcome ?? '').trim() !== '';
+        const stepOutcome = hasStepData ? normalizeOutcome(row?.stepOutcome) : '';
         const rawRunDate = row?.runDateCompleted || row?.executionDate;
         const isZeroDate =
           typeof rawRunDate === 'string' &&
@@ -1150,7 +1154,8 @@ export default class DgContentControls {
     contentControls: contentControl[],
     testPlanId: number,
     testSuiteArray: number[],
-    includeMewpL2Coverage: boolean = true
+    includeMewpL2Coverage: boolean = true,
+    linkedQueryRequest?: any
   ) {
     if (!isMewpProject(this.teamProjectName) || !includeMewpL2Coverage) return;
 
@@ -1159,60 +1164,23 @@ export default class DgContentControls {
       const mewpCoverage = await (resultDataProvider as any).getMewpL2CoverageFlatResults(
         String(testPlanId),
         this.teamProjectName,
-        testSuiteArray
+        testSuiteArray,
+        linkedQueryRequest
       );
 
       const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
+      const columnOrder = Array.isArray(mewpCoverage?.columnOrder) ? mewpCoverage.columnOrder : [];
       const sheetName =
         String(mewpCoverage?.sheetName || '').trim() || `MEWP L2 Coverage - Plan ${String(testPlanId)}`;
-
-      const toCount = (value: any) => {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : 0;
-      };
-      const toRequirementTestCaseId = (requirementId: string, fallbackIndex: number) => {
-        const match = /^SR0*([0-9]+)$/i.exec(requirementId);
-        if (!match) return fallbackIndex + 1;
-        const numeric = Number.parseInt(match[1], 10);
-        return Number.isFinite(numeric) && numeric > 0 ? numeric : fallbackIndex + 1;
-      };
-      const testCases = rows.map((row: any, index: number) => {
-        const requirementId = String(row?.['Requirement ID'] || '').trim();
-        const requirementTitle = String(row?.['Requirement Title'] || '').trim();
-        const customerRequirement = String(row?.['Customer Requirement'] || '').trim();
-        return {
-          testCaseId: toRequirementTestCaseId(requirementId, index),
-          testCaseName:
-            requirementTitle ||
-            customerRequirement ||
-            requirementId ||
-            `Requirement ${String(index + 1)}`,
-          failureType: '',
-          customFields: {
-            customerRequirement,
-            requirementId,
-            requirementTitle,
-            responsibility: String(row?.Responsibility || '').trim(),
-            sapwbsResponsibility: String(row?.['SAPWBS / Responsibility'] || '').trim(),
-            numberOfPassedSteps: toCount(row?.['Number of passed steps']),
-            numberOfFailedSteps: toCount(row?.['Number of failed steps']),
-            numberOfStepsNotRun: toCount(row?.['Number of steps not run']),
-          },
-        };
-      });
 
       contentControls.push({
         title: 'mewp-l2-coverage-content-control',
         wordObjects: [
           {
-            type: 'testReporter',
+            type: 'MewpCoverageReporter',
             testPlanName: sheetName,
-            testSuites: [
-              {
-                suiteName: 'L2 Requirement Coverage',
-                testCases,
-              },
-            ],
+            columnOrder,
+            rows,
           },
         ],
         allowGrouping: false,
