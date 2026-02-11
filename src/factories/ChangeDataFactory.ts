@@ -466,15 +466,20 @@ export default class ChangeDataFactory {
             };
           });
 
-          const totalChangesAfter = filteredChangesArray.reduce(
+          const { groups: globallyDedupedChangesArray, removedChanges: crossArtifactDedupeRemoved } =
+            this.dedupeChangesAcrossArtifactsFirstOccurrence(filteredChangesArray);
+
+          const totalChangesAfter = globallyDedupedChangesArray.reduce(
             (acc: number, i: any) => acc + (i.changes?.length || 0),
             0
           );
           logger.info(
-            `jsonSkinDataAdapter: 'changes' after filter/dedupe: artifacts=${filteredChangesArray.length}, totalChanges=${totalChangesAfter}, filterAffected=${affectedArtifacts}, filterRemoved=${removedChangesTotal}, dedupeAffected=${dedupeAffectedArtifacts}, dedupeRemoved=${dedupeRemovedTotal}`
+            `jsonSkinDataAdapter: 'changes' after filter/dedupe: artifacts=${globallyDedupedChangesArray.length}, totalChanges=${totalChangesAfter}, filterAffected=${affectedArtifacts}, filterRemoved=${removedChangesTotal}, dedupeAffected=${dedupeAffectedArtifacts}, dedupeRemoved=${dedupeRemovedTotal}, crossArtifactDedupeRemoved=${crossArtifactDedupeRemoved}`
           );
           // Exclude artifacts that have zero linked changes from the 'changes' table display
-          const displayChangesArray = filteredChangesArray.filter((a: any) => (a.changes?.length || 0) > 0);
+          const displayChangesArray = globallyDedupedChangesArray.filter(
+            (a: any) => (a.changes?.length || 0) > 0
+          );
           logger.info(
             `jsonSkinDataAdapter: Displaying ${displayChangesArray.length} artifacts with non-empty changes`
           );
@@ -1990,6 +1995,99 @@ export default class ChangeDataFactory {
     return Number.isFinite(ts) ? ts : 0;
   }
 
+  /**
+   * Resolves a comparable occurrence timestamp for a change.
+   *
+   * Order of preference is commit timestamps, then PR timestamps, then work item close date.
+   * Returns null when no valid timestamp is available.
+   */
+  private getChangeOccurrenceTimestamp(change: any): number | null {
+    const raw =
+      change?.commit?.committer?.date ||
+      change?.commit?.author?.date ||
+      change?.commitDate ||
+      change?.pullrequest?.closedDate ||
+      change?.pullrequest?.creationDate ||
+      change?.workItem?.fields?.['Microsoft.VSTS.Common.ClosedDate'] ||
+      undefined;
+    if (!raw) return null;
+    const ts = new Date(raw).getTime();
+    return Number.isFinite(ts) ? ts : null;
+  }
+
+  /**
+   * Normalizes work item identifiers to a canonical string key.
+   *
+   * Numeric-like values are normalized by trimming leading zeros (e.g. "00042" -> "42").
+   * Non-numeric values are lowercased.
+   */
+  private normalizeWorkItemId(value: any): string | null {
+    if (value === undefined || value === null) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    if (/^\d+$/.test(raw)) {
+      return raw.replace(/^0+(?=\d)/, '');
+    }
+    return raw.toLowerCase();
+  }
+
+  /**
+   * Extracts a work item ID from common Azure DevOps work item URL patterns.
+   *
+   * Supports both UI edit URLs and REST-like workitems URLs.
+   */
+  private extractWorkItemIdFromUrl(url: any): string | null {
+    const raw = String(url || '').trim();
+    if (!raw) return null;
+    const match = raw.match(/\/_workitems\/edit\/(\d+)\b/i) || raw.match(/workitems\/(\d+)\b/i);
+    if (!match) return null;
+    return this.normalizeWorkItemId(match[1]);
+  }
+
+  /**
+   * Builds a stable deduplication key for a change's work item.
+   *
+   * Fallback chain:
+   * 1) workItem.id
+   * 2) workItem.fields["System.Id"]
+   * 3) workItem._links.html.href
+   * 4) workItem.url
+   */
+  private getWorkItemDedupeKey(change: any): string | null {
+    const workItem = change?.workItem;
+    const directId = this.normalizeWorkItemId(workItem?.id);
+    if (directId) return directId;
+
+    const systemId = this.normalizeWorkItemId(workItem?.fields?.['System.Id']);
+    if (systemId) return systemId;
+
+    const fromHtmlLink = this.extractWorkItemIdFromUrl(workItem?._links?.html?.href);
+    if (fromHtmlLink) return fromHtmlLink;
+
+    return this.extractWorkItemIdFromUrl(workItem?.url);
+  }
+
+  /**
+   * Determines whether a candidate occurrence should replace the current chosen occurrence.
+   *
+   * Selection rules:
+   * - Prefer entries that have timestamps over entries without timestamps.
+   * - When both have timestamps, prefer the later (newer) timestamp.
+   * - On exact tie, prefer the earlier sequence position for deterministic behavior.
+   */
+  private shouldPreferLaterOccurrence(
+    candidate: { hasTimestamp: boolean; timestamp: number; sequence: number },
+    current: { hasTimestamp: boolean; timestamp: number; sequence: number }
+  ): boolean {
+    if (candidate.hasTimestamp && !current.hasTimestamp) return true;
+    if (!candidate.hasTimestamp && current.hasTimestamp) return false;
+    if (candidate.hasTimestamp && current.hasTimestamp) {
+      if (candidate.timestamp > current.timestamp) return true;
+      if (candidate.timestamp < current.timestamp) return false;
+    }
+    return candidate.sequence < current.sequence;
+  }
+
   private dedupeChangesByWorkItemLatest(changes: any[] = []): any[] {
     if (!Array.isArray(changes) || changes.length === 0) {
       return changes;
@@ -2017,6 +2115,87 @@ export default class ChangeDataFactory {
     }
 
     return [...passthrough, ...latestByWorkItem.values()];
+  }
+
+  /**
+   * Deduplicates work items across all artifact groups and keeps a single best occurrence per WI.
+   *
+   * The selected occurrence is based on `shouldPreferLaterOccurrence`, i.e. newest timestamp wins.
+   * Items that do not expose a resolvable work-item key are kept as-is.
+   *
+   * @returns The transformed groups and a count of removed duplicate entries.
+   */
+  private dedupeChangesAcrossArtifactsFirstOccurrence(
+    groups: any[] = []
+  ): { groups: any[]; removedChanges: number } {
+    if (!Array.isArray(groups) || groups.length === 0) {
+      return { groups, removedChanges: 0 };
+    }
+
+    const bestByWorkItemKey = new Map<
+      string,
+      {
+        groupIndex: number;
+        changeIndex: number;
+        hasTimestamp: boolean;
+        timestamp: number;
+        sequence: number;
+      }
+    >();
+
+    let sequence = 0;
+    groups.forEach((group, groupIndex) => {
+      const changes = Array.isArray(group?.changes) ? group.changes : [];
+      changes.forEach((change, changeIndex) => {
+        const key = this.getWorkItemDedupeKey(change);
+        if (!key) {
+          sequence++;
+          return;
+        }
+
+        const occurrenceTs = this.getChangeOccurrenceTimestamp(change);
+        const candidate = {
+          groupIndex,
+          changeIndex,
+          hasTimestamp: occurrenceTs !== null,
+          timestamp: occurrenceTs ?? 0,
+          sequence,
+        };
+
+        const current = bestByWorkItemKey.get(key);
+        if (!current || this.shouldPreferLaterOccurrence(candidate, current)) {
+          bestByWorkItemKey.set(key, candidate);
+        }
+        sequence++;
+      });
+    });
+
+    let removedChanges = 0;
+
+    const dedupedGroups = groups.map((group, groupIndex) => {
+      const changes = Array.isArray(group?.changes) ? group.changes : [];
+      const dedupedChanges = changes.filter((change, changeIndex) => {
+        const key = this.getWorkItemDedupeKey(change);
+        if (!key) {
+          return true;
+        }
+
+        const best = bestByWorkItemKey.get(key);
+        const shouldKeep =
+          !!best && best.groupIndex === groupIndex && best.changeIndex === changeIndex;
+        if (!shouldKeep) {
+          removedChanges++;
+        }
+        return shouldKeep;
+      });
+
+      return {
+        ...group,
+        changes: dedupedChanges,
+      };
+    });
+
+    return { groups: dedupedGroups, removedChanges };
   }
 
   private filterChangesByWorkItemOptions(changes: any[] = []): any[] {

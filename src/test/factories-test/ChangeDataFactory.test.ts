@@ -1166,6 +1166,292 @@ describe('ChangeDataFactory', () => {
         expect(wi1.commit.commitId).toBe('c2');
       });
 
+      it('changes adapter should keep latest timestamp work item occurrence across artifacts', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Service A' },
+            changes: [
+              {
+                workItem: { id: 1, fields: {}, _links: { html: { href: 'u1' } } },
+                commit: { commitId: 'a1', committer: { date: '2025-01-01T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service B' },
+            changes: [
+              {
+                workItem: { id: 1, fields: {}, _links: { html: { href: 'u1' } } },
+                commit: { commitId: 'b1', committer: { date: '2025-02-01T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 2, fields: {}, _links: { html: { href: 'u2' } } },
+                commit: { commitId: 'b2', committer: { date: '2025-02-02T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(1);
+        expect(passedChanges[0].artifact.name).toBe('Service B');
+        expect(passedChanges[0].changes).toHaveLength(2);
+        expect(passedChanges[0].changes.map((c: any) => c.workItem.id)).toEqual([1, 2]);
+        expect(passedChanges[0].changes.find((c: any) => c.workItem.id === 1).commit.commitId).toBe('b1');
+      });
+
+      it('changes adapter should keep latest timestamp work item occurrence across nested pipeline-derived groups', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Pipeline Main' },
+            changes: [
+              {
+                workItem: { id: 100, fields: {}, _links: { html: { href: 'u100' } } },
+                commit: { commitId: 'p-main-1', committer: { date: '2025-03-01T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Pipeline Resource A' },
+            changes: [
+              {
+                workItem: { id: 100, fields: {}, _links: { html: { href: 'u100' } } },
+                commit: { commitId: 'p-nested-1', committer: { date: '2025-03-02T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 101, fields: {}, _links: { html: { href: 'u101' } } },
+                commit: { commitId: 'p-nested-2', committer: { date: '2025-03-03T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(1);
+        expect(passedChanges[0].artifact.name).toBe('Pipeline Resource A');
+        expect(passedChanges[0].changes.map((c: any) => c.workItem.id)).toEqual([100, 101]);
+      });
+
+      it('changes adapter should cascade dedupe across multiple service groups', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Service A' },
+            changes: [
+              {
+                workItem: { id: 200, fields: {}, _links: { html: { href: 'u200' } } },
+                commit: { commitId: 's-a-1', committer: { date: '2025-04-01T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service B' },
+            changes: [
+              {
+                workItem: { id: 200, fields: {}, _links: { html: { href: 'u200' } } },
+                commit: { commitId: 's-b-1', committer: { date: '2025-04-02T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 201, fields: {}, _links: { html: { href: 'u201' } } },
+                commit: { commitId: 's-b-2', committer: { date: '2025-04-03T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service C' },
+            changes: [
+              {
+                workItem: { id: 201, fields: {}, _links: { html: { href: 'u201' } } },
+                commit: { commitId: 's-c-1', committer: { date: '2025-04-04T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 202, fields: {}, _links: { html: { href: 'u202' } } },
+                commit: { commitId: 's-c-2', committer: { date: '2025-04-05T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(2);
+        expect(passedChanges[0].artifact.name).toBe('Service B');
+        expect(passedChanges[1].artifact.name).toBe('Service C');
+        expect(passedChanges[0].changes.map((c: any) => c.workItem.id)).toEqual([200]);
+        expect(passedChanges[1].changes.map((c: any) => c.workItem.id)).toEqual([201, 202]);
+      });
+
+      it('changes adapter should keep latest timestamp work item occurrence across submodule-derived artifact groups', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Repo Main' },
+            changes: [
+              {
+                workItem: { id: 300, fields: {}, _links: { html: { href: 'u300' } } },
+                commit: { commitId: 'main-1', committer: { date: '2025-05-01T00:00:00Z' } },
+                targetRepo: { repoName: 'Repo Main', gitSubModuleName: '' },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Repo Main / Submodule libs/core' },
+            changes: [
+              {
+                workItem: { id: 300, fields: {}, _links: { html: { href: 'u300' } } },
+                commit: { commitId: 'sub-1', committer: { date: '2025-05-02T00:00:00Z' } },
+                targetRepo: { repoName: 'Repo Main', gitSubModuleName: 'libs/core' },
+              },
+              {
+                workItem: { id: 301, fields: {}, _links: { html: { href: 'u301' } } },
+                commit: { commitId: 'sub-2', committer: { date: '2025-05-03T00:00:00Z' } },
+                targetRepo: { repoName: 'Repo Main', gitSubModuleName: 'libs/core' },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(1);
+        expect(passedChanges[0].artifact.name).toBe('Repo Main / Submodule libs/core');
+        expect(passedChanges[0].changes.map((c: any) => c.workItem.id)).toEqual([300, 301]);
+      });
+
+      it('changes adapter should keep latest timestamp occurrence across artifacts', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Service A' },
+            changes: [
+              {
+                workItem: { id: 400, fields: {}, _links: { html: { href: 'u400' } } },
+                commit: { commitId: 'a-late', committer: { date: '2025-06-05T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service B' },
+            changes: [
+              {
+                workItem: { id: 400, fields: {}, _links: { html: { href: 'u400' } } },
+                commit: { commitId: 'b-early', committer: { date: '2025-06-01T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 401, fields: {}, _links: { html: { href: 'u401' } } },
+                commit: { commitId: 'b-keep', committer: { date: '2025-06-02T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(2);
+        expect(passedChanges[0].artifact.name).toBe('Service A');
+        expect(passedChanges[1].artifact.name).toBe('Service B');
+        expect(passedChanges[0].changes.map((c: any) => c.workItem.id)).toEqual([400]);
+        expect(passedChanges[1].changes.map((c: any) => c.workItem.id)).toEqual([401]);
+        expect(passedChanges[0].changes.find((c: any) => String(c.workItem.id) === '400').commit.commitId).toBe(
+          'a-late'
+        );
+      });
+
+      it('changes adapter should dedupe work item ids across number/string/System.Id variants', async () => {
+        const factory = changeDataFactory as any;
+        const ChangesTableDataSkinAdapter = require('../../adapters/ChangesTableDataSkinAdapter');
+        ChangesTableDataSkinAdapter.mockClear();
+
+        const rawChangesArray = [
+          {
+            artifact: { name: 'Service A' },
+            changes: [
+              {
+                workItem: { id: '00500', fields: {}, _links: { html: { href: 'u500' } } },
+                commit: { commitId: 'a-mid', committer: { date: '2025-07-02T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service B' },
+            changes: [
+              {
+                workItem: { id: 500, fields: {}, _links: { html: { href: 'u500' } } },
+                commit: { commitId: 'b-late', committer: { date: '2025-07-03T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+          {
+            artifact: { name: 'Service C' },
+            changes: [
+              {
+                workItem: { fields: { 'System.Id': '500' }, _links: { html: { href: 'u500' } } },
+                commit: { commitId: 'c-early', committer: { date: '2025-07-01T00:00:00Z' } },
+              },
+              {
+                workItem: { id: 501, fields: {}, _links: { html: { href: 'u501' } } },
+                commit: { commitId: 'c-keep', committer: { date: '2025-07-04T00:00:00Z' } },
+              },
+            ],
+            nonLinkedCommits: [],
+          },
+        ];
+
+        factory.rawChangesArray = rawChangesArray;
+        await factory.jsonSkinDataAdapter('changes', rawChangesArray);
+
+        const passedChanges = ChangesTableDataSkinAdapter.mock.calls[0][0];
+        expect(passedChanges).toHaveLength(2);
+        expect(passedChanges[0].artifact.name).toBe('Service B');
+        expect(passedChanges[1].artifact.name).toBe('Service C');
+        expect(passedChanges[0].changes).toHaveLength(1);
+        expect(passedChanges[0].changes.find((c: any) => c.commit.commitId === 'b-late')).toBeDefined();
+        expect(passedChanges[1].changes).toHaveLength(1);
+        expect(passedChanges[1].changes.find((c: any) => c.workItem.id === 501)).toBeDefined();
+      });
+
       it('jsonSkinDataAdapter changes should adapt changes data', async () => {
         const mockRawData = [
           {
