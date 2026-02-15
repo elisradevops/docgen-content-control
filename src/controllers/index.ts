@@ -1034,8 +1034,7 @@ export default class DgContentControls {
         contentControls,
         testPlanId,
         testSuiteArray,
-        includeMewpL2Coverage,
-        linkedQueryRequest
+        includeMewpL2Coverage
       );
 
       return contentControls;
@@ -1154,8 +1153,7 @@ export default class DgContentControls {
     contentControls: contentControl[],
     testPlanId: number,
     testSuiteArray: number[],
-    includeMewpL2Coverage: boolean = true,
-    linkedQueryRequest?: any
+    includeMewpL2Coverage: boolean = true
   ) {
     if (!isMewpProject(this.teamProjectName) || !includeMewpL2Coverage) return;
 
@@ -1164,8 +1162,7 @@ export default class DgContentControls {
       const mewpCoverage = await (resultDataProvider as any).getMewpL2CoverageFlatResults(
         String(testPlanId),
         this.teamProjectName,
-        testSuiteArray,
-        linkedQueryRequest
+        testSuiteArray
       );
 
       const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
