@@ -3,6 +3,7 @@ import logger from './logger';
 import { minify } from 'html-minifier-terser';
 export default class HtmlUtils {
   $: cheerio.Root;
+  private readonly vlTokenRegex = /#VL-[\s\S]*?#/gi;
 
   constructor() {}
 
@@ -753,17 +754,19 @@ export default class HtmlUtils {
       this.removeInvalidInlineWrappersAroundBlocks();
       // Step 10: Clear <br> before end of paragraph
       this.clearBrBeforeEndOfParagraph();
-      // Step 11: Remove <img> elements if needed
+      // Step 11: Merge fragmented VL tokens split by copy/paste paragraph boundaries.
+      this.mergeFragmentedVlParagraphs();
+      // Step 12: Remove <img> elements if needed
       if (needToRemoveImg) {
         this.removeImgElements();
       }
-      // Step 12: Split paragraphs if table cell content and trimAdditionalSpacingInTables is enabled
+      // Step 13: Split paragraphs if table cell content and trimAdditionalSpacingInTables is enabled
       if (splitParagraphsIntoSeparateElements) {
         this.splitParagraphsIntoSeparateElements();
       }
-      // Step 13: Trim text nodes before returning
+      // Step 14: Trim text nodes before returning
       this.trimTextNodes();
-      // Step 14: Trim whitespace around <br> tags
+      // Step 15: Trim whitespace around <br> tags
       this.trimWhitespaceAroundBr();
       return this.$.html();
     } catch (error: any) {
@@ -830,6 +833,9 @@ export default class HtmlUtils {
       // Handle <br>&nbsp; patterns specifically
       html = html.replace(/<br\s*\/?>&nbsp;\s*/gi, '<br>');
 
+      // Preserve VL token integrity so split-by-line-break does not break "#VL-.. ...#"
+      html = this.normalizeLineBreaksInsideVlTokens(html);
+
       // Step 2: Split content by <br> tags and newlines
       let parts = html.split(/<br\s*\/?>/gi);
 
@@ -884,7 +890,121 @@ export default class HtmlUtils {
         $element.remove();
       }
     });
+
+    // Step 6: Merge adjacent paragraph fragments that together form a single VL token.
+    this.mergeFragmentedVlParagraphs();
   };
+
+  private mergeFragmentedVlParagraphs = () => {
+    const normalize = (input: string) => input.replace(/\s+/g, ' ').trim();
+    const mergeableSelector = 'p, div, li';
+    const vlStartRegex = /#VL-\d+(?:\.\d+)?(?![\d.])/i;
+    const openVlFromStartRegex = /^#VL-\d+(?:\.\d+)?(?![\d.])[^#]*$/i;
+    const closedVlFromStartRegex = /^#VL-\d+(?:\.\d+)?(?![\d.])[^#]*#(?!\d)/i;
+    const fragmentFromFirstVl = (text: string): string | null => {
+      const startIndex = text.search(vlStartRegex);
+      return startIndex >= 0 ? text.slice(startIndex) : null;
+    };
+    const hasNestedMergeableChildren = ($el: any): boolean =>
+      $el.children(mergeableSelector).length > 0;
+
+    this.$(mergeableSelector).each((_, element) => {
+      const $start = this.$(element);
+      const startTag = String(($start.get(0) as any)?.tagName || '').toLowerCase();
+      if (!startTag) return;
+
+      const startText = normalize($start.text() || '');
+      if (hasNestedMergeableChildren($start)) return;
+      const startFragment = fragmentFromFirstVl(startText);
+
+      // Merge only when we have an open VL token fragment (start exists, close does not).
+      if (
+        !startFragment ||
+        !openVlFromStartRegex.test(startFragment) ||
+        closedVlFromStartRegex.test(startFragment)
+      ) {
+        return;
+      }
+
+      let mergedText = startText;
+      const consumed: cheerio.Cheerio[] = [];
+      let $cursor = $start.next(startTag);
+      let hasCompleteToken = false;
+
+      while ($cursor.length > 0) {
+        if (hasNestedMergeableChildren($cursor)) {
+          break;
+        }
+
+        const cursorText = normalize($cursor.text() || '');
+        if (!cursorText) {
+          consumed.push($cursor);
+          $cursor = $cursor.next(startTag);
+          continue;
+        }
+
+        // Stop when a new VL token begins in the next paragraph.
+        if (/^#VL-/i.test(cursorText)) {
+          break;
+        }
+
+        const candidate = normalize(`${mergedText} ${cursorText}`);
+        consumed.push($cursor);
+        const candidateFragment = fragmentFromFirstVl(candidate);
+
+        if (candidateFragment && closedVlFromStartRegex.test(candidateFragment)) {
+          mergedText = candidate;
+          hasCompleteToken = true;
+          break;
+        }
+
+        // Found a hash that doesn't close a valid VL token (e.g. "Price #1"), abort merge.
+        if (cursorText.includes('#')) {
+          break;
+        }
+
+        mergedText = candidate;
+        $cursor = $cursor.next(startTag);
+      }
+
+      if (!hasCompleteToken) {
+        return;
+      }
+
+      consumed.forEach(($node) => {
+        const $contents = $node.contents();
+        if ($contents.length > 0) {
+          $start.append(' ');
+          $start.append($contents);
+        }
+        $node.remove();
+      });
+
+      // Normalize line breaks inside VL tokens after moving sibling content.
+      const mergedHtml = $start.html() || '';
+      $start.html(this.normalizeLineBreaksInsideVlTokens(mergedHtml));
+    });
+  };
+
+  private normalizeLineBreaksInsideVlTokens(html: string): string {
+    if (!html || !this.vlTokenRegex.test(html)) {
+      this.vlTokenRegex.lastIndex = 0;
+      return html;
+    }
+
+    this.vlTokenRegex.lastIndex = 0;
+    const normalized = html.replace(this.vlTokenRegex, (token) =>
+      token
+        .replace(/<br\s*\/?>/gi, ' ')
+        .replace(/\r\n/g, ' ')
+        .replace(/\n/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\s+/g, ' ')
+    );
+
+    this.vlTokenRegex.lastIndex = 0;
+    return normalized;
+  }
 
   /**
    * Normalizes list-style attributes to list-style-type attributes.
