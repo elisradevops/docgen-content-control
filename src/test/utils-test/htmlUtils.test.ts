@@ -592,5 +592,112 @@ describe('HtmlUtils', () => {
       expect(result).toContain('<p>First</p>');
       expect(result).toContain('<p>Second</p>');
     });
+
+    it('splitParagraphsIntoSeparateElements should preserve VL token when value spans br', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<p>#VL-12<br>Long expected action value#</p>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('#VL-12 Long expected action value#');
+      expect(html).not.toContain('</p><p>');
+    });
+
+    it('splitParagraphsIntoSeparateElements should preserve VL token when value spans newline', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<p>#VL-34\nAnother long expected value#</p>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('#VL-34 Another long expected value#');
+      expect(html).not.toContain('</p><p>');
+    });
+
+    it('splitParagraphsIntoSeparateElements should merge fragmented VL token across adjacent paragraphs', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div><p>#VL-77</p><p>Long expected value#</p></div>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('#VL-77 Long expected value#');
+      expect(html).not.toContain('</p><p>');
+    });
+
+    it('splitParagraphsIntoSeparateElements should merge fragmented decimal VL token across adjacent paragraphs', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div><p>#VL-12.5</p><p>Decimal expected value#</p></div>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('#VL-12.5 Decimal expected value#');
+      expect(html).not.toContain('</p><p>');
+    });
+
+    it('cleanHtml should merge fragmented VL token when marker starts in the middle of a paragraph', async () => {
+      const input =
+        '<div><p>Expected text before #VL-22 very long value</p><p>continues here# and trailing text</p></div>';
+
+      const result = await htmlUtils.cleanHtml(input, false, false);
+
+      expect(result).toContain('Expected text before #VL-22 very long value continues here# and trailing text');
+      expect(result).not.toContain('#VL-22 very long value</p><p>continues here#');
+    });
+
+    it('cleanHtml should merge fragmented VL token across adjacent div blocks', async () => {
+      const input = '<div>#VL-31.2 Start</div><div>value continues# after</div>';
+
+      const result = await htmlUtils.cleanHtml(input, false, false);
+
+      expect(result).toContain('#VL-31.2 Start value continues# after');
+      expect(result).not.toContain('#VL-31.2 Start</div><div>value continues#');
+    });
+
+    it('cleanHtml should preserve inline formatting while merging fragmented VL token', async () => {
+      const input =
+        '<div><p>Before <b>#VL-22 very long</b></p><p><i>value continues#</i> after</p></div>';
+
+      const result = await htmlUtils.cleanHtml(input, false, false);
+
+      expect(result).toContain('<b>#VL-22 very long</b>');
+      expect(result).toContain('<i>value continues#</i>');
+      expect(result).toContain('Before');
+      expect(result).toContain('after');
+      expect(result).not.toContain('#VL-22 very long</p><p>');
+    });
+
+    it('cleanHtml should not merge VL fragments across different sibling block tags', async () => {
+      const input = '<div><p>#VL-90 Start</p><div>value continues#</div></div>';
+
+      const result = await htmlUtils.cleanHtml(input, false, false);
+
+      expect(result).toContain('<p>#VL-90 Start</p>');
+      expect(result).toContain('<div>value continues#</div>');
+      expect(result).toContain('#VL-90 Start</p><div>value continues#');
+    });
+
+    it('splitParagraphsIntoSeparateElements should not merge unrelated paragraphs that contain hash characters', () => {
+      const anyUtils: any = htmlUtils;
+      anyUtils.$ = cheerio.load('<div><p>#VL-77</p><p>Regular text</p><p>Price #1</p></div>');
+
+      anyUtils.splitParagraphsIntoSeparateElements();
+
+      const html = anyUtils.$.html() || '';
+      expect(html).toContain('<p>#VL-77</p>');
+      expect(html).toContain('<p>Regular text</p>');
+      expect(html).toContain('<p>Price #1</p>');
+    });
+
+    it('cleanHtml should merge fragmented VL token across adjacent paragraphs even when split is disabled', async () => {
+      const input = '<div><p>#VL-88</p><p>Long expected value from paste#</p></div>';
+
+      const result = await htmlUtils.cleanHtml(input, false, false);
+
+      expect(result).toContain('#VL-88 Long expected value from paste#');
+      expect(result).not.toContain('#VL-88</p><p>Long expected value from paste#');
+    });
   });
 });
