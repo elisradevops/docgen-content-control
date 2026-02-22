@@ -48,6 +48,12 @@ const getTokenFingerprint = (token: string) => {
   return createHash('sha256').update(raw).digest('hex').slice(0, 12);
 };
 
+const resolveHttpErrorStatus = (error: any, fallback = StatusCodes.INTERNAL_SERVER_ERROR) => {
+  const explicit = Number(error?.statusCode || error?.status || error?.response?.status || 0);
+  if (Number.isFinite(explicit) && explicit >= 400 && explicit < 600) return explicit;
+  return fallback;
+};
+
 export class Routes {
   public routes(app: any): void {
     app.route('/generate-doc-template').post(async ({ body }: Request, res: Response) => {
@@ -99,7 +105,37 @@ export class Routes {
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
+      }
+    });
+
+    app.route('/validate-mewp-external-files').post(async ({ body }: Request, res: Response) => {
+      try {
+        const dgContentControls = new DgContentControls(
+          body.orgUrl,
+          body.token,
+          body.attachmentsBucketName,
+          body.projectName,
+          body.outputType,
+          body.templateUrl,
+          body.minioEndPoint,
+          body.minioAccessKey,
+          body.minioSecretKey,
+          undefined,
+          body.formattingSettings
+        );
+        await dgContentControls.init();
+        const result = await dgContentControls.validateMewpExternalFiles({
+          externalBugsFile: body?.contentControlOptions?.data?.externalBugsFile,
+          externalL3L4File: body?.contentControlOptions?.data?.externalL3L4File,
+        });
+        if (!result?.valid) {
+          return res.status(StatusCodes.UNPROCESSABLE_ENTITY).json(result);
+        }
+        res.status(StatusCodes.OK).json(result);
+      } catch (error) {
+        logger.error(`validate mewp external files error : ${error.message}`);
+        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
       }
     });
 
