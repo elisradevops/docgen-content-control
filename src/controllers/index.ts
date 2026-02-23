@@ -109,7 +109,7 @@ type MewpStandaloneCoverageOptions = {
   useRelFallback?: boolean;
   externalBugsFile?: MewpExternalFileRef | null;
   externalL3L4File?: MewpExternalFileRef | null;
-  mergeDuplicateL2Cells?: boolean;
+  mergeDuplicateRequirementCells?: boolean;
 };
 
 type MewpInternalValidationOptions = {
@@ -316,7 +316,7 @@ export default class DgContentControls {
               useRelFallback: contentControlOptions.data.useRelFallback !== false,
               externalBugsFile: contentControlOptions.data.externalBugsFile,
               externalL3L4File: contentControlOptions.data.externalL3L4File,
-              mergeDuplicateL2Cells: !!contentControlOptions.data.mergeDuplicateL2Cells,
+              mergeDuplicateRequirementCells: !!contentControlOptions.data.mergeDuplicateRequirementCells,
             }
           );
           break;
@@ -1363,7 +1363,7 @@ export default class DgContentControls {
             testPlanName: sheetName,
             columnOrder,
             rows,
-            mergeDuplicateL2Cells: !!options?.mergeDuplicateL2Cells,
+            mergeDuplicateRequirementCells: !!options?.mergeDuplicateRequirementCells,
           },
         ],
         allowGrouping: false,
