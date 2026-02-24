@@ -109,11 +109,6 @@ type MewpStandaloneCoverageOptions = {
   externalBugsFile?: MewpExternalFileRef | null;
   externalL3L4File?: MewpExternalFileRef | null;
   mergeDuplicateRequirementCells?: boolean;
-  debugMode?: boolean;
-};
-
-type MewpInternalValidationOptions = {
-  debugMode?: boolean;
 };
 
 type MewpCoverageFlatPayload = {
@@ -137,15 +132,13 @@ type MewpResultDataProvider = {
     options?: {
       externalBugsFile?: MewpExternalFileRef | null;
       externalL3L4File?: MewpExternalFileRef | null;
-      debugMode?: boolean;
     }
   ) => Promise<MewpCoverageFlatPayload>;
   getMewpInternalValidationFlatResults: (
     testPlanId: string,
     projectName: string,
     selectedSuiteIds?: number[],
-    linkedQueryRequest?: any,
-    options?: { debugMode?: boolean }
+    linkedQueryRequest?: any
   ) => Promise<MewpInternalValidationFlatPayload>;
   validateMewpExternalFiles: (options?: {
     externalBugsFile?: MewpExternalFileRef | null;
@@ -301,10 +294,7 @@ export default class DgContentControls {
             contentControlData = await this.addMewpInternalValidationContent(
               contentControlOptions.data.testPlanId,
               contentControlOptions.data.testSuiteArray,
-              contentControlOptions.data.linkedQueryRequest,
-              {
-                debugMode: !!contentControlOptions.data.debugMode,
-              }
+              contentControlOptions.data.linkedQueryRequest
             );
             break;
         case 'mewpStandaloneReporter':
@@ -316,7 +306,6 @@ export default class DgContentControls {
               externalBugsFile: contentControlOptions.data.externalBugsFile,
               externalL3L4File: contentControlOptions.data.externalL3L4File,
               mergeDuplicateRequirementCells: !!contentControlOptions.data.mergeDuplicateRequirementCells,
-              debugMode: !!contentControlOptions.data.debugMode,
             }
           );
           break;
@@ -1272,8 +1261,7 @@ export default class DgContentControls {
   async addMewpInternalValidationContent(
     testPlanId: number,
     testSuiteArray: number[],
-    linkedQueryRequest?: any,
-    options?: MewpInternalValidationOptions
+    linkedQueryRequest?: any
   ) {
     try {
       if (!testPlanId) {
@@ -1291,10 +1279,7 @@ export default class DgContentControls {
         String(testPlanId),
         this.teamProjectName,
         testSuiteArray,
-        linkedQueryRequest,
-        {
-          debugMode: !!options?.debugMode,
-        }
+        linkedQueryRequest
       );
       const rows = Array.isArray(validationData?.rows) ? validationData.rows : [];
       const columnOrder = Array.isArray(validationData?.columnOrder) ? validationData.columnOrder : [];
@@ -1346,7 +1331,6 @@ export default class DgContentControls {
         {
           externalBugsFile: options?.externalBugsFile,
           externalL3L4File: options?.externalL3L4File,
-          debugMode: !!options?.debugMode,
         }
       );
 
