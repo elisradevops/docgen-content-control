@@ -106,14 +106,14 @@ type MewpExternalFileRef = {
 };
 
 type MewpStandaloneCoverageOptions = {
-  useRelFallback?: boolean;
   externalBugsFile?: MewpExternalFileRef | null;
   externalL3L4File?: MewpExternalFileRef | null;
   mergeDuplicateRequirementCells?: boolean;
+  debugMode?: boolean;
 };
 
 type MewpInternalValidationOptions = {
-  useRelFallback?: boolean;
+  debugMode?: boolean;
 };
 
 type MewpCoverageFlatPayload = {
@@ -135,9 +135,9 @@ type MewpResultDataProvider = {
     selectedSuiteIds?: number[],
     linkedQueryRequest?: any,
     options?: {
-      useRelFallback?: boolean;
       externalBugsFile?: MewpExternalFileRef | null;
       externalL3L4File?: MewpExternalFileRef | null;
+      debugMode?: boolean;
     }
   ) => Promise<MewpCoverageFlatPayload>;
   getMewpInternalValidationFlatResults: (
@@ -145,7 +145,7 @@ type MewpResultDataProvider = {
     projectName: string,
     selectedSuiteIds?: number[],
     linkedQueryRequest?: any,
-    options?: { useRelFallback?: boolean }
+    options?: { debugMode?: boolean }
   ) => Promise<MewpInternalValidationFlatPayload>;
   validateMewpExternalFiles: (options?: {
     externalBugsFile?: MewpExternalFileRef | null;
@@ -303,7 +303,7 @@ export default class DgContentControls {
               contentControlOptions.data.testSuiteArray,
               contentControlOptions.data.linkedQueryRequest,
               {
-                useRelFallback: !!contentControlOptions.data.useRelFallback,
+                debugMode: !!contentControlOptions.data.debugMode,
               }
             );
             break;
@@ -313,10 +313,10 @@ export default class DgContentControls {
             contentControlOptions.data.testSuiteArray,
             contentControlOptions.data.linkedQueryRequest,
             {
-              useRelFallback: contentControlOptions.data.useRelFallback !== false,
               externalBugsFile: contentControlOptions.data.externalBugsFile,
               externalL3L4File: contentControlOptions.data.externalL3L4File,
               mergeDuplicateRequirementCells: !!contentControlOptions.data.mergeDuplicateRequirementCells,
+              debugMode: !!contentControlOptions.data.debugMode,
             }
           );
           break;
@@ -1293,7 +1293,7 @@ export default class DgContentControls {
         testSuiteArray,
         linkedQueryRequest,
         {
-          useRelFallback: !!options?.useRelFallback,
+          debugMode: !!options?.debugMode,
         }
       );
       const rows = Array.isArray(validationData?.rows) ? validationData.rows : [];
@@ -1344,9 +1344,9 @@ export default class DgContentControls {
         testSuiteArray,
         linkedQueryRequest,
         {
-          useRelFallback: options?.useRelFallback !== false,
           externalBugsFile: options?.externalBugsFile,
           externalL3L4File: options?.externalL3L4File,
+          debugMode: !!options?.debugMode,
         }
       );
 
