@@ -1,6 +1,8 @@
 import logger from '../services/logger';
 import { COLOR_REQ_SYS, COLOR_TEST_SOFT, normalizeFieldName } from '../utils/tablePresentation';
 
+const TRACE_ID_COLUMN_WIDTH = '8.5%';
+
 export default class TraceQueryResultsSkinAdapter {
   rawQueryMapping: any;
   queryMode: string;
@@ -176,9 +178,9 @@ export default class TraceQueryResultsSkinAdapter {
 
       const fields = this.buildFields({
         items: [
-          { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
+          { name: 'Req ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
           ...adaptedSourceFields,
-          { name: 'Test Case ID', value: '', width: '6.8%', color: currentTestColor },
+          { name: 'Test Case ID', value: '', width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
           { name: 'Test Case Title', value: '', color: currentTestColor },
           ...adaptedTargetFields,
         ],
@@ -196,9 +198,9 @@ export default class TraceQueryResultsSkinAdapter {
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Req ID', value: source.id, width: '6.8%', color: currentReqColor },
+            { name: 'Req ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
             ...adaptedSourceFields,
-            { name: 'Test Case ID', value: target.id, width: '6.8%', color: currentTestColor },
+            { name: 'Test Case ID', value: target.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
             ...adaptedTargetFields,
           ],
           baseShading,
@@ -232,9 +234,9 @@ export default class TraceQueryResultsSkinAdapter {
       );
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
+          { name: 'Test Case ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
           ...adaptedSourceFields,
-          { name: 'Req ID', value: '', width: '6.8%', color: currentReqColor },
+          { name: 'Req ID', value: '', width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
           { name: 'Req Title', value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
@@ -252,9 +254,9 @@ export default class TraceQueryResultsSkinAdapter {
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Test Case ID', value: source.id, width: '6.8%', color: currentTestColor },
+            { name: 'Test Case ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
             ...adaptedSourceFields,
-            { name: 'Req ID', value: target.id, width: '6.8%', color: currentReqColor },
+            { name: 'Req ID', value: target.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
             ...adaptedTargetFields,
           ],
           baseShading,
