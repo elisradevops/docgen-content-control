@@ -42,7 +42,11 @@ describe('TraceByLinkedRequirementAdapter', () => {
     const fields = data[0].fields;
 
     const customerField = fields.find((f: any) => f.name === 'Customer ID');
+    const reqIdField = fields.find((f: any) => f.name === 'Req ID');
+    const tcIdField = fields.find((f: any) => f.name === 'Test Case ID');
     expect(customerField.value).toBe('C-1');
+    expect(reqIdField.width).toBe('8.5%');
+    expect(tcIdField.width).toBe('8.5%');
   });
 
   test('test-req: includes Customer ID when any target has it', () => {
@@ -59,7 +63,11 @@ describe('TraceByLinkedRequirementAdapter', () => {
     expect(data.length).toBe(2);
     const firstRowFields = data[0].fields;
     const customerField = firstRowFields.find((f: any) => f.name === 'Customer ID');
+    const reqIdField = firstRowFields.find((f: any) => f.name === 'Req ID');
+    const tcIdField = firstRowFields.find((f: any) => f.name === 'Test Case ID');
     expect(customerField.value).toBe('C-2');
+    expect(reqIdField.width).toBe('8.5%');
+    expect(tcIdField.width).toBe('8.5%');
   });
 
   test('unknown queryMode logs error and produces no adopted data', () => {

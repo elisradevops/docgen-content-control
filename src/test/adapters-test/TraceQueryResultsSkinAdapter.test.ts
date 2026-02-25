@@ -73,8 +73,11 @@ describe('TraceQueryResultsSkinAdapter', () => {
 
     const reqIdField = fields.find((f: any) => f.name === 'Req ID');
     const custIdFields = fields.filter((f: any) => f.name === 'Customer ID');
+    const tcIdField = fields.find((f: any) => f.name === 'Test Case ID');
 
     expect(reqIdField.value).toBe(1);
+    expect(reqIdField.width).toBe('8.5%');
+    expect(tcIdField.width).toBe('8.5%');
     expect(custIdFields.length).toBeGreaterThan(0);
   });
 
@@ -107,7 +110,9 @@ describe('TraceQueryResultsSkinAdapter', () => {
     const reqIdField = fields.find((f: any) => f.name === 'Req ID');
 
     expect(tcIdField.value).toBe(10);
+    expect(tcIdField.width).toBe('8.5%');
     expect(reqIdField.value).toBe(20);
+    expect(reqIdField.width).toBe('8.5%');
   });
 
   test('adaptFields skips common columns when excludeCommonColumnInstance is true and handles object/string defaults', () => {

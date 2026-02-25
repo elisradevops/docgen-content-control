@@ -96,6 +96,59 @@ const isMewpProject = (projectName: string | undefined) =>
     .trim()
     .toLowerCase() === 'mewp';
 
+type MewpExternalFileRef = {
+  url?: string;
+  text?: string;
+  name?: string;
+  bucketName?: string;
+  objectName?: string;
+  sourceType?: 'mewpExternalIngestion' | 'generic';
+};
+
+type MewpStandaloneCoverageOptions = {
+  externalBugsFile?: MewpExternalFileRef | null;
+  externalL3L4File?: MewpExternalFileRef | null;
+  mergeDuplicateRequirementCells?: boolean;
+};
+
+type MewpCoverageFlatPayload = {
+  sheetName?: string;
+  columnOrder?: string[];
+  rows?: Array<Record<string, any>>;
+};
+
+type MewpInternalValidationFlatPayload = {
+  sheetName?: string;
+  columnOrder?: string[];
+  rows?: Array<Record<string, any>>;
+};
+
+type MewpResultDataProvider = {
+  getMewpL2CoverageFlatResults: (
+    testPlanId: string,
+    projectName: string,
+    selectedSuiteIds?: number[],
+    linkedQueryRequest?: any,
+    options?: {
+      externalBugsFile?: MewpExternalFileRef | null;
+      externalL3L4File?: MewpExternalFileRef | null;
+    }
+  ) => Promise<MewpCoverageFlatPayload>;
+  getMewpInternalValidationFlatResults: (
+    testPlanId: string,
+    projectName: string,
+    selectedSuiteIds?: number[],
+    linkedQueryRequest?: any,
+    options?: {
+      debugMode?: boolean;
+    }
+  ) => Promise<MewpInternalValidationFlatPayload>;
+  validateMewpExternalFiles: (options?: {
+    externalBugsFile?: MewpExternalFileRef | null;
+    externalL3L4File?: MewpExternalFileRef | null;
+  }) => Promise<any>;
+};
+
 //!ADD HANDLING OF DEFUALT STYLES
 export default class DgContentControls {
   uri: string;
@@ -154,10 +207,7 @@ export default class DgContentControls {
     if (!this.templatePath) {
       this.templatePath = 'template path';
     }
-    console.log('^^^^^^^^^^this.skins^^^^^^^^^^^^^^^^', this.skins);
     this.skins = new Skins('json', this.templatePath);
-    console.log('^^^^^^^^^^this.skins2^^^^^^^^^^^^^^^', this.skins);
-    console.log('^^^^^^^^^^templatePath^^^^^^^^^^^^^^^', this.templatePath);
 
     logger.debug(`Initilized`);
     return true;
@@ -165,7 +215,6 @@ export default class DgContentControls {
 
   async generateDocTemplate() {
     try {
-      console.log('this.skins.getDocumentSkin()', this.skins.getDocumentSkin());
       return this.skins.getDocumentSkin();
     } catch (error) {
       logger.error(`Error initlizing Skins:
@@ -240,7 +289,28 @@ export default class DgContentControls {
             contentControlOptions.data.linkedQueryRequest,
             contentControlOptions.data.errorFilterMode,
             contentControlOptions.data.includeAllHistory,
-            contentControlOptions.data.includeMewpL2Coverage
+            contentControlOptions.data.includeMewpL2Coverage,
+            contentControlOptions.data.includeInternalValidationReport
+          );
+          break;
+        case 'internalValidationReporter':
+            contentControlData = await this.addMewpInternalValidationContent(
+              contentControlOptions.data.testPlanId,
+              contentControlOptions.data.testSuiteArray,
+              contentControlOptions.data.linkedQueryRequest,
+              !!contentControlOptions.data.debugMode
+            );
+            break;
+        case 'mewpStandaloneReporter':
+          contentControlData = await this.addMewpStandaloneCoverageContent(
+            contentControlOptions.data.testPlanId,
+            contentControlOptions.data.testSuiteArray,
+            contentControlOptions.data.linkedQueryRequest,
+            {
+              externalBugsFile: contentControlOptions.data.externalBugsFile,
+              externalL3L4File: contentControlOptions.data.externalL3L4File,
+              mergeDuplicateRequirementCells: !!contentControlOptions.data.mergeDuplicateRequirementCells,
+            }
           );
           break;
         case 'change-description-table':
@@ -322,10 +392,8 @@ export default class DgContentControls {
     for (const wi of res) {
       for (const field of wi.fields) {
         if (field.name === 'Description' || field.name === 'Test Description:') {
-          console.log('index field', field);
           const i = res.indexOf(wi);
           const t = wi.fields.indexOf(field);
-          console.log('index t', wi.fields.indexOf(field));
           let richTextFactory = new RichTextDataFactory(
             field.value || 'No description',
             this.templatePath,
@@ -336,12 +404,10 @@ export default class DgContentControls {
             this.minioSecretKey,
             this.PAT
           );
-          console.log('index richTextFactory', richTextFactory);
           const richText = await richTextFactory.factorizeRichTextData();
           // this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
           res[i].fields[t].value = richText;
         }
-        console.log('this.minioAttachmentData inedex', this.minioAttachmentData);
       }
     }
     try {
@@ -926,7 +992,8 @@ export default class DgContentControls {
     linkedQueryRequest?: any,
     errorFilterMode?: string,
     includeAllHistory?: boolean,
-    includeMewpL2Coverage?: boolean
+    includeMewpL2Coverage?: boolean,
+    includeInternalValidationReport?: boolean
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -1034,7 +1101,8 @@ export default class DgContentControls {
         contentControls,
         testPlanId,
         testSuiteArray,
-        includeMewpL2Coverage
+        includeMewpL2Coverage,
+        linkedQueryRequest
       );
 
       return contentControls;
@@ -1149,20 +1217,27 @@ export default class DgContentControls {
     }
   }
 
+  private async getMewpResultDataProvider(): Promise<MewpResultDataProvider> {
+    const resultDataProvider = await this.dgDataProviderAzureDevOps.getResultDataProvider();
+    return resultDataProvider as unknown as MewpResultDataProvider;
+  }
+
   private async addMewpL2CoverageSheetIfNeeded(
     contentControls: contentControl[],
     testPlanId: number,
     testSuiteArray: number[],
-    includeMewpL2Coverage: boolean = true
+    includeMewpL2Coverage: boolean = true,
+    linkedQueryRequest?: any
   ) {
     if (!isMewpProject(this.teamProjectName) || !includeMewpL2Coverage) return;
 
     try {
-      const resultDataProvider = await this.dgDataProviderAzureDevOps.getResultDataProvider();
-      const mewpCoverage = await (resultDataProvider as any).getMewpL2CoverageFlatResults(
+      const resultDataProvider = await this.getMewpResultDataProvider();
+      const mewpCoverage = await resultDataProvider.getMewpL2CoverageFlatResults(
         String(testPlanId),
         this.teamProjectName,
-        testSuiteArray
+        testSuiteArray,
+        linkedQueryRequest
       );
 
       const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
@@ -1184,6 +1259,129 @@ export default class DgContentControls {
       } as any);
     } catch (error) {
       logger.error(`Error adding MEWP L2 coverage sheet ${(error as any)?.message || error}`);
+    }
+  }
+
+  async addMewpInternalValidationContent(
+    testPlanId: number,
+    testSuiteArray: number[],
+    linkedQueryRequest?: any,
+    debugMode: boolean = false
+  ) {
+    try {
+      if (!testPlanId) {
+        throw new Error('No plan has been selected');
+      }
+      if (!testSuiteArray?.length) {
+        throw new Error('No test suites have been selected');
+      }
+      if (!isMewpProject(this.teamProjectName)) {
+        throw new Error('Internal Validation report is supported only for MEWP project');
+      }
+
+      const resultDataProvider = await this.getMewpResultDataProvider();
+      const validationData = await resultDataProvider.getMewpInternalValidationFlatResults(
+        String(testPlanId),
+        this.teamProjectName,
+        testSuiteArray,
+        linkedQueryRequest,
+        {
+          debugMode,
+        }
+      );
+      const rows = Array.isArray(validationData?.rows) ? validationData.rows : [];
+      const columnOrder = Array.isArray(validationData?.columnOrder) ? validationData.columnOrder : [];
+      const sheetName =
+        String(validationData?.sheetName || '').trim() ||
+        `MEWP Internal Validation - Plan ${String(testPlanId)}`;
+
+      return {
+        title: 'mewp-internal-validation-content-control',
+        wordObjects: [
+          {
+            type: 'InternalValidationReporter',
+            testPlanName: sheetName,
+            columnOrder,
+            rows,
+          },
+        ],
+        allowGrouping: false,
+      };
+    } catch (error) {
+      logger.error(`Error adding MEWP Internal Validation content ${(error as any)?.message || error}`);
+      throw error;
+    }
+  }
+
+  async addMewpStandaloneCoverageContent(
+    testPlanId: number,
+    testSuiteArray: number[],
+    linkedQueryRequest?: any,
+    options?: MewpStandaloneCoverageOptions
+  ) {
+    try {
+      if (!testPlanId) {
+        throw new Error('No plan has been selected');
+      }
+      if (!testSuiteArray?.length) {
+        throw new Error('No test suites have been selected');
+      }
+      if (!isMewpProject(this.teamProjectName)) {
+        throw new Error('MEWP standalone coverage is supported only for MEWP project');
+      }
+
+      const resultDataProvider = await this.getMewpResultDataProvider();
+      const mewpCoverage = await resultDataProvider.getMewpL2CoverageFlatResults(
+        String(testPlanId),
+        this.teamProjectName,
+        testSuiteArray,
+        linkedQueryRequest,
+        {
+          externalBugsFile: options?.externalBugsFile,
+          externalL3L4File: options?.externalL3L4File,
+        }
+      );
+
+      const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
+      const columnOrder = Array.isArray(mewpCoverage?.columnOrder) ? mewpCoverage.columnOrder : [];
+      const sheetName =
+        String(mewpCoverage?.sheetName || '').trim() || `MEWP L2 Coverage - Plan ${String(testPlanId)}`;
+
+      return {
+        title: 'mewp-l2-implementation-content-control',
+        wordObjects: [
+          {
+            type: 'MewpCoverageReporter',
+            testPlanName: sheetName,
+            columnOrder,
+            rows,
+            mergeDuplicateRequirementCells: !!options?.mergeDuplicateRequirementCells,
+          },
+        ],
+        allowGrouping: false,
+      };
+    } catch (error) {
+      logger.error(`Error adding MEWP standalone coverage content ${(error as any)?.message || error}`);
+      throw error;
+    }
+  }
+
+  async validateMewpExternalFiles(options?: {
+    externalBugsFile?: MewpExternalFileRef | null;
+    externalL3L4File?: MewpExternalFileRef | null;
+  }) {
+    try {
+      if (!isMewpProject(this.teamProjectName)) {
+        throw new Error('MEWP external ingestion validation is supported only for MEWP project');
+      }
+      const resultDataProvider = await this.getMewpResultDataProvider();
+      return await resultDataProvider.validateMewpExternalFiles({
+        externalBugsFile: options?.externalBugsFile,
+        externalL3L4File: options?.externalL3L4File,
+      });
+    } catch (error) {
+      logger.error(`Error validating MEWP external files ${(error as any)?.message || error}`);
+      throw error;
     }
   }
 
@@ -1689,7 +1887,6 @@ export default class DgContentControls {
           logger.error('issue writing to json due to : ' + error);
           reject('issue writing to json due to: ' + error);
         }
-        console.log(`${jsonName} file was created`);
         resolve({
           localJsonPath,
           jsonName,

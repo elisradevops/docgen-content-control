@@ -1,6 +1,8 @@
 import logger from '../services/logger';
 import { COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
 
+const TRACE_ID_COLUMN_WIDTH = '8.5%';
+
 export default class TraceByLinkedRequirementAdapter {
   rawMapping: any;
   queryMode: string;
@@ -57,14 +59,14 @@ export default class TraceByLinkedRequirementAdapter {
       const tcTarget = JSON.parse(target);
       const fields = this.buildFields({
         items: [
-          { name: 'Req ID', value: requirementSource.id, width: '6.8%', color: currentReqColor },
+          { name: 'Req ID', value: requirementSource.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
           { name: 'Title', value: requirementSource.title, color: currentReqColor },
           hasCustomerId && {
             name: 'Customer ID',
             value: requirementSource.customerId,
             color: currentReqColor,
           },
-          { name: 'Test Case ID', value: tcTarget.id, width: '6.8%', color: currentTestColor },
+          { name: 'Test Case ID', value: tcTarget.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
           { name: 'Title', value: tcTarget.title, color: currentTestColor },
         ],
         baseShading,
@@ -90,9 +92,9 @@ export default class TraceByLinkedRequirementAdapter {
       const reqTarget = JSON.parse(target);
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: tcSource.id, width: '6.8%', color: currentTestColor },
+          { name: 'Test Case ID', value: tcSource.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
           { name: 'Title', value: tcSource.title, color: currentTestColor },
-          { name: 'Req ID', value: reqTarget.id, width: '6.8%', color: currentReqColor },
+          { name: 'Req ID', value: reqTarget.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
           { name: 'Title', value: reqTarget.title, color: currentReqColor },
           hasCustomerId && { name: 'Customer ID', value: reqTarget.customerId, color: currentReqColor },
         ],
