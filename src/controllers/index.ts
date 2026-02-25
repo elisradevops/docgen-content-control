@@ -138,7 +138,10 @@ type MewpResultDataProvider = {
     testPlanId: string,
     projectName: string,
     selectedSuiteIds?: number[],
-    linkedQueryRequest?: any
+    linkedQueryRequest?: any,
+    options?: {
+      debugMode?: boolean;
+    }
   ) => Promise<MewpInternalValidationFlatPayload>;
   validateMewpExternalFiles: (options?: {
     externalBugsFile?: MewpExternalFileRef | null;
@@ -294,7 +297,8 @@ export default class DgContentControls {
             contentControlData = await this.addMewpInternalValidationContent(
               contentControlOptions.data.testPlanId,
               contentControlOptions.data.testSuiteArray,
-              contentControlOptions.data.linkedQueryRequest
+              contentControlOptions.data.linkedQueryRequest,
+              !!contentControlOptions.data.debugMode
             );
             break;
         case 'mewpStandaloneReporter':
@@ -1261,7 +1265,8 @@ export default class DgContentControls {
   async addMewpInternalValidationContent(
     testPlanId: number,
     testSuiteArray: number[],
-    linkedQueryRequest?: any
+    linkedQueryRequest?: any,
+    debugMode: boolean = false
   ) {
     try {
       if (!testPlanId) {
@@ -1279,7 +1284,10 @@ export default class DgContentControls {
         String(testPlanId),
         this.teamProjectName,
         testSuiteArray,
-        linkedQueryRequest
+        linkedQueryRequest,
+        {
+          debugMode,
+        }
       );
       const rows = Array.isArray(validationData?.rows) ? validationData.rows : [];
       const columnOrder = Array.isArray(validationData?.columnOrder) ? validationData.columnOrder : [];
