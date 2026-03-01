@@ -56,6 +56,134 @@ const resolveHttpErrorStatus = (error: any, fallback = StatusCodes.INTERNAL_SERV
   return fallback;
 };
 
+const DOWNLOAD_MANAGER_CONFIG_KEYS = ['downloadManagerUrl', 'DOWNLOAD_MANAGER_URL'];
+const DOWNLOAD_MANAGER_PROBE_PATHS = ['/health', '/', '/uploadAttachment'];
+
+const getHostFromEndpoint = (endpoint: string) => {
+  try {
+    return new URL(endpoint).hostname || '';
+  } catch {
+    return '';
+  }
+};
+
+const normalizeDependencyProbeError = (error: any, endpoint: string) => {
+  const code = String(error?.code || '').trim().toUpperCase();
+  const message = String(error?.message || '').trim();
+  const host = getHostFromEndpoint(endpoint) || 'unknown-host';
+
+  if (code === 'ENOTFOUND' || /\bENOTFOUND\b/i.test(message)) {
+    return {
+      message: `DNS lookup failed for host "${host}".`,
+      hint: `Verify Docker/Kubernetes service DNS and the configured service URL (${endpoint}).`,
+      errorCode: 'ENOTFOUND',
+    };
+  }
+
+  if (code === 'ECONNREFUSED' || /ECONNREFUSED/i.test(message)) {
+    return {
+      message: `Connection refused by ${host}.`,
+      hint: `Verify the service is running and reachable at ${endpoint}.`,
+      errorCode: 'ECONNREFUSED',
+    };
+  }
+
+  if (code === 'ETIMEDOUT' || code === 'ECONNABORTED' || /(ETIMEDOUT|ECONNABORTED|timeout)/i.test(message)) {
+    return {
+      message: 'Connection timed out.',
+      hint: `Verify the service is reachable at ${endpoint} and responds within timeout.`,
+      errorCode: code === 'ETIMEDOUT' ? 'ETIMEDOUT' : code || 'ECONNABORTED',
+    };
+  }
+
+  if (code === 'EAI_AGAIN' || code === 'ENETUNREACH' || code === 'EHOSTUNREACH') {
+    return {
+      message: `Network is unreachable while reaching Download Manager.`,
+      hint: `Verify container networking and DNS resolution for ${endpoint}.`,
+      errorCode: code,
+    };
+  }
+
+  return {
+    message: message || code || 'Health check failed',
+    hint: `Verify connectivity to ${endpoint}.`,
+    errorCode: code || undefined,
+  };
+};
+
+const buildDownloadManagerHealth = async (checkedAt: string) => {
+  const baseUrl =
+    String(process.env.downloadManagerUrl || '').trim() ||
+    String(process.env.DOWNLOAD_MANAGER_URL || '').trim();
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+
+  if (!normalizedBase) {
+    return {
+      key: 'download-manager',
+      displayName: 'Download Manager',
+      status: 'down',
+      connectionStatus: 'disconnected',
+      version: 'n/a',
+      checkedAt,
+      endpoint: '',
+      error: 'Service URL is not configured',
+      hint: `Set one of: ${DOWNLOAD_MANAGER_CONFIG_KEYS.join(', ')}`,
+      configKeys: DOWNLOAD_MANAGER_CONFIG_KEYS,
+      errorCode: 'MISSING_SERVICE_URL',
+    };
+  }
+
+  let lastError = 'No successful probe response';
+  let lastHint = '';
+  let lastErrorCode = '';
+  for (const probePath of DOWNLOAD_MANAGER_PROBE_PATHS) {
+    const endpoint = `${normalizedBase}${probePath}`;
+    const startedAt = Date.now();
+    try {
+      const response = await axios.get(endpoint, {
+        timeout: 4000,
+        validateStatus: () => true,
+      });
+
+      if (response.status > 0 && response.status < 500) {
+        return {
+          key: 'download-manager',
+          displayName: 'Download Manager',
+          status: 'up',
+          connectionStatus: 'connected',
+          version: 'n/a',
+          checkedAt,
+          endpoint,
+          responseTimeMs: Date.now() - startedAt,
+          httpStatus: response.status,
+        };
+      }
+
+      lastError = `HTTP ${response.status}`;
+      lastHint = `Service responded with HTTP ${response.status} at ${endpoint}.`;
+    } catch (error: any) {
+      const normalizedError = normalizeDependencyProbeError(error, endpoint);
+      lastError = normalizedError.message;
+      lastHint = normalizedError.hint;
+      lastErrorCode = normalizedError.errorCode || '';
+    }
+  }
+
+  return {
+    key: 'download-manager',
+    displayName: 'Download Manager',
+    status: 'down',
+    connectionStatus: 'disconnected',
+    version: 'n/a',
+    checkedAt,
+    endpoint: normalizedBase,
+    error: lastError,
+    hint: lastHint || undefined,
+    configKeys: DOWNLOAD_MANAGER_CONFIG_KEYS,
+    errorCode: lastErrorCode || undefined,
+  };
+};
+
 const readServicePackageJson = (): any => {
   const candidates = [
     path.resolve(__dirname, '../package.json'),
@@ -89,6 +217,7 @@ export class Routes {
   public routes(app: any): void {
     app.route('/health').get(async (_req: Request, res: Response) => {
       try {
+        const checkedAt = new Date().toISOString();
         const packageJson = readServicePackageJson();
         const declaredDependencies = packageJson?.dependencies || {};
         const dataProviderDeclaredVersion = String(
@@ -101,13 +230,19 @@ export class Routes {
           dataProviderDeclaredVersion,
         );
         const skinsVersion = readResolvedDependencyVersion('@elisra-devops/docgen-skins', skinsDeclaredVersion);
+        const downloadManagerHealth = await buildDownloadManagerHealth(checkedAt);
+        const isDownloadManagerConnected =
+          String(downloadManagerHealth?.connectionStatus || '').toLowerCase() === 'connected';
+        const status = isDownloadManagerConnected ? 'up' : 'degraded';
+        const connectionStatus = isDownloadManagerConnected ? 'connected' : 'degraded';
 
         res.status(StatusCodes.OK).json({
           service: 'dg-content-control',
-          status: 'up',
-          connectionStatus: 'connected',
+          status,
+          connectionStatus,
           version: String(packageJson?.version || 'unknown'),
-          timestamp: new Date().toISOString(),
+          timestamp: checkedAt,
+          dependencies: [downloadManagerHealth],
           packages: {
             dataProvider: {
               name: '@elisra-devops/docgen-data-provider',
@@ -132,6 +267,7 @@ export class Routes {
           version: 'unknown',
           timestamp: new Date().toISOString(),
           error: error?.message || String(error),
+          dependencies: [],
         });
       }
     });
