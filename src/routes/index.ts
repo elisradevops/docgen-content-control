@@ -4,6 +4,8 @@ import axios from 'axios';
 import http from 'http';
 import https from 'https';
 import { createHash } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import logger from '../services/logger';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
@@ -54,8 +56,86 @@ const resolveHttpErrorStatus = (error: any, fallback = StatusCodes.INTERNAL_SERV
   return fallback;
 };
 
+const readServicePackageJson = (): any => {
+  const candidates = [
+    path.resolve(__dirname, '../package.json'),
+    path.resolve(__dirname, '../../package.json'),
+    path.resolve(process.cwd(), 'package.json'),
+  ];
+  for (const packageJsonPath of candidates) {
+    try {
+      if (!fs.existsSync(packageJsonPath)) continue;
+      const raw = fs.readFileSync(packageJsonPath, 'utf8');
+      return JSON.parse(raw);
+    } catch {
+      // try next candidate
+    }
+  }
+  return {};
+};
+
+const readResolvedDependencyVersion = (dependencyName: string, declaredVersion = 'unknown') => {
+  try {
+    const dependencyPackagePath = require.resolve(`${dependencyName}/package.json`);
+    const raw = fs.readFileSync(dependencyPackagePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return String(parsed?.version || declaredVersion || 'unknown');
+  } catch {
+    return String(declaredVersion || 'unknown');
+  }
+};
+
 export class Routes {
   public routes(app: any): void {
+    app.route('/health').get(async (_req: Request, res: Response) => {
+      try {
+        const packageJson = readServicePackageJson();
+        const declaredDependencies = packageJson?.dependencies || {};
+        const dataProviderDeclaredVersion = String(
+          declaredDependencies['@elisra-devops/docgen-data-provider'] || 'unknown',
+        );
+        const skinsDeclaredVersion = String(declaredDependencies['@elisra-devops/docgen-skins'] || 'unknown');
+
+        const dataProviderVersion = readResolvedDependencyVersion(
+          '@elisra-devops/docgen-data-provider',
+          dataProviderDeclaredVersion,
+        );
+        const skinsVersion = readResolvedDependencyVersion('@elisra-devops/docgen-skins', skinsDeclaredVersion);
+
+        res.status(StatusCodes.OK).json({
+          service: 'dg-content-control',
+          status: 'up',
+          connectionStatus: 'connected',
+          version: String(packageJson?.version || 'unknown'),
+          timestamp: new Date().toISOString(),
+          packages: {
+            dataProvider: {
+              name: '@elisra-devops/docgen-data-provider',
+              version: dataProviderVersion,
+              declaredVersion: dataProviderDeclaredVersion,
+              connectionStatus: dataProviderVersion && dataProviderVersion !== 'unknown' ? 'connected' : 'disconnected',
+            },
+            dgSkinsPackage: {
+              name: '@elisra-devops/docgen-skins',
+              version: skinsVersion,
+              declaredVersion: skinsDeclaredVersion,
+              connectionStatus: skinsVersion && skinsVersion !== 'unknown' ? 'connected' : 'disconnected',
+            },
+          },
+        });
+      } catch (error) {
+        logger.error(`health check failed: ${error?.message || error}`);
+        res.status(StatusCodes.OK).json({
+          service: 'dg-content-control',
+          status: 'degraded',
+          connectionStatus: 'disconnected',
+          version: 'unknown',
+          timestamp: new Date().toISOString(),
+          error: error?.message || String(error),
+        });
+      }
+    });
+
     app.route('/generate-doc-template').post(async ({ body }: Request, res: Response) => {
       try {
         const dgContentControls = new DgContentControls(
