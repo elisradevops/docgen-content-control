@@ -1272,18 +1272,16 @@ export default class DgContentControls {
       if (!testPlanId) {
         throw new Error('No plan has been selected');
       }
-      if (!testSuiteArray?.length) {
-        throw new Error('No test suites have been selected');
-      }
       if (!isMewpProject(this.teamProjectName)) {
         throw new Error('Internal Validation report is supported only for MEWP project');
       }
 
+      const latestRelSuiteIds = await this.resolveLatestRelSuiteScopeIds(testPlanId);
       const resultDataProvider = await this.getMewpResultDataProvider();
       const validationData = await resultDataProvider.getMewpInternalValidationFlatResults(
         String(testPlanId),
         this.teamProjectName,
-        testSuiteArray,
+        latestRelSuiteIds,
         linkedQueryRequest,
         {
           debugMode,
@@ -1311,6 +1309,137 @@ export default class DgContentControls {
       logger.error(`Error adding MEWP Internal Validation content ${(error as any)?.message || error}`);
       throw error;
     }
+  }
+
+  private async resolveLatestRelSuiteScopeIds(testPlanId: number): Promise<number[]> {
+    const testDataProvider = await this.dgDataProviderAzureDevOps.getTestDataProvider();
+    const suitesPayload = await testDataProvider.GetTestSuitesForPlan(this.teamProjectName, String(testPlanId));
+    const suitesRaw = Array.isArray(suitesPayload?.testSuites)
+      ? suitesPayload.testSuites
+      : Array.isArray(suitesPayload)
+        ? suitesPayload
+        : [];
+    const suites = suitesRaw
+      .map((suite: any) => ({
+        id: Number(suite?.id),
+        parentSuiteId: Number(suite?.parentSuiteId ?? suite?.parentSuite?.id ?? 0),
+        name: String(suite?.title || suite?.name || ''),
+      }))
+      .filter((suite: any) => Number.isFinite(suite.id) && suite.id > 0);
+
+    if (suites.length === 0) {
+      const noSuitesError: any = new Error(`No test suites for plan id ${testPlanId} were found`);
+      noSuitesError.statusCode = 422;
+      noSuitesError.code = 'MEWP_LATEST_REL_SUITE_NOT_FOUND';
+      throw noSuitesError;
+    }
+
+    const suiteById = new Map<number, { id: number; parentSuiteId: number; name: string }>();
+    suites.forEach((suite: any) => suiteById.set(suite.id, suite));
+
+    const findRelRoot = (startSuiteId: number): { relRootId: number; relNumber: number } | null => {
+      const visited = new Set<number>();
+      let currentId = startSuiteId;
+      while (Number.isFinite(currentId) && currentId > 0 && !visited.has(currentId)) {
+        visited.add(currentId);
+        const suite = suiteById.get(currentId);
+        if (!suite) break;
+        const relToken = extractRelNumber(suite.name);
+        if (!relToken) {
+          currentId = Number(suite.parentSuiteId || 0);
+          continue;
+        }
+        const relNumber = Number(relToken);
+        if (Number.isFinite(relNumber)) {
+          return {
+            relRootId: suite.id,
+            relNumber,
+          };
+        }
+        currentId = Number(suite.parentSuiteId || 0);
+      }
+      return null;
+    };
+
+    const relRoots = new Map<number, { relNumber: number; depth: number }>();
+    const resolveDepth = (suiteId: number): number => {
+      let depth = 0;
+      let cursorId = suiteId;
+      const visited = new Set<number>();
+      while (Number.isFinite(cursorId) && cursorId > 0 && !visited.has(cursorId)) {
+        visited.add(cursorId);
+        const cursor = suiteById.get(cursorId);
+        if (!cursor) break;
+        depth += 1;
+        cursorId = Number(cursor.parentSuiteId || 0);
+      }
+      return depth;
+    };
+
+    for (const suite of suites) {
+      const relRoot = findRelRoot(suite.id);
+      if (!relRoot) continue;
+      if (!relRoots.has(relRoot.relRootId)) {
+        relRoots.set(relRoot.relRootId, {
+          relNumber: relRoot.relNumber,
+          depth: resolveDepth(relRoot.relRootId),
+        });
+      }
+    }
+
+    const sortedRelRoots = [...relRoots.entries()].sort((a, b) => {
+      const [aRootId, aMeta] = a;
+      const [bRootId, bMeta] = b;
+      if (aMeta.relNumber !== bMeta.relNumber) return bMeta.relNumber - aMeta.relNumber;
+      if (aMeta.depth !== bMeta.depth) return aMeta.depth - bMeta.depth;
+      return aRootId - bRootId;
+    });
+
+    if (sortedRelRoots.length === 0) {
+      const noRelError: any = new Error(
+        `Could not resolve latest Rel suite for test plan id ${testPlanId}.`
+      );
+      noRelError.statusCode = 422;
+      noRelError.code = 'MEWP_LATEST_REL_SUITE_NOT_FOUND';
+      throw noRelError;
+    }
+
+    const latestRelRootId = sortedRelRoots[0][0];
+    const selectedIds = new Set<number>();
+
+    const hasAncestor = (suiteId: number, ancestorId: number): boolean => {
+      let cursorId = suiteId;
+      const visited = new Set<number>();
+      while (Number.isFinite(cursorId) && cursorId > 0 && !visited.has(cursorId)) {
+        if (cursorId === ancestorId) return true;
+        visited.add(cursorId);
+        const cursor = suiteById.get(cursorId);
+        if (!cursor) break;
+        cursorId = Number(cursor.parentSuiteId || 0);
+      }
+      return false;
+    };
+
+    for (const suite of suites) {
+      if (hasAncestor(suite.id, latestRelRootId)) {
+        selectedIds.add(suite.id);
+      }
+    }
+
+    if (selectedIds.size === 0) {
+      const unresolvedError: any = new Error(
+        `Could not resolve suite scope for latest Rel in test plan id ${testPlanId}.`
+      );
+      unresolvedError.statusCode = 422;
+      unresolvedError.code = 'MEWP_LATEST_REL_SUITE_NOT_FOUND';
+      throw unresolvedError;
+    }
+
+    const resolvedIds = [...selectedIds].sort((a, b) => a - b);
+    logger.info(
+      `MEWP internal validation latest Rel scope: planId=${testPlanId} relRootSuiteId=${latestRelRootId} selectedSuites=${resolvedIds.length}`
+    );
+    return resolvedIds;
   }
 
   async addMewpStandaloneCoverageContent(
