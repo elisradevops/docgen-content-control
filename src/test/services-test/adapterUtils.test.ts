@@ -1,4 +1,9 @@
-import { toTimestamp, formatLocalIL, buildReleaseRunChangeComparator } from '../../services/adapterUtils';
+import {
+  toTimestamp,
+  formatLocalIL,
+  formatLocalILShort,
+  buildReleaseRunChangeComparator,
+} from '../../services/adapterUtils';
 
 describe('adapterUtils', () => {
   describe('toTimestamp', () => {
@@ -107,6 +112,24 @@ describe('adapterUtils', () => {
 
       const sorted = [...items].sort(comparator);
       expect(sorted[0].change).toBe('2020-01-01T02:00:00Z');
+    });
+  });
+
+  describe('formatLocalILShort', () => {
+    it('returns empty string for falsy/invalid values', () => {
+      expect(formatLocalILShort(undefined as any)).toBe('');
+      expect(formatLocalILShort(null as any)).toBe('');
+      expect(formatLocalILShort('not-a-date')).toBe('');
+    });
+
+    it('returns empty string for years before 1970', () => {
+      expect(formatLocalILShort('1900-01-01T00:00:00.000Z')).toBe('');
+    });
+
+    it('formats valid date to en-GB like value without comma', () => {
+      const result = formatLocalILShort('2026-01-01T10:30:00.000Z');
+      expect(result).toMatch(/\d{2}\/\d{2}\/\d{4}\s\d{2}:\d{2}/);
+      expect(result.includes(',')).toBe(false);
     });
   });
 });
