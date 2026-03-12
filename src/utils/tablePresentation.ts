@@ -13,11 +13,14 @@ export function buildGroupedHeader(
   leftLabel: string,
   rightLabel: string,
   leftFill: string,
-  rightFill: string
+  rightFill: string,
+  options?: { leftColumns?: number; rightColumns?: number }
 ): any {
   return {
     leftLabel,
     rightLabel,
+    leftColumns: options?.leftColumns,
+    rightColumns: options?.rightColumns,
     leftShading: { color: 'auto', fill: leftFill },
     rightShading: { color: 'auto', fill: rightFill },
   };

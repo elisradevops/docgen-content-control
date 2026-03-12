@@ -6,6 +6,7 @@ import { COLOR_REQ_SYS, COLOR_TEST_SOFT, buildGroupedHeader } from '../utils/tab
 import HtmlUtils from '../services/htmlUtils';
 import TraceQueryResultsSkinAdapter from '../adapters/TraceQueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
+import SuiteOverviewDataSkinAdapter from '../adapters/SuiteOverviewDataSkinAdapter';
 
 export default class TestDataFactory {
   isSuiteSpecific = false;
@@ -23,6 +24,8 @@ export default class TestDataFactory {
   includeAttachmentContent: boolean;
   runAttachmentMode: string;
   flatSuiteTestCases: boolean;
+  includeTestSteps: boolean;
+  includeTestPhase: boolean;
   includeRequirements: boolean;
   includeCustomerId: boolean;
   linkedMomRequest: any;
@@ -67,7 +70,9 @@ export default class TestDataFactory {
     PAT,
     stepResultDetailsMap?: Map<string, any>,
     formattingSettings?: any,
-    flatSuiteTestCases?: boolean
+    flatSuiteTestCases?: boolean,
+    includeTestSteps: boolean = true,
+    includeTestPhase: boolean = false
   ) {
     this.teamProject = teamProject;
     this.testPlanId = testPlanId;
@@ -101,6 +106,8 @@ export default class TestDataFactory {
     this.testCaseToLinkedMomLookup = new Map<number, Set<any>>();
     this.formattingSettings = formattingSettings;
     this.flatSuiteTestCases = flatSuiteTestCases;
+    this.includeTestSteps = includeTestSteps;
+    this.includeTestPhase = includeTestPhase;
   }
   async fetchTestData(isByQuery: boolean = false) {
     try {
@@ -392,39 +399,24 @@ export default class TestDataFactory {
           const linkedRequirementConfigs = [
             {
               mapData: this.requirementToTestCaseTraceMap,
-              type: 'req-test',
+              type: 'req-test' as const,
               adoptedDataKey: 'reqTestAdoptedData',
             },
             {
               mapData: this.testCaseToRequirementsTraceMap,
-              type: 'test-req',
+              type: 'test-req' as const,
               adoptedDataKey: 'testReqAdoptedData',
             },
           ];
 
           for (const { mapData, type, adoptedDataKey } of linkedRequirementConfigs) {
-            const title = {
-              fields: [
-                {
-                  name: 'Title',
-                  value: `${
-                    type === 'req-test'
-                      ? 'Trace Analysis Table: Requirements to Test cases'
-                      : 'Trace Analysis Table: Test cases to Requirement'
-                  }`,
-                },
-              ],
-              level: 2,
-            };
+            const title = this.buildTraceTitle(type);
             if (mapData) {
               const linkedRequirementTraceSkinAdapter = new TraceByLinkedRequirementAdapter(mapData, type);
 
               linkedRequirementTraceSkinAdapter.adoptSkinData();
               const adoptedData = linkedRequirementTraceSkinAdapter.getAdoptedData();
-              const groupedHeader =
-                type === 'req-test'
-                  ? buildGroupedHeader('Requirement', 'Test Case', COLOR_REQ_SYS, COLOR_TEST_SOFT)
-                  : buildGroupedHeader('Test Case', 'Requirement', COLOR_TEST_SOFT, COLOR_REQ_SYS);
+              const groupedHeader = this.buildTraceGroupedHeader(type, adoptedData);
               adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
@@ -437,30 +429,18 @@ export default class TestDataFactory {
           const queryConfigs = [
             {
               queryResults: this.reqTestQueryResults,
-              type: 'req-test',
+              type: 'req-test' as const,
               adoptedDataKey: 'reqTestAdoptedData',
             },
             {
               queryResults: this.testReqQueryResults,
-              type: 'test-req',
+              type: 'test-req' as const,
               adoptedDataKey: 'testReqAdoptedData',
             },
           ];
 
           for (const { queryResults, type, adoptedDataKey } of queryConfigs) {
-            const title = {
-              fields: [
-                {
-                  name: 'Title',
-                  value: `${
-                    type === 'req-test'
-                      ? 'Trace Analysis Table: Requirements to Test cases'
-                      : 'Trace Analysis Table: Test cases to Requirement'
-                  }`,
-                },
-              ],
-              level: 2,
-            };
+            const title = this.buildTraceTitle(type);
             if (queryResults) {
               const queryResultSkinAdapter = new TraceQueryResultsSkinAdapter(
                 queryResults,
@@ -471,10 +451,7 @@ export default class TestDataFactory {
 
               queryResultSkinAdapter.adoptSkinData();
               const adoptedData = queryResultSkinAdapter.getAdoptedData();
-              const groupedHeader =
-                type === 'req-test'
-                  ? buildGroupedHeader('Requirement', 'Test Case', COLOR_REQ_SYS, COLOR_TEST_SOFT)
-                  : buildGroupedHeader('Test Case', 'Requirement', COLOR_TEST_SOFT, COLOR_REQ_SYS);
+              const groupedHeader = this.buildTraceGroupedHeader(type, adoptedData);
               adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
@@ -549,30 +526,10 @@ export default class TestDataFactory {
                   // Check if the test case has any attachments, steps, or requirements
                   let insertPageBreak = testCaseAmount > 1 && !titleOnly;
                   try {
-                    let Description = testCase.description || 'No description';
-                    let cleanedDescription = await this.htmlUtils.cleanHtml(
-                      Description,
-                      false,
-                      this.formattingSettings.trimAdditionalSpacingInDescriptions
+                    const descriptionRichText = await this.toRichTextDescription(
+                      testCase.description,
+                      this.formattingSettings?.trimAdditionalSpacingInDescriptions
                     );
-                    let richTextFactory = new RichTextDataFactory(
-                      cleanedDescription,
-                      this.templatePath,
-                      this.teamProject,
-                      this.attachmentsBucketName,
-                      this.minioEndPoint,
-                      this.minioAccessKey,
-                      this.minioSecretKey,
-                      this.PAT
-                    );
-                    const descriptionRichText = await richTextFactory.factorizeRichTextData();
-                    richTextFactory.attachmentMinioData.forEach((item) => {
-                      let attachmentBucketData = {
-                        attachmentMinioPath: item.attachmentPath,
-                        minioFileName: item.fileName,
-                      };
-                      this.attachmentMinioData.push(attachmentBucketData);
-                    });
                     let testCaseHeaderSkinData = {
                       fields: [
                         { name: 'Title', value: testCase.title + ' - ' },
@@ -587,6 +544,13 @@ export default class TestDataFactory {
                           ? suite.temp.level
                           : suite.temp.level + 1,
                     };
+                    if (this.includeTestPhase) {
+                      const normalizedTestPhase = String(testCase.testPhase || '').trim() || 'N/A';
+                      testCaseHeaderSkinData.fields.push({
+                        name: 'Test Phase',
+                        value: normalizedTestPhase,
+                      });
+                    }
 
                     // Helper function to check if all the values in the array are among the target values
                     let testCaseStepsSkinData: any[] = [];
@@ -595,7 +559,7 @@ export default class TestDataFactory {
                       stepLevel: [],
                     };
                     try {
-                      if (testCase.steps && testCase.steps.length > 0) {
+                      if (this.includeTestSteps && testCase.steps && testCase.steps.length > 0) {
                         testCaseStepsSkinData = await Promise.all(
                           testCase.steps.map(async (testStep: any, i: number) => {
                             let actionText = '';
@@ -1176,7 +1140,116 @@ export default class TestDataFactory {
   async getAdoptedTestData() {
     return this.adoptedTestData;
   }
+
+  async getSuiteOverviewAdoptedData() {
+    const suites = this.testDataRaw?.suites || [];
+    // Always split in table context to avoid justified soft-break artifacts
+    // (e.g., "anim   id   est   laborum" before inline images in list items).
+    const splitParagraphs = true;
+
+    const suitesWithRichDescriptions = await Promise.all(
+      suites.map(async (suite: any) => {
+        const suiteDescription = await this.toRichTextDescription(suite?.temp?.description, splitParagraphs);
+        return {
+          ...suite,
+          temp: {
+            ...suite?.temp,
+            description: suiteDescription,
+          },
+        };
+      })
+    );
+
+    const suiteOverviewDataSkinAdapter = new SuiteOverviewDataSkinAdapter(suitesWithRichDescriptions);
+    return suiteOverviewDataSkinAdapter.getAdoptedData();
+  }
+
   getAttachmentMinioData() {
     return this.attachmentMinioData;
+  }
+
+  private buildTraceTitle(type: 'req-test' | 'test-req') {
+    return {
+      fields: [
+        {
+          name: 'Title',
+          value:
+            type === 'req-test'
+              ? 'Trace Analysis Table: Requirements to Test cases'
+              : 'Trace Analysis Table: Test cases to Requirement',
+        },
+      ],
+      level: 2,
+    };
+  }
+
+  private buildTraceGroupedHeader(type: 'req-test' | 'test-req', adoptedData: any[]) {
+    const isRequirementToTest = type === 'req-test';
+    const { leftColumns, rightColumns } = this.inferTraceGroupColumns(type, adoptedData);
+
+    return isRequirementToTest
+      ? buildGroupedHeader('Requirement', 'Test Case', COLOR_REQ_SYS, COLOR_TEST_SOFT, {
+          leftColumns,
+          rightColumns,
+        })
+      : buildGroupedHeader('Test Case', 'Requirement', COLOR_TEST_SOFT, COLOR_REQ_SYS, {
+          leftColumns,
+          rightColumns,
+        });
+  }
+
+  private inferTraceGroupColumns(type: 'req-test' | 'test-req', adoptedData: any[]) {
+    const fields = adoptedData?.[0]?.fields;
+    if (!Array.isArray(fields) || fields.length === 0) {
+      return {};
+    }
+
+    const splitColumnName = type === 'req-test' ? 'test case id' : 'req id';
+    const splitColumnIndex = fields.findIndex(
+      (field: any) => String(field?.name || '').trim().toLowerCase() === splitColumnName
+    );
+
+    if (splitColumnIndex <= 0 || splitColumnIndex >= fields.length) {
+      return {};
+    }
+
+    return {
+      leftColumns: splitColumnIndex,
+      rightColumns: fields.length - splitColumnIndex,
+    };
+  }
+
+  private appendRichTextAttachmentData(attachmentData: any[] = []) {
+    attachmentData.forEach((item) => {
+      this.attachmentMinioData.push({
+        attachmentMinioPath: item.attachmentPath,
+        minioFileName: item.fileName,
+      });
+    });
+  }
+
+  private async toRichTextDescription(rawDescription: any, splitParagraphsIntoSeparateElements: boolean) {
+    const description = String(rawDescription || '').trim() || 'No description';
+    const cleanedDescription = await this.htmlUtils.cleanHtml(
+      description,
+      false,
+      splitParagraphsIntoSeparateElements
+    );
+
+    const richTextFactory = new RichTextDataFactory(
+      cleanedDescription,
+      this.templatePath,
+      this.teamProject,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT
+    );
+
+    const descriptionRichText = await richTextFactory.factorizeRichTextData();
+    this.appendRichTextAttachmentData(richTextFactory.attachmentMinioData);
+
+    return richTextFactory.hasValues ? descriptionRichText : 'No description';
   }
 }

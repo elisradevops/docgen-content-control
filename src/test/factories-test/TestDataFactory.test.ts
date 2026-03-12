@@ -15,6 +15,8 @@ import TestDataFactory from '../../factories/TestDataFactory';
 import HtmlUtils from '../../services/htmlUtils';
 import RichTextDataFactory from '../../factories/RichTextDataFactory';
 import AttachmentsDataFactory from '../../factories/AttachmentsDataFactory';
+import TraceQueryResultsSkinAdapter from '../../adapters/TraceQueryResultsSkinAdapter';
+import TraceByLinkedRequirementAdapter from '../../adapters/TraceByLinkedRequirementAdapter';
 import logger from '../../services/logger';
 
 // Mock dependencies
@@ -126,6 +128,8 @@ describe('TestDataFactory', () => {
       trimAdditionalSpacingInTables: false,
     },
     flatSuiteTestCases: false,
+    includeTestSteps: true,
+    includeTestPhase: false,
   });
 
   const createTestDataFactory = (params) =>
@@ -152,7 +156,9 @@ describe('TestDataFactory', () => {
       params.PAT,
       params.stepResultDetailsMap,
       params.formattingSettings,
-      params.flatSuiteTestCases
+      params.flatSuiteTestCases,
+      params.includeTestSteps,
+      params.includeTestPhase
     );
 
   beforeEach(() => {
@@ -309,6 +315,92 @@ describe('TestDataFactory', () => {
       expect(right.adoptedData[0].mode).toBe('leftOnly');
     });
 
+    test('jsonSkinDataAdpater should calculate grouped-header spans for query trace tables', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      (factory as any).reqTestQueryResults = [{ id: 'req1' }];
+      (factory as any).testReqQueryResults = [{ id: 'tc1' }];
+
+      (TraceQueryResultsSkinAdapter as jest.Mock)
+        .mockImplementationOnce(() => ({
+          adoptSkinData: jest.fn(),
+          getAdoptedData: jest.fn().mockReturnValue([
+            {
+              fields: [
+                { name: 'Req ID' },
+                { name: 'Title' },
+                { name: 'Customer ID' },
+                { name: 'Test Case ID' },
+                { name: 'Title' },
+              ],
+            },
+          ]),
+        }))
+        .mockImplementationOnce(() => ({
+          adoptSkinData: jest.fn(),
+          getAdoptedData: jest.fn().mockReturnValue([
+            {
+              fields: [
+                { name: 'Test Case ID' },
+                { name: 'Title' },
+                { name: 'Req ID' },
+                { name: 'Title' },
+              ],
+            },
+          ]),
+        }));
+
+      const result = await (factory as any).jsonSkinDataAdpater('query-results', false, 'both');
+
+      expect(result.reqTestAdoptedData.groupedHeader.leftColumns).toBe(3);
+      expect(result.reqTestAdoptedData.groupedHeader.rightColumns).toBe(2);
+      expect(result.testReqAdoptedData.groupedHeader.leftColumns).toBe(2);
+      expect(result.testReqAdoptedData.groupedHeader.rightColumns).toBe(2);
+    });
+
+    test('jsonSkinDataAdpater should calculate grouped-header spans for linked trace tables', async () => {
+      const factory = createTestDataFactory(defaultParams);
+
+      (factory as any).requirementToTestCaseTraceMap = new Map<string, string[]>([['req1', ['tc1']]]);
+      (factory as any).testCaseToRequirementsTraceMap = new Map<string, string[]>([['tc1', ['req1']]]);
+
+      (TraceByLinkedRequirementAdapter as jest.Mock)
+        .mockImplementationOnce(() => ({
+          adoptSkinData: jest.fn(),
+          getAdoptedData: jest.fn().mockReturnValue([
+            {
+              fields: [
+                { name: 'Req ID' },
+                { name: 'Title' },
+                { name: 'Customer ID' },
+                { name: 'Test Case ID' },
+                { name: 'Title' },
+              ],
+            },
+          ]),
+        }))
+        .mockImplementationOnce(() => ({
+          adoptSkinData: jest.fn(),
+          getAdoptedData: jest.fn().mockReturnValue([
+            {
+              fields: [
+                { name: 'Test Case ID' },
+                { name: 'Title' },
+                { name: 'Req ID' },
+                { name: 'Title' },
+              ],
+            },
+          ]),
+        }));
+
+      const result = await (factory as any).jsonSkinDataAdpater('linked-requirements-trace');
+
+      expect(result.reqTestAdoptedData.groupedHeader.leftColumns).toBe(3);
+      expect(result.reqTestAdoptedData.groupedHeader.rightColumns).toBe(2);
+      expect(result.testReqAdoptedData.groupedHeader.leftColumns).toBe(2);
+      expect(result.testReqAdoptedData.groupedHeader.rightColumns).toBe(2);
+    });
+
     test('jsonSkinDataAdpater should return null adoptedData when query-results are missing', async () => {
       const factory = createTestDataFactory(defaultParams);
 
@@ -403,6 +495,118 @@ describe('TestDataFactory', () => {
       expect(result[1].suiteSkinData).toBeDefined();
       expect(result[1].suiteSkinData.level).toBe(1);
       expect(result[1].testCases).toHaveLength(1);
+    });
+
+    test('jsonSkinDataAdpater default branch should add test phase in STP mode', async () => {
+      const factory = createTestDataFactory({
+        ...defaultParams,
+        includeTestSteps: false,
+        includeTestPhase: true,
+      } as any);
+
+      (factory as any).testDataRaw = {
+        suites: [
+          {
+            temp: { id: 7, name: 'Suite A', level: 1, url: 'suite-a' },
+            testCases: [
+              {
+                id: 70,
+                title: 'TC 70',
+                url: 'tc-70',
+                description: 'stp-desc',
+                testPhase: 'Qualification',
+                steps: [{ stepPosition: '1', action: 'a', expected: 'b' }],
+                attachmentsData: [],
+                relations: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await (factory as any).jsonSkinDataAdpater(null, false);
+      const headerFields = result[0].testCases[0].testCaseHeaderSkinData.fields;
+
+      expect(headerFields.some((f) => f.name === 'Test Phase' && f.value === 'Qualification')).toBe(true);
+      expect(headerFields.some((f) => f.name === 'Milestone Declaration')).toBe(false);
+      expect(result[0].testCases[0].testCaseStepsSkinData).toEqual([]);
+    });
+
+    test('getSuiteOverviewAdoptedData should create sequential numbering for all suites', async () => {
+      const factory = createTestDataFactory(defaultParams as any);
+
+      (factory as any).testDataRaw = {
+        suites: [
+          { temp: { id: 1, name: 'Root', level: 1, url: 'u1', description: 'd1' }, testCases: [] },
+          { temp: { id: 2, name: 'Child', level: 2, url: 'u2', description: 'd2' }, testCases: [] },
+          { temp: { id: 3, name: 'Leaf', level: 3, url: 'u3', description: 'd3' }, testCases: [] },
+        ],
+      };
+
+      const rows = await (factory as any).getSuiteOverviewAdoptedData();
+      expect(rows).toHaveLength(3);
+      expect(rows[0].fields[0].value).toBe(1);
+      expect(rows[1].fields[0].value).toBe(2);
+      expect(rows[2].fields[0].value).toBe(3);
+      expect(String(rows[1].fields[1].value)).toContain('Child');
+      expect(String(rows[1].fields[1].value)).not.toContain('-');
+      expect(String(rows[2].fields[1].value)).toContain('Leaf');
+      expect(String(rows[2].fields[1].value)).not.toContain('-');
+      expect(rows[0].fields[1].url).toBeUndefined();
+      expect(rows[1].fields[1].url).toBeUndefined();
+      expect(rows[2].fields[1].url).toBeUndefined();
+      expect(rows[0].url).toBe('');
+      expect(rows[1].url).toBe('');
+      expect(rows[2].url).toBe('');
+    });
+
+    test('getSuiteOverviewAdoptedData should process suite description via rich-text pipeline', async () => {
+      const factory = createTestDataFactory(defaultParams as any);
+      (factory as any).testDataRaw = {
+        suites: [
+          {
+            temp: {
+              id: 1,
+              name: 'Suite with rich description',
+              level: 1,
+              description: '<div><img src=\"https://example.com/image.png\" /></div>',
+            },
+            testCases: [],
+          },
+        ],
+      };
+
+      const cleanHtmlMock = jest
+        .fn()
+        .mockResolvedValue('<html><body><img src="TempFiles/image.png" /></body></html>');
+      (factory as any).htmlUtils = {
+        cleanHtml: cleanHtmlMock,
+      };
+      (RichTextDataFactory as jest.Mock).mockImplementationOnce(() => ({
+        factorizeRichTextData: jest
+          .fn()
+          .mockResolvedValue('<html><body><img src="TempFiles/image.png" /></body></html>'),
+        attachmentMinioData: [{ attachmentPath: '/bucket/path/image.png', fileName: 'image.png' }],
+        hasValues: true,
+      }));
+
+      const rows = await (factory as any).getSuiteOverviewAdoptedData();
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].fields[2]).toMatchObject({
+        name: 'Description',
+        value: '<html><body><img src="TempFiles/image.png" /></body></html>',
+      });
+      expect(cleanHtmlMock).toHaveBeenCalledWith(
+        '<div><img src=\"https://example.com/image.png\" /></div>',
+        false,
+        true
+      );
+      expect((factory as any).attachmentMinioData).toEqual(
+        expect.arrayContaining([
+          { attachmentMinioPath: '/bucket/path/image.png', minioFileName: 'image.png' },
+        ])
+      );
     });
 
     test('AdaptTestCaseRequirements should dispatch to query-based implementation when isByQuery=true', () => {

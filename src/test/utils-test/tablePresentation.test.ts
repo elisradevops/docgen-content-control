@@ -29,4 +29,14 @@ describe('tablePresentation', () => {
     expect(header.leftShading).toEqual({ color: 'auto', fill: 'AAA' });
     expect(header.rightShading).toEqual({ color: 'auto', fill: 'BBB' });
   });
+
+  it('buildGroupedHeader should include explicit column spans when provided', () => {
+    const header = buildGroupedHeader('Left', 'Right', 'AAA', 'BBB', {
+      leftColumns: 3,
+      rightColumns: 2,
+    });
+
+    expect(header.leftColumns).toBe(3);
+    expect(header.rightColumns).toBe(2);
+  });
 });
