@@ -96,6 +96,32 @@ const isMewpProject = (projectName: string | undefined) =>
     .trim()
     .toLowerCase() === 'mewp';
 
+const toSuiteId = (value: any) => {
+  if (value == null) return null;
+  if (typeof value === 'boolean') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  const numeric = typeof value === 'number' ? value : Number(String(value).trim());
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const toUniqueSuiteIds = (suiteIds: any[] | undefined) => {
+  if (!Array.isArray(suiteIds)) return [];
+  const normalizedIds = suiteIds
+    .map((suiteId) => toSuiteId(suiteId))
+    .filter((suiteId): suiteId is number => suiteId !== null);
+  return Array.from(new Set(normalizedIds));
+};
+
+const shouldFlattenSingleSuite = (
+  nonRecursiveTestSuiteIdList?: number[],
+  testSuiteArray?: number[]
+) => {
+  const selectedSuites = toUniqueSuiteIds(nonRecursiveTestSuiteIdList);
+  if (selectedSuites.length > 0) return selectedSuites.length === 1;
+  const expandedSuites = toUniqueSuiteIds(testSuiteArray);
+  return expandedSuites.length === 1;
+};
+
 type MewpExternalFileRef = {
   url?: string;
   text?: string;
@@ -236,22 +262,16 @@ export default class DgContentControls {
           );
           break;
         case 'test-description':
-          contentControlData = await this.addTestDescriptionContent(
-            contentControlOptions.data.testPlanId,
-            contentControlOptions.data.testSuiteArray,
-            contentControlOptions.title,
-            contentControlOptions.headingLevel,
-            contentControlOptions.data.includeAttachments,
-            contentControlOptions.data.attachmentType,
-            contentControlOptions.data.includeHardCopyRun,
-            contentControlOptions.data.includeAttachmentContent,
-            contentControlOptions.data.includeRequirements,
-            contentControlOptions.data.includeCustomerId,
-            contentControlOptions.data.linkedMomRequest,
-            contentControlOptions.data.traceAnalysisRequest,
-            contentControlOptions.data.flatSuiteTestCases
-          );
-
+        case 'test-stp-description':
+          {
+            const isStpMode =
+              contentControlOptions.type === 'test-stp-description' ||
+              String(contentControlOptions.skin || '').toLowerCase() === 'test-stp';
+            contentControlData = await this.generateTestDescriptionContent(
+              contentControlOptions,
+              isStpMode
+            );
+          }
           break;
         case 'trace-table':
           contentControlData = await this.addTraceTableContent(
@@ -436,6 +456,27 @@ export default class DgContentControls {
     }
   }
 
+  private async generateTestDescriptionContent(contentControlOptions: any, isStpMode: boolean) {
+    const data = contentControlOptions?.data || {};
+    const includeHardCopyRun = isStpMode ? false : data.includeHardCopyRun;
+    return this.addTestDescriptionContent(
+      data.testPlanId,
+      data.testSuiteArray,
+      contentControlOptions.title,
+      contentControlOptions.headingLevel,
+      data.includeAttachments,
+      data.attachmentType,
+      includeHardCopyRun,
+      data.includeAttachmentContent,
+      data.includeRequirements,
+      data.includeCustomerId,
+      data.linkedMomRequest,
+      data.traceAnalysisRequest,
+      data.nonRecursiveTestSuiteIdList,
+      isStpMode
+    );
+  }
+
   async addTestDescriptionContent(
     testPlanId: number,
     testSuiteArray: number[],
@@ -449,7 +490,8 @@ export default class DgContentControls {
     includeCustomerId?: boolean,
     linkedMomRequest?: any,
     traceAnalysisRequest?: any,
-    flatSuiteTestCases?: boolean
+    nonRecursiveTestSuiteIdList?: number[],
+    isStpMode: boolean = false
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -463,6 +505,13 @@ export default class DgContentControls {
     if (testSuiteArray?.length === 0) {
       throw new Error('No test suites have been selected');
     }
+
+    // Flattening is resolved automatically for both STD and STP by selected scope size.
+    const effectiveFlatSuiteTestCases = shouldFlattenSingleSuite(
+      nonRecursiveTestSuiteIdList,
+      testSuiteArray
+    );
+
     let testDataFactory: TestDataFactory;
     try {
       testDataFactory = new TestDataFactory(
@@ -472,7 +521,7 @@ export default class DgContentControls {
         testSuiteArray,
         includeAttachments,
         attachmentType,
-        includeHardCopyRun,
+        isStpMode ? false : includeHardCopyRun,
         includeAttachmentContent,
         'planOnly',
         includeRequirements,
@@ -488,7 +537,9 @@ export default class DgContentControls {
         this.PAT,
         undefined,
         this.formattingSettings,
-        flatSuiteTestCases
+        effectiveFlatSuiteTestCases,
+        !isStpMode,
+        isStpMode
       );
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
@@ -502,7 +553,7 @@ export default class DgContentControls {
       }
 
       //init the adopted data
-      await testDataFactory.fetchTestData(traceAnalysisRequest.traceAnalysisMode === 'query');
+      await testDataFactory.fetchTestData(traceAnalysisRequest?.traceAnalysisMode === 'query');
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'linkedRequirement') {
         await testDataFactory.fetchLinkedRequirementsTrace();
@@ -541,6 +592,10 @@ export default class DgContentControls {
         isBold: false, // Specific to regular styles
       };
 
+      if (isStpMode) {
+        await this.structureSuiteOverviewSkin(testDataFactory, headerStyles, styles, headingLevel, contentControls);
+      }
+
       let attachmentData = testDataFactory.getAttachmentMinioData();
       this.minioAttachmentData = this.minioAttachmentData.concat(attachmentData);
       let skins = await this.skins.addNewContentToDocumentSkin(
@@ -549,7 +604,7 @@ export default class DgContentControls {
         testDataFactory.adoptedTestData,
         headerStyles,
         styles,
-        headingLevel,
+        isStpMode ? Number(headingLevel || 0) + 1 : headingLevel,
         includeAttachments
       );
       const testDescCC = { title: contentControlTitle, wordObjects: [] };
@@ -562,7 +617,7 @@ export default class DgContentControls {
       });
       contentControls.push(testDescCC);
 
-      if (traceAnalysisRequest?.traceAnalysisMode !== 'none') {
+      if (traceAnalysisRequest?.traceAnalysisMode && traceAnalysisRequest.traceAnalysisMode !== 'none') {
         await this.structureTraceSkins(testDataFactory, headerStyles, styles, headingLevel, contentControls);
       }
 
@@ -571,6 +626,53 @@ export default class DgContentControls {
       logger.error(`Error adding Test Description content ${error}`);
       throw error;
     }
+  }
+
+  private async structureSuiteOverviewSkin(
+    testDataFactory: TestDataFactory,
+    headerStyles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    styles: {
+      isBold: boolean;
+      IsItalic: boolean;
+      IsUnderline: boolean;
+      Size: number;
+      Uri: any;
+      Font: string;
+      InsertLineBreak: boolean;
+      InsertSpace: boolean;
+    },
+    headingLevel: number,
+    contentControls: contentControl[]
+  ) {
+    const title = 'suite-description-content-control';
+    const contentControlResults: contentControl = {
+      title,
+      wordObjects: [],
+    };
+    const suiteOverviewAdoptedData = await testDataFactory.getSuiteOverviewAdoptedData();
+    const suiteOverviewSkins = await this.skins.addNewContentToDocumentSkin(
+      title,
+      this.skins.SKIN_TYPE_TABLE,
+      suiteOverviewAdoptedData,
+      headerStyles,
+      styles,
+      headingLevel
+    );
+
+    suiteOverviewSkins.forEach((skin) => {
+      contentControlResults.wordObjects.push(skin);
+    });
+
+    contentControls.push(contentControlResults);
   }
 
   private async structureOpenPcrSkins(
