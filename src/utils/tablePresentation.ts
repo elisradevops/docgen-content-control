@@ -25,3 +25,31 @@ export function buildGroupedHeader(
     rightShading: { color: 'auto', fill: rightFill },
   };
 }
+
+type AdaptiveIdWidthOptions = {
+  minWidthPercent?: number;
+  maxWidthPercent?: number;
+  baseDigits?: number;
+  widthPerExtraDigit?: number;
+};
+
+export function calculateAdaptiveIdColumnWidth(
+  values: Array<string | number | null | undefined>,
+  options: AdaptiveIdWidthOptions = {}
+): string {
+  const minWidth = options.minWidthPercent ?? 8.5;
+  const maxWidth = options.maxWidthPercent ?? 14;
+  const baseDigits = options.baseDigits ?? 5;
+  const widthPerExtraDigit = options.widthPerExtraDigit ?? 0.7;
+
+  const maxDigits = values.reduce<number>((max, value) => {
+    const normalized = String(value ?? '').replace(/\D/g, '');
+    return Math.max(max, normalized.length);
+  }, 0);
+
+  const extraDigits = Math.max(0, maxDigits - baseDigits);
+  const rawWidth = minWidth + extraDigits * widthPerExtraDigit;
+  const clampedWidth = Math.min(maxWidth, Math.max(minWidth, rawWidth));
+
+  return `${Number(clampedWidth.toFixed(1))}%`;
+}

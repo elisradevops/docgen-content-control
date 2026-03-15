@@ -1,12 +1,15 @@
 import logger from '../services/logger';
-import { COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
-
-const TRACE_ID_COLUMN_WIDTH = '8.5%';
+import {
+  COLOR_REQ_SYS,
+  COLOR_TEST_SOFT,
+  calculateAdaptiveIdColumnWidth,
+} from '../utils/tablePresentation';
 
 export default class TraceByLinkedRequirementAdapter {
   rawMapping: any;
   queryMode: string;
   includeCustomerId: boolean;
+  private traceIdColumnWidth = '8.5%';
   private adoptedData: any[] = [];
 
   constructor(rawResults, queryMode = 'none') {
@@ -17,6 +20,7 @@ export default class TraceByLinkedRequirementAdapter {
   adoptSkinData() {
     try {
       this.adoptedData = [];
+      this.traceIdColumnWidth = this.resolveTraceIdColumnWidth();
       const reqColors = [COLOR_REQ_SYS, 'FFFFFF'];
       const testColors = [COLOR_TEST_SOFT, 'FFFFFF'];
       const baseShading = { color: 'auto' };
@@ -59,14 +63,24 @@ export default class TraceByLinkedRequirementAdapter {
       const tcTarget = JSON.parse(target);
       const fields = this.buildFields({
         items: [
-          { name: 'Req ID', value: requirementSource.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+          {
+            name: 'Req ID',
+            value: requirementSource.id,
+            width: this.traceIdColumnWidth,
+            color: currentReqColor,
+          },
           { name: 'Title', value: requirementSource.title, color: currentReqColor },
           hasCustomerId && {
             name: 'Customer ID',
             value: requirementSource.customerId,
             color: currentReqColor,
           },
-          { name: 'Test Case ID', value: tcTarget.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+          {
+            name: 'Test Case ID',
+            value: tcTarget.id,
+            width: this.traceIdColumnWidth,
+            color: currentTestColor,
+          },
           { name: 'Title', value: tcTarget.title, color: currentTestColor },
         ],
         baseShading,
@@ -92,9 +106,14 @@ export default class TraceByLinkedRequirementAdapter {
       const reqTarget = JSON.parse(target);
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: tcSource.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+          {
+            name: 'Test Case ID',
+            value: tcSource.id,
+            width: this.traceIdColumnWidth,
+            color: currentTestColor,
+          },
           { name: 'Title', value: tcSource.title, color: currentTestColor },
-          { name: 'Req ID', value: reqTarget.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+          { name: 'Req ID', value: reqTarget.id, width: this.traceIdColumnWidth, color: currentReqColor },
           { name: 'Title', value: reqTarget.title, color: currentReqColor },
           hasCustomerId && { name: 'Customer ID', value: reqTarget.customerId, color: currentReqColor },
         ],
@@ -109,6 +128,30 @@ export default class TraceByLinkedRequirementAdapter {
       ...item,
       shading: { ...baseShading, fill: item.color },
     }));
+  }
+
+  private resolveTraceIdColumnWidth(): string {
+    const ids: Array<string | number | null | undefined> = [];
+
+    for (const [source, targets] of this.rawMapping || []) {
+      try {
+        const parsedSource = JSON.parse(source);
+        ids.push(parsedSource?.id);
+      } catch {
+        ids.push(undefined);
+      }
+
+      (targets || []).forEach((target: string) => {
+        try {
+          const parsedTarget = JSON.parse(target);
+          ids.push(parsedTarget?.id);
+        } catch {
+          ids.push(undefined);
+        }
+      });
+    }
+
+    return calculateAdaptiveIdColumnWidth(ids);
   }
 
   getAdoptedData() {
