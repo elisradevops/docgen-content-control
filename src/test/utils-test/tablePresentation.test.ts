@@ -4,6 +4,7 @@ import {
   COLOR_PCR,
   normalizeFieldName,
   buildGroupedHeader,
+  calculateAdaptiveIdColumnWidth,
 } from '../../utils/tablePresentation';
 
 describe('tablePresentation', () => {
@@ -38,5 +39,14 @@ describe('tablePresentation', () => {
 
     expect(header.leftColumns).toBe(3);
     expect(header.rightColumns).toBe(2);
+  });
+
+  it('calculateAdaptiveIdColumnWidth should keep base width for short IDs', () => {
+    expect(calculateAdaptiveIdColumnWidth([1, 25, 333])).toBe('8.5%');
+  });
+
+  it('calculateAdaptiveIdColumnWidth should expand width for long IDs up to max', () => {
+    expect(parseFloat(calculateAdaptiveIdColumnWidth([123456789012]))).toBeGreaterThan(8.5);
+    expect(calculateAdaptiveIdColumnWidth([1234567890123456789012345])).toBe('14%');
   });
 });

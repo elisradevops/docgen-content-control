@@ -8,12 +8,6 @@ jest.mock('../../services/logger', () => ({
   error: jest.fn(),
 }));
 
-jest.mock('../../utils/tablePresentation', () => ({
-  COLOR_REQ_SYS: 'REQ_COLOR',
-  COLOR_TEST_SOFT: 'TEST_COLOR',
-  normalizeFieldName: (name: string) => name,
-}));
-
 describe('TraceQueryResultsSkinAdapter', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -224,5 +218,27 @@ describe('TraceQueryResultsSkinAdapter', () => {
 
     expect(data.length).toBe(0);
     expect((logger as any).error).toHaveBeenCalled();
+  });
+
+  test('adapts Req/Test Case ID column widths when IDs are long', () => {
+    const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+    const req = makeItem(123456789012, { 'System.Title': 'Req long' });
+    const tc = makeItem(987654321098, { 'System.Title': 'TC long' });
+    const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+    const adapter = new TraceQueryResultsSkinAdapter(
+      { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+      'req-test',
+      false,
+      'both'
+    );
+
+    adapter.adoptSkinData();
+    const fields = adapter.getAdoptedData()[0].fields;
+    const reqIdField = fields.find((f: any) => f.name === 'Req ID');
+    const tcIdField = fields.find((f: any) => f.name === 'Test Case ID');
+
+    expect(parseFloat(reqIdField.width)).toBeGreaterThan(8.5);
+    expect(reqIdField.width).toBe(tcIdField.width);
   });
 });

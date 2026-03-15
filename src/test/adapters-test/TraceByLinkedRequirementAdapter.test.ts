@@ -80,4 +80,21 @@ describe('TraceByLinkedRequirementAdapter', () => {
     expect(data.length).toBe(0);
     expect((logger as any).error).toHaveBeenCalled();
   });
+
+  test('adapts Req/Test Case ID column widths when IDs are long', () => {
+    const req = makeReqJson({ id: 123456789012 });
+    const tc = makeTcJson({ id: 987654321098 });
+    const map = new Map<string, string[]>([[req, [tc]]]);
+
+    const adapter = new TraceByLinkedRequirementAdapter(map, 'req-test');
+    adapter.adoptSkinData();
+    const data = adapter.getAdoptedData();
+    const fields = data[0].fields;
+
+    const reqIdField = fields.find((f: any) => f.name === 'Req ID');
+    const tcIdField = fields.find((f: any) => f.name === 'Test Case ID');
+
+    expect(parseFloat(reqIdField.width)).toBeGreaterThan(8.5);
+    expect(reqIdField.width).toBe(tcIdField.width);
+  });
 });

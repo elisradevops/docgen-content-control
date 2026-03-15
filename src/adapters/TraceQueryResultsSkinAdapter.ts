@@ -1,7 +1,10 @@
 import logger from '../services/logger';
-import { COLOR_REQ_SYS, COLOR_TEST_SOFT, normalizeFieldName } from '../utils/tablePresentation';
-
-const TRACE_ID_COLUMN_WIDTH = '8.5%';
+import {
+  COLOR_REQ_SYS,
+  COLOR_TEST_SOFT,
+  normalizeFieldName,
+  calculateAdaptiveIdColumnWidth,
+} from '../utils/tablePresentation';
 
 export default class TraceQueryResultsSkinAdapter {
   rawQueryMapping: any;
@@ -10,6 +13,7 @@ export default class TraceQueryResultsSkinAdapter {
   sortingSourceColumnsMap: Map<string, string>;
   sortingTargetsColumnsMap: Map<string, string>;
   private includeCommonColumnsMode: string;
+  private traceIdColumnWidth = '8.5%';
   private adoptedData: any[] = [];
 
   constructor(
@@ -30,6 +34,7 @@ export default class TraceQueryResultsSkinAdapter {
   adoptSkinData() {
     try {
       this.adoptedData = [];
+      this.traceIdColumnWidth = this.resolveTraceIdColumnWidth();
       const reqColors = [COLOR_REQ_SYS, 'FFFFFF'];
       const testColors = [COLOR_TEST_SOFT, 'FFFFFF'];
       const baseShading = { color: 'auto' };
@@ -178,9 +183,9 @@ export default class TraceQueryResultsSkinAdapter {
 
       const fields = this.buildFields({
         items: [
-          { name: 'Req ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+          { name: 'Req ID', value: source.id, width: this.traceIdColumnWidth, color: currentReqColor },
           ...adaptedSourceFields,
-          { name: 'Test Case ID', value: '', width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+          { name: 'Test Case ID', value: '', width: this.traceIdColumnWidth, color: currentTestColor },
           { name: 'Test Case Title', value: '', color: currentTestColor },
           ...adaptedTargetFields,
         ],
@@ -198,9 +203,9 @@ export default class TraceQueryResultsSkinAdapter {
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Req ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+            { name: 'Req ID', value: source.id, width: this.traceIdColumnWidth, color: currentReqColor },
             ...adaptedSourceFields,
-            { name: 'Test Case ID', value: target.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+            { name: 'Test Case ID', value: target.id, width: this.traceIdColumnWidth, color: currentTestColor },
             ...adaptedTargetFields,
           ],
           baseShading,
@@ -234,9 +239,9 @@ export default class TraceQueryResultsSkinAdapter {
       );
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+          { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor },
           ...adaptedSourceFields,
-          { name: 'Req ID', value: '', width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+          { name: 'Req ID', value: '', width: this.traceIdColumnWidth, color: currentReqColor },
           { name: 'Req Title', value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
@@ -254,9 +259,9 @@ export default class TraceQueryResultsSkinAdapter {
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Test Case ID', value: source.id, width: TRACE_ID_COLUMN_WIDTH, color: currentTestColor },
+            { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor },
             ...adaptedSourceFields,
-            { name: 'Req ID', value: target.id, width: TRACE_ID_COLUMN_WIDTH, color: currentReqColor },
+            { name: 'Req ID', value: target.id, width: this.traceIdColumnWidth, color: currentReqColor },
             ...adaptedTargetFields,
           ],
           baseShading,
@@ -275,6 +280,17 @@ export default class TraceQueryResultsSkinAdapter {
 
   private convertAreaPathToNodeName(areaPath = '') {
     return areaPath?.includes('\\') ? areaPath.split('\\').pop() : areaPath;
+  }
+
+  private resolveTraceIdColumnWidth(): string {
+    const ids: Array<string | number | null | undefined> = [];
+
+    for (const [source, targets] of this.rawQueryMapping || []) {
+      ids.push(source?.id);
+      (targets || []).forEach((target: any) => ids.push(target?.id));
+    }
+
+    return calculateAdaptiveIdColumnWidth(ids);
   }
 
   getAdoptedData() {
