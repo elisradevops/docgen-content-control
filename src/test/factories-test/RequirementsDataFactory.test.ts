@@ -103,7 +103,7 @@ describe('RequirementsDataFactory', () => {
       params.dgDataProvider,
       params.queriesRequest,
       params.formattingSettings,
-      params.allowBiggerThan500
+      params.allowBiggerThan500,
     );
 
   beforeEach(() => {
@@ -157,7 +157,7 @@ describe('RequirementsDataFactory', () => {
         'pat',
         mockProviders.dgDataProvider,
         { systemRequirements: { wiql: { href: 'url' } } },
-        {}
+        {},
       );
 
       expect(factory['allowBiggerThan500']).toBe(false);
@@ -175,7 +175,7 @@ describe('RequirementsDataFactory', () => {
         mockProviders.dgDataProvider,
         { systemRequirements: { wiql: { href: 'url' } } },
         {},
-        true
+        true,
       );
 
       expect(factory['allowBiggerThan500']).toBe(true);
@@ -195,7 +195,8 @@ describe('RequirementsDataFactory', () => {
       expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledWith(
         'system-requirements-query-url',
         false,
-        null
+        null,
+        false, // fetchAllFields is false for SRS variant
       );
       expect(requirementsDataFactory.adoptedData).toBeDefined();
     });
@@ -236,7 +237,7 @@ describe('RequirementsDataFactory', () => {
         2,
         'system-to-software-query-url',
         true,
-        null
+        null,
       );
     });
 
@@ -262,7 +263,7 @@ describe('RequirementsDataFactory', () => {
         3,
         'software-to-system-query-url',
         true,
-        null
+        null,
       );
     });
 
@@ -453,7 +454,7 @@ describe('RequirementsDataFactory', () => {
         .mockResolvedValue(categorizedPayload);
 
       (mockProviders.dgDataProvider.getTicketsDataProvider as jest.Mock).mockResolvedValue(
-        mockProviders.ticketsDataProvider
+        mockProviders.ticketsDataProvider,
       );
 
       const categorizedFactory = new RequirementsDataFactory(
@@ -472,7 +473,7 @@ describe('RequirementsDataFactory', () => {
         },
         defaultParams.formattingSettings,
         false,
-        'categorized'
+        'categorized',
       );
 
       await categorizedFactory.fetchRequirementsData();
@@ -482,7 +483,7 @@ describe('RequirementsDataFactory', () => {
       expect(Array.isArray(adopted.systemRequirementsData)).toBe(true);
       expect(adopted.systemRequirementsData.length).toBeGreaterThan(0);
       expect(
-        (mockProviders.ticketsDataProvider as any).GetCategorizedRequirementsByType
+        (mockProviders.ticketsDataProvider as any).GetCategorizedRequirementsByType,
       ).toHaveBeenCalledWith('system-requirements-query-url');
     });
   });
@@ -503,7 +504,7 @@ describe('RequirementsDataFactory', () => {
         fixtures.sourceTargetsMap,
         'sys-req-to-soft-req',
         expect.any(Map),
-        expect.any(Map)
+        expect.any(Map),
       );
     });
 
@@ -528,7 +529,7 @@ describe('RequirementsDataFactory', () => {
         fixtures.sourceTargetsMap,
         'soft-req-to-sys-req',
         expect.any(Map),
-        expect.any(Map)
+        expect.any(Map),
       );
     });
 
@@ -562,7 +563,7 @@ describe('RequirementsDataFactory', () => {
         fixtures.workItemRelations,
         'sys-req-to-soft-req',
         expect.any(Map),
-        expect.any(Map)
+        expect.any(Map),
       );
     });
   });
@@ -591,7 +592,7 @@ describe('RequirementsDataFactory', () => {
         mockProviders.dgDataProvider,
         { systemRequirements: { wiql: { href: 'url' } } },
         {},
-        true // allowBiggerThan500 = true
+        true, // allowBiggerThan500 = true
       );
 
       await factoryWithBigData.fetchRequirementsData();
@@ -606,7 +607,7 @@ describe('RequirementsDataFactory', () => {
         'pat',
         {},
         true, // allowBiggerThan500 passed to adapter
-        true // includeTFSLinks
+        true, // includeTFSLinks
       );
     });
 
@@ -680,7 +681,7 @@ describe('RequirementsDataFactory', () => {
         largeTraceMap,
         'sys-req-to-soft-req',
         expect.any(Map),
-        expect.any(Map)
+        expect.any(Map),
       );
     });
 
@@ -758,7 +759,7 @@ describe('RequirementsDataFactory', () => {
         mockProviders.dgDataProvider,
         { systemRequirements: { wiql: { href: 'url' } } },
         {},
-        false // allowBiggerThan500 = false
+        false, // allowBiggerThan500 = false
       );
 
       await factoryWithoutBigData.fetchRequirementsData();
@@ -773,7 +774,7 @@ describe('RequirementsDataFactory', () => {
         'pat',
         {},
         false, // allowBiggerThan500 passed to adapter
-        true // includeTFSLinks
+        true, // includeTFSLinks
       );
     });
   });
@@ -790,7 +791,7 @@ describe('RequirementsDataFactory', () => {
         'pat',
         mockProviders.dgDataProvider,
         {}, // Empty queries request
-        {}
+        {},
       );
 
       await factoryWithPartialQueries.fetchRequirementsData();
@@ -862,6 +863,207 @@ describe('RequirementsDataFactory', () => {
         requirementQueryData: expect.any(Object),
         workItemLinksDebug: undefined,
       });
+    });
+  });
+
+  describe('SysRS Variant', () => {
+    const createSysRsFactory = (queriesRequest: any) =>
+      new RequirementsDataFactory(
+        defaultParams.teamProjectName,
+        defaultParams.templatePath,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        mockProviders.dgDataProvider,
+        queriesRequest,
+        defaultParams.formattingSettings,
+        false,
+        'hierarchical',
+        true,
+        'sysrs',
+      );
+
+    test('builds critical requirements only for requirement-like priority-1 rows and creates hierarchical sections', async () => {
+      const sysRsFactory = createSysRsFactory({
+        systemRequirements: {
+          wiql: { href: 'system-requirements-query-url' },
+        },
+      });
+
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue({
+        roots: [
+          {
+            id: 10,
+            title: 'Epic-10',
+            htmlUrl: 'http://example.com/10',
+            workItemType: 'Epic',
+            fields: {
+              'Microsoft.VSTS.Common.Priority': 1,
+            },
+            children: [
+              {
+                id: 11,
+                title: 'REQ-11',
+                htmlUrl: 'http://example.com/11',
+                workItemType: 'Requirement',
+                fields: {
+                  Priority: '1 - High',
+                  'Microsoft.VSTS.Common.VerificationComment': 'Critical from MS field',
+                  'Verification Method': 'Test',
+                  Site: 'Lab',
+                  'Test Phase': 'P1',
+                },
+                children: [
+                  {
+                    id: 13,
+                    title: 'REQ-13',
+                    htmlUrl: 'http://example.com/13',
+                    workItemType: 'Requirement',
+                    fields: {
+                      Priority: 2,
+                    },
+                    children: [],
+                  },
+                ],
+              },
+              {
+                id: 12,
+                title: 'REQ-12',
+                htmlUrl: 'http://example.com/12',
+                workItemType: 'Requirement',
+                fields: {
+                  Priority: { value: 1 },
+                  'Verification Comment': 'Critical from generic field',
+                  VerificationMethod: 'Inspection',
+                  'Verification Site': 'Factory',
+                  TestPhase: 'P2',
+                },
+                children: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      await sysRsFactory.fetchRequirementsData();
+      const adoptedData: any = sysRsFactory.getAdoptedData();
+
+      expect(Array.isArray(adoptedData.criticalRequirementsData)).toBe(true);
+      expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[0].value)).toEqual([11, 12]);
+      expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[2].value)).toEqual([
+        'Critical from MS field',
+        'Critical from generic field',
+      ]);
+
+      expect(Array.isArray(adoptedData.vcrmData)).toBe(true);
+      const sectionById = new Map(
+        adoptedData.vcrmData.map((row: any) => [row.fields[0].value, row.fields[1].value]),
+      );
+      expect(sectionById.get(10)).toBe('{{section:1}}');
+      expect(sectionById.get(11)).toBe('{{section:1.1}}');
+      expect(sectionById.get(13)).toBe('{{section:1.1.1}}');
+      expect(sectionById.get(12)).toBe('{{section:1.2}}');
+    });
+
+    test('maps SysRS forward/reverse trace queries to alias keys and fetches the correct WIQL urls', async () => {
+      const sysRsFactory = createSysRsFactory({
+        systemRequirements: {
+          wiql: { href: 'system-requirements-query-url' },
+        },
+        subsystemToSystemRequirements: {
+          wiql: { href: 'subsystem-to-system-query-url' },
+        },
+        systemToSubsystemRequirements: {
+          wiql: { href: 'system-to-subsystem-query-url' },
+        },
+      });
+
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      })
+        .mockResolvedValueOnce({
+          sourceTargetsMap: fixtures.sourceTargetsMap,
+          sortingSourceColumnsMap: new Map(),
+          sortingTargetsColumnsMap: new Map(),
+        })
+        .mockResolvedValueOnce({
+          sourceTargetsMap: fixtures.sourceTargetsMap,
+          sortingSourceColumnsMap: new Map(),
+          sortingTargetsColumnsMap: new Map(),
+        });
+
+      await sysRsFactory.fetchRequirementsData();
+      const adoptedData: any = sysRsFactory.getAdoptedData();
+
+      // SysRS system requirements query should fetch all fields for VCRM/critical-requirements
+      expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenNthCalledWith(
+        1,
+        'system-requirements-query-url',
+        false,
+        null,
+        true, // fetchAllFields=true for SysRS
+      );
+      expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenNthCalledWith(
+        2,
+        'subsystem-to-system-query-url',
+        true,
+        null,
+      );
+      expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenNthCalledWith(
+        3,
+        'system-to-subsystem-query-url',
+        true,
+        null,
+      );
+
+      expect(adoptedData.subsystemToSystemTraceAdoptedData.adoptedData).toEqual({
+        traceMatrix: [{ source: 1001, targets: [2001] }],
+      });
+      expect(adoptedData.systemToSubsystemTraceAdoptedData.adoptedData).toEqual({
+        traceMatrix: [{ source: 1001, targets: [2001] }],
+      });
+      // SRS-specific keys should not be set for SysRS variant
+      expect(adoptedData.sysReqToSoftReqAdoptedData).toBeUndefined();
+      expect(adoptedData.softReqToSysReqAdoptedData).toBeUndefined();
+    });
+
+    test('returns null adoptedData aliases when SysRS trace queries are requested but empty', async () => {
+      const sysRsFactory = createSysRsFactory({
+        systemRequirements: {
+          wiql: { href: 'system-requirements-query-url' },
+        },
+        subsystemToSystemRequirements: {
+          wiql: { href: 'subsystem-to-system-query-url' },
+        },
+        systemToSubsystemRequirements: {
+          wiql: { href: 'system-to-subsystem-query-url' },
+        },
+      });
+
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValueOnce({
+        roots: [fixtures.systemRequirement],
+      })
+        .mockResolvedValueOnce({
+          sourceTargetsMap: new Map(),
+          sortingSourceColumnsMap: new Map(),
+          sortingTargetsColumnsMap: new Map(),
+        })
+        .mockResolvedValueOnce({
+          sourceTargetsMap: new Map(),
+          sortingSourceColumnsMap: new Map(),
+          sortingTargetsColumnsMap: new Map(),
+        });
+
+      await sysRsFactory.fetchRequirementsData();
+      const adoptedData: any = sysRsFactory.getAdoptedData();
+
+      expect(adoptedData.subsystemToSystemTraceAdoptedData.adoptedData).toBeNull();
+      expect(adoptedData.systemToSubsystemTraceAdoptedData.adoptedData).toBeNull();
+      // SRS-specific keys should not be set for SysRS variant
+      expect(adoptedData.sysReqToSoftReqAdoptedData).toBeUndefined();
+      expect(adoptedData.softReqToSysReqAdoptedData).toBeUndefined();
     });
   });
 });

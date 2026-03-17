@@ -60,7 +60,7 @@ const valueToString = (value: any) => {
 const readCustomField = (
   customFields: any,
   referenceName: string | undefined,
-  fallbackLabels: string[] = []
+  fallbackLabels: string[] = [],
 ) => {
   if (!customFields || typeof customFields !== 'object') return '';
   if (referenceName) {
@@ -112,10 +112,7 @@ const toUniqueSuiteIds = (suiteIds: any[] | undefined) => {
   return Array.from(new Set(normalizedIds));
 };
 
-const shouldFlattenSingleSuite = (
-  nonRecursiveTestSuiteIdList?: number[],
-  testSuiteArray?: number[]
-) => {
+const shouldFlattenSingleSuite = (nonRecursiveTestSuiteIdList?: number[], testSuiteArray?: number[]) => {
   const selectedSuites = toUniqueSuiteIds(nonRecursiveTestSuiteIdList);
   if (selectedSuites.length > 0) return selectedSuites.length === 1;
   const expandedSuites = toUniqueSuiteIds(testSuiteArray);
@@ -158,7 +155,7 @@ type MewpResultDataProvider = {
     options?: {
       externalBugsFile?: MewpExternalFileRef | null;
       externalL3L4File?: MewpExternalFileRef | null;
-    }
+    },
   ) => Promise<MewpCoverageFlatPayload>;
   getMewpInternalValidationFlatResults: (
     testPlanId: string,
@@ -167,7 +164,7 @@ type MewpResultDataProvider = {
     linkedQueryRequest?: any,
     options?: {
       debugMode?: boolean;
-    }
+    },
   ) => Promise<MewpInternalValidationFlatPayload>;
   validateMewpExternalFiles: (options?: {
     externalBugsFile?: MewpExternalFileRef | null;
@@ -204,7 +201,7 @@ export default class DgContentControls {
     minioAccessKey,
     minioSecretKey,
     jfrogToken = undefined,
-    formattingSettings = undefined
+    formattingSettings = undefined,
   ) {
     this.uri = uri;
     this.PAT = PAT;
@@ -228,7 +225,7 @@ export default class DgContentControls {
       this.uri,
       this.PAT,
       undefined,
-      this.jfrogToken
+      this.jfrogToken,
     );
     if (!this.templatePath) {
       this.templatePath = 'template path';
@@ -258,7 +255,7 @@ export default class DgContentControls {
             contentControlOptions.data.queryId,
             contentControlOptions.title,
             contentControlOptions.data.skinType,
-            contentControlOptions.headingLevel
+            contentControlOptions.headingLevel,
           );
           break;
         case 'test-description':
@@ -267,10 +264,7 @@ export default class DgContentControls {
             const isStpMode =
               contentControlOptions.type === 'test-stp-description' ||
               String(contentControlOptions.skin || '').toLowerCase() === 'test-stp';
-            contentControlData = await this.generateTestDescriptionContent(
-              contentControlOptions,
-              isStpMode
-            );
+            contentControlData = await this.generateTestDescriptionContent(contentControlOptions, isStpMode);
           }
           break;
         case 'trace-table':
@@ -280,7 +274,7 @@ export default class DgContentControls {
             contentControlOptions.data.queryId,
             contentControlOptions.data.linkTypeFilterArray,
             contentControlOptions.title,
-            contentControlOptions.headingLevel
+            contentControlOptions.headingLevel,
           );
           break;
         case 'test-result-test-group-summary-table':
@@ -294,7 +288,7 @@ export default class DgContentControls {
             contentControlOptions.data.includeHierarchy,
             contentControlOptions.data.openPCRsSelectionRequest,
             contentControlOptions.data.includeTestLog,
-            contentControlOptions.data.includeHardCopyRun
+            contentControlOptions.data.includeHardCopyRun,
           );
           break;
         case 'testReporter':
@@ -310,17 +304,17 @@ export default class DgContentControls {
             contentControlOptions.data.errorFilterMode,
             contentControlOptions.data.includeAllHistory,
             contentControlOptions.data.includeMewpL2Coverage,
-            contentControlOptions.data.includeInternalValidationReport
+            contentControlOptions.data.includeInternalValidationReport,
           );
           break;
         case 'internalValidationReporter':
-            contentControlData = await this.addMewpInternalValidationContent(
-              contentControlOptions.data.testPlanId,
-              contentControlOptions.data.testSuiteArray,
-              contentControlOptions.data.linkedQueryRequest,
-              !!contentControlOptions.data.debugMode
-            );
-            break;
+          contentControlData = await this.addMewpInternalValidationContent(
+            contentControlOptions.data.testPlanId,
+            contentControlOptions.data.testSuiteArray,
+            contentControlOptions.data.linkedQueryRequest,
+            !!contentControlOptions.data.debugMode,
+          );
+          break;
         case 'mewpStandaloneReporter':
           contentControlData = await this.addMewpStandaloneCoverageContent(
             contentControlOptions.data.testPlanId,
@@ -330,7 +324,7 @@ export default class DgContentControls {
               externalBugsFile: contentControlOptions.data.externalBugsFile,
               externalL3L4File: contentControlOptions.data.externalL3L4File,
               mergeDuplicateRequirementCells: !!contentControlOptions.data.mergeDuplicateRequirementCells,
-            }
+            },
           );
           break;
         case 'change-description-table':
@@ -354,7 +348,7 @@ export default class DgContentControls {
             contentControlOptions.data.requestedByBuild,
             contentControlOptions.data.includeUnlinkedCommits,
             contentControlOptions.data.replaceTaskWithParent,
-            contentControlOptions.data.compareMode
+            contentControlOptions.data.compareMode,
           );
           break;
         case 'pr-change-description-table':
@@ -364,7 +358,7 @@ export default class DgContentControls {
             contentControlOptions.data.linkTypeFilterArray,
             contentControlOptions.data.workItemFilterOptions,
             contentControlOptions.title,
-            contentControlOptions.headingLevel
+            contentControlOptions.headingLevel,
           );
           break;
         case 'srs-document':
@@ -372,7 +366,15 @@ export default class DgContentControls {
             contentControlOptions.data.queriesRequest,
             contentControlOptions.title,
             contentControlOptions.headingLevel,
-            contentControlOptions.data.displayMode
+            contentControlOptions.data.displayMode,
+          );
+          break;
+        case 'sysrs-document':
+          contentControlData = await this.addSysRSContent(
+            contentControlOptions.data.queriesRequest,
+            contentControlOptions.title,
+            contentControlOptions.headingLevel,
+            contentControlOptions.data.displayMode,
           );
           break;
       }
@@ -384,7 +386,7 @@ export default class DgContentControls {
       logger.error(
         `Error initializing Skins: ${error.message} ${
           contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
-        } `
+        } `,
       );
       logger.error(`Error stack: ${error.stack}`);
       throw error;
@@ -396,7 +398,7 @@ export default class DgContentControls {
     contentControlTitle: string,
     skinType: string,
     headingLevel?: number,
-    contentControl?: contentControl
+    contentControl?: contentControl,
   ) {
     logger.debug(`running GetQueryResultById with params:
       queryId:${queryId}
@@ -422,7 +424,7 @@ export default class DgContentControls {
             this.minioEndPoint,
             this.minioAccessKey,
             this.minioSecretKey,
-            this.PAT
+            this.PAT,
           );
           const richText = await richTextFactory.factorizeRichTextData();
           // this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);
@@ -444,7 +446,7 @@ export default class DgContentControls {
         res,
         undefined,
         defaultStyles,
-        headingLevel
+        headingLevel,
       );
       skins.forEach((skin) => {
         contentControl.wordObjects.push(skin);
@@ -473,7 +475,7 @@ export default class DgContentControls {
       data.linkedMomRequest,
       data.traceAnalysisRequest,
       data.nonRecursiveTestSuiteIdList,
-      isStpMode
+      isStpMode,
     );
   }
 
@@ -491,7 +493,7 @@ export default class DgContentControls {
     linkedMomRequest?: any,
     traceAnalysisRequest?: any,
     nonRecursiveTestSuiteIdList?: number[],
-    isStpMode: boolean = false
+    isStpMode: boolean = false,
   ) {
     logger.debug(`fetching test data with params:
       testPlanId:${testPlanId}
@@ -507,10 +509,7 @@ export default class DgContentControls {
     }
 
     // Flattening is resolved automatically for both STD and STP by selected scope size.
-    const effectiveFlatSuiteTestCases = shouldFlattenSingleSuite(
-      nonRecursiveTestSuiteIdList,
-      testSuiteArray
-    );
+    const effectiveFlatSuiteTestCases = shouldFlattenSingleSuite(nonRecursiveTestSuiteIdList, testSuiteArray);
 
     let testDataFactory: TestDataFactory;
     try {
@@ -539,7 +538,7 @@ export default class DgContentControls {
         this.formattingSettings,
         effectiveFlatSuiteTestCases,
         !isStpMode,
-        isStpMode
+        isStpMode,
       );
 
       if (traceAnalysisRequest?.traceAnalysisMode === 'query') {
@@ -593,7 +592,13 @@ export default class DgContentControls {
       };
 
       if (isStpMode) {
-        await this.structureSuiteOverviewSkin(testDataFactory, headerStyles, styles, headingLevel, contentControls);
+        await this.structureSuiteOverviewSkin(
+          testDataFactory,
+          headerStyles,
+          styles,
+          headingLevel,
+          contentControls,
+        );
       }
 
       let attachmentData = testDataFactory.getAttachmentMinioData();
@@ -605,7 +610,7 @@ export default class DgContentControls {
         headerStyles,
         styles,
         isStpMode ? Number(headingLevel || 0) + 1 : headingLevel,
-        includeAttachments
+        includeAttachments,
       );
       const testDescCC = { title: contentControlTitle, wordObjects: [] };
       skins.forEach((skin) => {
@@ -651,7 +656,7 @@ export default class DgContentControls {
       InsertSpace: boolean;
     },
     headingLevel: number,
-    contentControls: contentControl[]
+    contentControls: contentControl[],
   ) {
     const title = 'suite-description-content-control';
     const contentControlResults: contentControl = {
@@ -665,7 +670,7 @@ export default class DgContentControls {
       suiteOverviewAdoptedData,
       headerStyles,
       styles,
-      headingLevel
+      headingLevel,
     );
 
     suiteOverviewSkins.forEach((skin) => {
@@ -698,7 +703,7 @@ export default class DgContentControls {
       InsertSpace: boolean;
     },
     headingLevel: number,
-    contentControls: contentControl[]
+    contentControls: contentControl[],
   ) {
     try {
       const queryResultsConfig = [
@@ -728,7 +733,7 @@ export default class DgContentControls {
           data,
           headerStyles,
           styles,
-          headingLevel
+          headingLevel,
         );
 
         queryResultSkins.forEach((skin) => {
@@ -766,7 +771,7 @@ export default class DgContentControls {
       InsertSpace: boolean;
     },
     headingLevel: number,
-    contentControls: contentControl[]
+    contentControls: contentControl[],
   ) {
     try {
       const queryResultsConfig = [
@@ -796,7 +801,7 @@ export default class DgContentControls {
           data,
           headerStyles,
           styles,
-          headingLevel
+          headingLevel,
         );
 
         queryResultSkins.forEach((skin) => {
@@ -818,7 +823,7 @@ export default class DgContentControls {
     linkTypeFilterArray: string[],
     contentControlTitle: string,
     headingLevel?: number,
-    contentControl?: contentControl
+    contentControl?: contentControl,
   ) {
     let traceFactory;
     logger.debug(`fetching data with params:
@@ -834,7 +839,7 @@ export default class DgContentControls {
         testSuiteArray,
         queryId,
         linkTypeFilterArray,
-        this.dgDataProviderAzureDevOps
+        this.dgDataProviderAzureDevOps,
       );
       await traceFactory.fetchData();
     } catch (error) {
@@ -855,7 +860,7 @@ export default class DgContentControls {
         traceFactory.adoptedData,
         undefined,
         defaultStyles,
-        headingLevel
+        headingLevel,
       );
       skins.forEach((skin) => {
         contentControl.wordObjects.push(skin);
@@ -877,7 +882,7 @@ export default class DgContentControls {
     includeHierarchy: boolean = false,
     openPCRsSelectionRequest: any = undefined,
     includeTestLog: boolean = false,
-    includeHardCopyRun: boolean = false
+    includeHardCopyRun: boolean = false,
   ) {
     let resultDataFactory: ResultDataFactory;
     let testDataFactory: TestDataFactory;
@@ -918,7 +923,7 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT,
         includeHardCopyRun,
-        this.formattingSettings
+        this.formattingSettings,
       );
 
       if (openPCRsSelectionRequest?.openPcrMode === 'query') {
@@ -944,11 +949,11 @@ export default class DgContentControls {
 
       let adoptedDataArray = resultDataFactory.getAdoptedResultData();
       let stepExecutionObject = adoptedDataArray.find(
-        (item) => item.contentControl === 'appendix-b-content-control'
+        (item) => item.contentControl === 'appendix-b-content-control',
       );
 
       const filteredAdoptedDataArray = adoptedDataArray.filter(
-        (item) => item.contentControl !== 'appendix-b-content-control'
+        (item) => item.contentControl !== 'appendix-b-content-control',
       );
       const baseStyles = {
         IsItalic: false,
@@ -981,11 +986,11 @@ export default class DgContentControls {
             headingLevel,
             //Attachments
             undefined,
-            element.insertPageBreak
+            element.insertPageBreak,
           );
 
           return { contentControlTitle: element.contentControl, skin };
-        })
+        }),
       );
 
       const flatSkins = skins.flat();
@@ -1002,7 +1007,7 @@ export default class DgContentControls {
           headerStyles,
           styles,
           headingLevel,
-          contentControls
+          contentControls,
         );
       }
 
@@ -1032,7 +1037,7 @@ export default class DgContentControls {
             this.PAT,
             stepExecutionObject.data,
             this.formattingSettings,
-            stepExecution?.flatSuiteTestCases
+            stepExecution?.flatSuiteTestCases,
           );
 
           if (stepExecution?.generateRequirements?.requirementInclusionMode === 'query') {
@@ -1040,7 +1045,7 @@ export default class DgContentControls {
           }
 
           await testDataFactory.fetchTestData(
-            stepExecution?.generateRequirements?.requirementInclusionMode === 'query'
+            stepExecution?.generateRequirements?.requirementInclusionMode === 'query',
           );
 
           if (stepExecution?.generateRequirements?.requirementInclusionMode === 'linkedRequirement') {
@@ -1058,7 +1063,7 @@ export default class DgContentControls {
             headingLevel,
             stepExecution?.generateAttachments.isEnabled,
             undefined,
-            true
+            true,
           );
 
           const wordObjects: any[] = [];
@@ -1095,7 +1100,7 @@ export default class DgContentControls {
     errorFilterMode?: string,
     includeAllHistory?: boolean,
     includeMewpL2Coverage?: boolean,
-    includeInternalValidationReport?: boolean
+    includeInternalValidationReport?: boolean,
   ) {
     let resultDataFactory: ResultDataFactory;
 
@@ -1138,7 +1143,7 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT,
         false,
-        this.formattingSettings
+        this.formattingSettings,
       );
 
       await resultDataFactory.fetchTestReporterResults(
@@ -1148,7 +1153,7 @@ export default class DgContentControls {
         enableRunStepStatusFilter,
         linkedQueryRequest,
         errorFilterMode,
-        includeAllHistory
+        includeAllHistory,
       );
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);
@@ -1186,11 +1191,11 @@ export default class DgContentControls {
             this.skins.SKIN_TYPE_TEST_REPORTER,
             element.data,
             headerStyles,
-            styles
+            styles,
           );
 
           return { contentControlTitle: element.contentControl, skin };
-        })
+        }),
       );
 
       skins.forEach((skinItem) => {
@@ -1204,7 +1209,7 @@ export default class DgContentControls {
         testPlanId,
         testSuiteArray,
         includeMewpL2Coverage,
-        linkedQueryRequest
+        linkedQueryRequest,
       );
 
       return contentControls;
@@ -1219,7 +1224,7 @@ export default class DgContentControls {
     testSuiteArray: number[] | undefined,
     selectedFields: string[] = [],
     flatFieldMap: Record<string, string> | undefined,
-    includeAllHistory: boolean = false
+    includeAllHistory: boolean = false,
   ) {
     try {
       if (!testPlanId) {
@@ -1239,7 +1244,7 @@ export default class DgContentControls {
         this.teamProjectName,
         suiteIds,
         selectedFields,
-        includeAllHistory
+        includeAllHistory,
       );
 
       const loadingData = formatLocalILShort(new Date());
@@ -1268,8 +1273,7 @@ export default class DgContentControls {
         const resultsOutcome = normalizeOutcome(row?.pointOutcome);
         const runStatsOutcome = normalizeOutcome(row?.runStatsOutcome ?? row?.pointOutcome);
         const hasStepData =
-          String(row?.stepStepIdentifier ?? '').trim() !== '' ||
-          String(row?.stepOutcome ?? '').trim() !== '';
+          String(row?.stepStepIdentifier ?? '').trim() !== '' || String(row?.stepOutcome ?? '').trim() !== '';
         const stepOutcome = hasStepData ? normalizeOutcome(row?.stepOutcome) : '';
         const rawRunDate = row?.runDateCompleted || row?.executionDate;
         const isZeroDate =
@@ -1329,7 +1333,7 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     includeMewpL2Coverage: boolean = true,
-    linkedQueryRequest?: any
+    linkedQueryRequest?: any,
   ) {
     if (!isMewpProject(this.teamProjectName) || !includeMewpL2Coverage) return;
 
@@ -1339,7 +1343,7 @@ export default class DgContentControls {
         String(testPlanId),
         this.teamProjectName,
         testSuiteArray,
-        linkedQueryRequest
+        linkedQueryRequest,
       );
 
       const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
@@ -1368,7 +1372,7 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     linkedQueryRequest?: any,
-    debugMode: boolean = false
+    debugMode: boolean = false,
   ) {
     try {
       if (!testPlanId) {
@@ -1387,7 +1391,7 @@ export default class DgContentControls {
         linkedQueryRequest,
         {
           debugMode,
-        }
+        },
       );
       const rows = Array.isArray(validationData?.rows) ? validationData.rows : [];
       const columnOrder = Array.isArray(validationData?.columnOrder) ? validationData.columnOrder : [];
@@ -1415,7 +1419,10 @@ export default class DgContentControls {
 
   private async resolveLatestRelSuiteScopeIds(testPlanId: number): Promise<number[]> {
     const testDataProvider = await this.dgDataProviderAzureDevOps.getTestDataProvider();
-    const suitesPayload = await testDataProvider.GetTestSuitesForPlan(this.teamProjectName, String(testPlanId));
+    const suitesPayload = await testDataProvider.GetTestSuitesForPlan(
+      this.teamProjectName,
+      String(testPlanId),
+    );
     const suitesRaw = Array.isArray(suitesPayload?.testSuites)
       ? suitesPayload.testSuites
       : Array.isArray(suitesPayload)
@@ -1498,9 +1505,7 @@ export default class DgContentControls {
     });
 
     if (sortedRelRoots.length === 0) {
-      const noRelError: any = new Error(
-        `Could not resolve latest Rel suite for test plan id ${testPlanId}.`
-      );
+      const noRelError: any = new Error(`Could not resolve latest Rel suite for test plan id ${testPlanId}.`);
       noRelError.statusCode = 422;
       noRelError.code = 'MEWP_LATEST_REL_SUITE_NOT_FOUND';
       throw noRelError;
@@ -1530,7 +1535,7 @@ export default class DgContentControls {
 
     if (selectedIds.size === 0) {
       const unresolvedError: any = new Error(
-        `Could not resolve suite scope for latest Rel in test plan id ${testPlanId}.`
+        `Could not resolve suite scope for latest Rel in test plan id ${testPlanId}.`,
       );
       unresolvedError.statusCode = 422;
       unresolvedError.code = 'MEWP_LATEST_REL_SUITE_NOT_FOUND';
@@ -1539,7 +1544,7 @@ export default class DgContentControls {
 
     const resolvedIds = [...selectedIds].sort((a, b) => a - b);
     logger.info(
-      `MEWP internal validation latest Rel scope: planId=${testPlanId} relRootSuiteId=${latestRelRootId} selectedSuites=${resolvedIds.length}`
+      `MEWP internal validation latest Rel scope: planId=${testPlanId} relRootSuiteId=${latestRelRootId} selectedSuites=${resolvedIds.length}`,
     );
     return resolvedIds;
   }
@@ -1548,7 +1553,7 @@ export default class DgContentControls {
     testPlanId: number,
     testSuiteArray: number[],
     linkedQueryRequest?: any,
-    options?: MewpStandaloneCoverageOptions
+    options?: MewpStandaloneCoverageOptions,
   ) {
     try {
       if (!testPlanId) {
@@ -1570,7 +1575,7 @@ export default class DgContentControls {
         {
           externalBugsFile: options?.externalBugsFile,
           externalL3L4File: options?.externalL3L4File,
-        }
+        },
       );
 
       const rows = Array.isArray(mewpCoverage?.rows) ? mewpCoverage.rows : [];
@@ -1624,7 +1629,7 @@ export default class DgContentControls {
         data.testSuiteArray,
         data.selectedFields,
         data.flatFieldMap,
-        data.includeAllHistory
+        data.includeAllHistory,
       );
       let jsonLocalData = await this.writeToJson(contentControlData);
       let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
@@ -1660,7 +1665,7 @@ export default class DgContentControls {
     requestedByBuild: boolean = false,
     includeUnlinkedCommits: boolean = false,
     replaceTaskWithParent: boolean = false,
-    compareMode: 'consecutive' | 'allPairs' = 'consecutive'
+    compareMode: 'consecutive' | 'allPairs' = 'consecutive',
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -1704,7 +1709,7 @@ export default class DgContentControls {
         this.formattingSettings,
         workItemFilterOptions,
         compareMode,
-        replaceTaskWithParent
+        replaceTaskWithParent,
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
@@ -1742,7 +1747,7 @@ export default class DgContentControls {
               contentControlTitle,
               headerStyles,
               styles,
-              headingLevel
+              headingLevel,
             );
             contentControls.push(contentControl);
             break;
@@ -1753,7 +1758,7 @@ export default class DgContentControls {
               element.data,
               headerStyles,
               styles,
-              headingLevel
+              headingLevel,
             );
             contentControls.push({ title: element.contentControl, wordObjects: nonAssociatedCommitsSkin });
             break;
@@ -1765,7 +1770,7 @@ export default class DgContentControls {
               headerStyles,
               styles,
               headingLevel,
-              true
+              true,
             );
             contentControls.push({ title: element.contentControl, wordObjects: overviewSkin });
             break;
@@ -1777,7 +1782,7 @@ export default class DgContentControls {
               headerStyles,
               styles,
               headingLevel,
-              true
+              true,
             );
             contentControls.push({ title: element.contentControl, wordObjects: installationSkin });
             break;
@@ -1800,7 +1805,7 @@ export default class DgContentControls {
               wiData,
               headerStyles,
               inheritedStyles,
-              headingLevel
+              headingLevel,
             );
             const flatRangeSkins = ([] as any[]).concat(...rangeSkins);
             contentControls.push({ title: element.contentControl, wordObjects: flatRangeSkins });
@@ -1813,7 +1818,7 @@ export default class DgContentControls {
               element.data,
               headerStyles,
               styles,
-              headingLevel
+              headingLevel,
             );
             contentControls.push({ title: element.contentControl, wordObjects: skin });
         }
@@ -1849,7 +1854,7 @@ export default class DgContentControls {
       InsertLineBreak: boolean;
       InsertSpace: boolean;
     },
-    headingLevel: number
+    headingLevel: number,
   ) {
     try {
       const contentControl = { title: contentControlTitle, wordObjects: [] };
@@ -1862,7 +1867,7 @@ export default class DgContentControls {
             artifactChangesData.artifact,
             headerStyles,
             styles,
-            headingLevel
+            headingLevel,
           );
           paragraphSkins.forEach((skin) => {
             contentControl.wordObjects.push(skin);
@@ -1877,18 +1882,18 @@ export default class DgContentControls {
                 artifactChangesData.artifactChanges,
                 headerStyles,
                 styles,
-                headingLevel
+                headingLevel,
               )
             : artifactChangesData.errorMessage
-            ? await this.skins.addNewContentToDocumentSkin(
-                contentControlTitle,
-                this.skins.SKIN_TYPE_PARAGRAPH,
-                artifactChangesData.errorMessage,
-                headerStyles,
-                styles,
-                0
-              )
-            : null;
+              ? await this.skins.addNewContentToDocumentSkin(
+                  contentControlTitle,
+                  this.skins.SKIN_TYPE_PARAGRAPH,
+                  artifactChangesData.errorMessage,
+                  headerStyles,
+                  styles,
+                  0,
+                )
+              : null;
 
         tableSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
@@ -1908,7 +1913,7 @@ export default class DgContentControls {
     workItemFilterOptions: any,
     contentControlTitle: string,
     headingLevel?: number,
-    contentControl?: contentControl
+    contentControl?: contentControl,
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -1931,7 +1936,7 @@ export default class DgContentControls {
         this.minioSecretKey,
         this.PAT,
         this.formattingSettings,
-        workItemFilterOptions
+        workItemFilterOptions,
       );
       await pullRequestDataFactory.fetchData();
       await pullRequestDataFactory.jsonSkinDataAdpater();
@@ -1957,7 +1962,7 @@ export default class DgContentControls {
           artifactChangesData.artifact,
           undefined,
           defaultStyles,
-          headingLevel
+          headingLevel,
         );
 
         let tableSkins = await this.skins.addNewContentToDocumentSkin(
@@ -1966,7 +1971,7 @@ export default class DgContentControls {
           artifactChangesData.artifactChanges,
           undefined,
           defaultStyles,
-          headingLevel
+          headingLevel,
         );
         paragraphSkins.forEach((skin) => {
           contentControl.wordObjects.push(skin);
@@ -1986,7 +1991,7 @@ export default class DgContentControls {
     queriesRequest: any,
     contentControlTitle: string,
     headingLevel?: number,
-    displayMode?: string
+    displayMode?: string,
   ) {
     let adoptedRequirementsData;
     try {
@@ -2006,7 +2011,8 @@ export default class DgContentControls {
         this.formattingSettings,
         true,
         displayMode || 'hierarchical',
-        false
+        false,
+        'srs',
       );
       await srsDataFactory.fetchRequirementsData();
       adoptedRequirementsData = srsDataFactory.getAdoptedData();
@@ -2047,7 +2053,7 @@ export default class DgContentControls {
           headerStyles,
           styles,
           headingLevel,
-          true
+          true,
         );
         contentControls.push({ title: 'system-requirements', wordObjects: systemReqSkin });
       }
@@ -2082,7 +2088,7 @@ export default class DgContentControls {
             data,
             headerStyles,
             styles,
-            headingLevel
+            headingLevel,
           );
 
           traceabilitySkins.forEach((skin) => {
@@ -2096,6 +2102,177 @@ export default class DgContentControls {
       return contentControls;
     } catch (error) {
       logger.error(`Error adding SRS content: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async addSysRSContent(
+    queriesRequest: any,
+    contentControlTitle: string,
+    headingLevel?: number,
+    displayMode?: string,
+  ) {
+    let adoptedRequirementsData;
+    try {
+      logger.debug(`adding SysRS content with params:
+        queriesRequest:${JSON.stringify(queriesRequest)}`);
+
+      let sysRsDataFactory = new RequirementsDataFactory(
+        this.teamProjectName,
+        this.templatePath,
+        this.attachmentsBucketName,
+        this.minioEndPoint,
+        this.minioAccessKey,
+        this.minioSecretKey,
+        this.PAT,
+        this.dgDataProviderAzureDevOps,
+        queriesRequest,
+        this.formattingSettings,
+        true,
+        displayMode || 'hierarchical',
+        false, // includeTFSLinks – SysRS documents don't include TFS link columns in requirement tables
+        'sysrs',
+      );
+      await sysRsDataFactory.fetchRequirementsData();
+      adoptedRequirementsData = sysRsDataFactory.getAdoptedData();
+      this.minioAttachmentData.push(...sysRsDataFactory.getAttachmentMinioData());
+    } catch (error) {
+      logger.error(`Error initializing SysRS requirements data factory: ${error}`);
+      throw error;
+    }
+
+    try {
+      const contentControls: contentControl[] = [];
+      const baseStyles = {
+        IsItalic: false,
+        IsUnderline: false,
+        Size: 10,
+        Uri: null,
+        Font: 'Arial',
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+
+      const headerStyles = {
+        ...baseStyles,
+        isBold: true,
+      };
+
+      const styles = {
+        ...baseStyles,
+        isBold: false,
+      };
+
+      if (adoptedRequirementsData.systemRequirementsData) {
+        const systemReqSkin = await this.skins.addNewContentToDocumentSkin(
+          'system-requirements',
+          this.skins.SKIN_TYPE_SYSTEM_OVERVIEW,
+          adoptedRequirementsData.systemRequirementsData,
+          headerStyles,
+          styles,
+          headingLevel,
+          true,
+        );
+        contentControls.push({ title: 'system-requirements', wordObjects: systemReqSkin });
+      }
+
+      const criticalRows = Array.isArray(adoptedRequirementsData.criticalRequirementsData)
+        ? adoptedRequirementsData.criticalRequirementsData
+        : [];
+      const criticalData =
+        criticalRows.length > 0
+          ? criticalRows
+          : [
+              {
+                fields: [
+                  { name: 'ID', value: '' },
+                  { name: 'Title', value: 'No priority 1 requirements found' },
+                  { name: 'Comment', value: '' },
+                ],
+              },
+            ];
+      const criticalSkin = await this.skins.addNewContentToDocumentSkin(
+        'critical-requirements',
+        this.skins.SKIN_TYPE_TABLE,
+        criticalData,
+        headerStyles,
+        styles,
+        headingLevel,
+      );
+      contentControls.push({ title: 'critical-requirements', wordObjects: criticalSkin });
+
+      const vcrmRows = Array.isArray(adoptedRequirementsData.vcrmData)
+        ? adoptedRequirementsData.vcrmData
+        : [];
+      const vcrmData =
+        vcrmRows.length > 0
+          ? vcrmRows
+          : [
+              {
+                fields: [
+                  { name: 'ID', value: '' },
+                  { name: 'Section', value: '' },
+                  { name: 'Title', value: 'No requirements available' },
+                  { name: 'Verification Method', value: '' },
+                  { name: 'Site', value: '' },
+                  { name: 'Test Phase', value: '' },
+                ],
+              },
+            ];
+      const vcrmSkin = await this.skins.addNewContentToDocumentSkin(
+        'vcrm',
+        this.skins.SKIN_TYPE_TABLE,
+        vcrmData,
+        headerStyles,
+        styles,
+        headingLevel,
+      );
+      contentControls.push({ title: 'vcrm', wordObjects: vcrmSkin });
+
+      const traceabilityConfig = [
+        {
+          requested: !!queriesRequest?.subsystemToSystemRequirements,
+          data: adoptedRequirementsData.subsystemToSystemTraceAdoptedData || {},
+          title: 'subsystem-to-system-trace',
+          noDataMessage: 'No Sub-System to System traceability data',
+        },
+        {
+          requested: !!queriesRequest?.systemToSubsystemRequirements,
+          data: adoptedRequirementsData.systemToSubsystemTraceAdoptedData || {},
+          title: 'system-to-subsystem-trace',
+          noDataMessage: 'No System to Sub-System traceability data',
+        },
+      ];
+
+      for (const { requested, data, title, noDataMessage } of traceabilityConfig) {
+        if (!requested) continue;
+        data['errorMessage'] =
+          !data['adoptedData'] || data['adoptedData'].length === 0 ? noDataMessage : null;
+
+        const contentControlResults: contentControl = {
+          title,
+          wordObjects: [],
+        };
+
+        const traceabilitySkins = await this.skins.addNewContentToDocumentSkin(
+          title,
+          this.skins.SKIN_TYPE_TRACE,
+          data,
+          headerStyles,
+          styles,
+          headingLevel,
+        );
+
+        traceabilitySkins.forEach((skin) => {
+          contentControlResults.wordObjects.push(skin);
+        });
+
+        contentControls.push(contentControlResults);
+      }
+
+      return contentControls;
+    } catch (error) {
+      logger.error(`Error adding SysRS content: ${error.message}`);
       throw error;
     }
   }
@@ -2143,7 +2320,7 @@ export default class DgContentControls {
             jsonFileBucketName,
             jsonLocalData.jsonName,
             jsonLocalData.localJsonPath,
-            metaData // this is optional, you can remove it if no metadata is needed
+            metaData, // this is optional, you can remove it if no metadata is needed
           )
           .then(() => {
             logger.info('File uploaded successfully.');
