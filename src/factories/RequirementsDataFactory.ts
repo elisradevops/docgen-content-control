@@ -32,6 +32,7 @@ export default class RequirementsDataFactory {
   private allowBiggerThan500: boolean;
   private displayMode: string;
   private includeTFSLinks: boolean;
+  private documentVariant: string;
   /**
    * Creates a RequirementsDataFactory
    */
@@ -48,7 +49,8 @@ export default class RequirementsDataFactory {
     formattingSettings,
     allowBiggerThan500 = false,
     displayMode = 'hierarchical',
-    includeTFSLinks = true
+    includeTFSLinks = true,
+    documentVariant = 'srs',
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -65,6 +67,7 @@ export default class RequirementsDataFactory {
     this.allowBiggerThan500 = allowBiggerThan500;
     this.displayMode = displayMode || 'hierarchical';
     this.includeTFSLinks = includeTFSLinks;
+    this.documentVariant = String(documentVariant || 'srs').toLowerCase();
   }
 
   /**
@@ -79,7 +82,7 @@ export default class RequirementsDataFactory {
         null,
         queryResults,
         this.allowBiggerThan500,
-        this.includeTFSLinks
+        this.includeTFSLinks,
       );
     } catch (error) {
       logger.error(`Error fetching requirements data: ${error}`);
@@ -96,21 +99,32 @@ export default class RequirementsDataFactory {
     try {
       const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
       const queryResults: any = {};
+      const forwardTraceQuery =
+        this.queriesRequest.systemToSoftwareRequirements ||
+        this.queriesRequest.subsystemToSystemRequirements ||
+        null;
+      const reverseTraceQuery =
+        this.queriesRequest.softwareToSystemRequirements ||
+        this.queriesRequest.systemToSubsystemRequirements ||
+        null;
 
       if (this.queriesRequest.systemRequirements) {
         // Check if we're in categorized mode
         if (this.displayMode === 'categorized') {
           logger.debug('Fetching requirements in categorized mode');
           const categorizedData = await ticketsDataProvider.GetCategorizedRequirementsByType(
-            this.queriesRequest.systemRequirements.wiql.href
+            this.queriesRequest.systemRequirements.wiql.href,
           );
           queryResults['systemRequirementsCategorized'] = categorizedData;
         } else {
           // Hierarchical mode - fetch as before
+          // SysRS needs all fields for VCRM/critical-requirements tables (custom fields included)
+          const fetchAllFields = this.documentVariant === 'sysrs';
           let systemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
             this.queriesRequest.systemRequirements.wiql.href,
             false,
-            null
+            null,
+            fetchAllFields,
           );
 
           queryResults['systemRequirementsQueryData'] =
@@ -124,21 +138,21 @@ export default class RequirementsDataFactory {
           }
         }
       }
-      if (this.queriesRequest.systemToSoftwareRequirements) {
-        let systemToSoftwareRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
-          this.queriesRequest.systemToSoftwareRequirements.wiql.href,
+      if (forwardTraceQuery) {
+        let forwardTraceQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          forwardTraceQuery.wiql.href,
           true, // Enable work item relations for traceability analysis
-          null
+          null,
         );
-        queryResults['systemToSoftwareRequirementsQueryData'] = systemToSoftwareRequirementsQueryData;
+        queryResults['forwardTraceQueryData'] = forwardTraceQueryData;
       }
-      if (this.queriesRequest.softwareToSystemRequirements) {
-        let softwareToSystemRequirementsQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
-          this.queriesRequest.softwareToSystemRequirements.wiql.href,
+      if (reverseTraceQuery) {
+        let reverseTraceQueryData: any = await ticketsDataProvider.GetQueryResultsFromWiql(
+          reverseTraceQuery.wiql.href,
           true, // Enable work item relations for traceability analysis
-          null
+          null,
         );
-        queryResults['softwareToSystemRequirementsQueryData'] = softwareToSystemRequirementsQueryData;
+        queryResults['reverseTraceQueryData'] = reverseTraceQueryData;
       }
 
       return queryResults;
@@ -157,7 +171,7 @@ export default class RequirementsDataFactory {
     adapterType: string = null,
     rawData: any,
     allowBiggerThan500: boolean = false,
-    includeTFSLinks: boolean = true
+    includeTFSLinks: boolean = true,
   ) {
     let adoptedRequirementsData: any = {};
     try {
@@ -165,7 +179,7 @@ export default class RequirementsDataFactory {
       if (this.displayMode === 'categorized' && rawData.systemRequirementsCategorized) {
         // Categorized mode: process requirements grouped by type
         adoptedRequirementsData['systemRequirementsData'] = await this.adaptCategorizedData(
-          rawData.systemRequirementsCategorized
+          rawData.systemRequirementsCategorized,
         );
       } else if (this.queriesRequest.systemRequirements && rawData.systemRequirementsQueryData) {
         // Hierarchical mode: process requirements in tree structure
@@ -180,7 +194,7 @@ export default class RequirementsDataFactory {
           this.PAT,
           this.formattingSettings,
           allowBiggerThan500,
-          includeTFSLinks
+          includeTFSLinks,
         );
         // If we have a link-order debug payload, let the adapter emit exactly in that order
         // and therefore use the raw provider tree (do not sanitize) so all ids are present
@@ -196,71 +210,272 @@ export default class RequirementsDataFactory {
         });
         this.attachmentMinioData.push(...requirementSkinAdapter.getAttachmentMinioData());
         adoptedRequirementsData['systemRequirementsData'] = systemRequirementsData;
+
+        if (this.documentVariant === 'sysrs') {
+          const sysRsTables = this.buildSysRsTables(rawData.systemRequirementsQueryData);
+          adoptedRequirementsData['criticalRequirementsData'] = sysRsTables.criticalRequirementsData;
+          adoptedRequirementsData['vcrmData'] = sysRsTables.vcrmData;
+        }
       }
 
-      // Handle system to software requirements traceability
-      if (this.queriesRequest.systemToSoftwareRequirements && rawData.systemToSoftwareRequirementsQueryData) {
+      // Handle forward traceability
+      const hasForwardTraceRequest = !!(
+        this.queriesRequest.systemToSoftwareRequirements || this.queriesRequest.subsystemToSystemRequirements
+      );
+      if (hasForwardTraceRequest && rawData.forwardTraceQueryData) {
         // Use sourceTargetsMap instead of workItemRelations
         const traceabilityData =
-          rawData.systemToSoftwareRequirementsQueryData.sourceTargetsMap ||
-          rawData.systemToSoftwareRequirementsQueryData.workItemRelations;
+          rawData.forwardTraceQueryData.sourceTargetsMap || rawData.forwardTraceQueryData.workItemRelations;
 
         if (traceabilityData && (traceabilityData.size > 0 || traceabilityData.length > 0)) {
           const traceAdapter = new TraceAnalysisRequirementsAdapter(
             traceabilityData,
             'sys-req-to-soft-req',
-            rawData.systemToSoftwareRequirementsQueryData.sortingSourceColumnsMap,
-            rawData.systemToSoftwareRequirementsQueryData.sortingTargetsColumnsMap
+            rawData.forwardTraceQueryData.sortingSourceColumnsMap,
+            rawData.forwardTraceQueryData.sortingTargetsColumnsMap,
           );
 
           traceAdapter.adoptSkinData();
           const traceAdoptedData = traceAdapter.getAdoptedData();
-          adoptedRequirementsData['sysReqToSoftReqAdoptedData'] = {
+          const groupedHeader =
+            this.documentVariant === 'sysrs'
+              ? buildGroupedHeader('Sub-System', 'System', COLOR_REQ_SYS, COLOR_TEST_SOFT)
+              : buildGroupedHeader('System', 'Software', COLOR_REQ_SYS, COLOR_TEST_SOFT);
+          const adoptedTraceData = {
             adoptedData: traceAdoptedData,
-            groupedHeader: buildGroupedHeader('System', 'Software', COLOR_REQ_SYS, COLOR_TEST_SOFT),
+            groupedHeader,
           };
+          const forwardKey =
+            this.documentVariant === 'sysrs'
+              ? 'subsystemToSystemTraceAdoptedData'
+              : 'sysReqToSoftReqAdoptedData';
+          adoptedRequirementsData[forwardKey] = adoptedTraceData;
         } else {
-          adoptedRequirementsData['sysReqToSoftReqAdoptedData'] = {
-            adoptedData: null,
-          };
+          const forwardKey =
+            this.documentVariant === 'sysrs'
+              ? 'subsystemToSystemTraceAdoptedData'
+              : 'sysReqToSoftReqAdoptedData';
+          adoptedRequirementsData[forwardKey] = { adoptedData: null };
         }
       }
 
-      // Handle software to system requirements traceability (reverse)
-      if (this.queriesRequest.softwareToSystemRequirements && rawData.softwareToSystemRequirementsQueryData) {
+      // Handle reverse traceability
+      const hasReverseTraceRequest = !!(
+        this.queriesRequest.softwareToSystemRequirements || this.queriesRequest.systemToSubsystemRequirements
+      );
+      if (hasReverseTraceRequest && rawData.reverseTraceQueryData) {
         // Use sourceTargetsMap instead of workItemRelations
         const traceabilityData =
-          rawData.softwareToSystemRequirementsQueryData.sourceTargetsMap ||
-          rawData.softwareToSystemRequirementsQueryData.workItemRelations;
+          rawData.reverseTraceQueryData.sourceTargetsMap || rawData.reverseTraceQueryData.workItemRelations;
 
         if (traceabilityData && (traceabilityData.size > 0 || traceabilityData.length > 0)) {
           const traceAdapter = new TraceAnalysisRequirementsAdapter(
             traceabilityData,
             'soft-req-to-sys-req',
-            rawData.softwareToSystemRequirementsQueryData.sortingSourceColumnsMap,
-            rawData.softwareToSystemRequirementsQueryData.sortingTargetsColumnsMap
+            rawData.reverseTraceQueryData.sortingSourceColumnsMap,
+            rawData.reverseTraceQueryData.sortingTargetsColumnsMap,
           );
 
           traceAdapter.adoptSkinData();
           const traceAdoptedData = traceAdapter.getAdoptedData();
-          adoptedRequirementsData['softReqToSysReqAdoptedData'] = {
+          const groupedHeader =
+            this.documentVariant === 'sysrs'
+              ? buildGroupedHeader('System', 'Sub-System', COLOR_TEST_SOFT, COLOR_REQ_SYS)
+              : buildGroupedHeader('Software', 'System', COLOR_TEST_SOFT, COLOR_REQ_SYS);
+          const adoptedTraceData = {
             adoptedData: traceAdoptedData,
-            groupedHeader: buildGroupedHeader('Software', 'System', COLOR_TEST_SOFT, COLOR_REQ_SYS),
+            groupedHeader,
           };
+          const reverseKey =
+            this.documentVariant === 'sysrs'
+              ? 'systemToSubsystemTraceAdoptedData'
+              : 'softReqToSysReqAdoptedData';
+          adoptedRequirementsData[reverseKey] = adoptedTraceData;
         } else {
-          adoptedRequirementsData['softReqToSysReqAdoptedData'] = {
-            adoptedData: null,
-          };
+          const reverseKey =
+            this.documentVariant === 'sysrs'
+              ? 'systemToSubsystemTraceAdoptedData'
+              : 'softReqToSysReqAdoptedData';
+          adoptedRequirementsData[reverseKey] = { adoptedData: null };
         }
       }
 
       return adoptedRequirementsData;
     } catch (error) {
       logger.error(
-        `Error occurred during build json skin data adapter for adapter type: ${adapterType}, ${error.message}`
+        `Error occurred during build json skin data adapter for adapter type: ${adapterType}, ${error.message}`,
       );
       throw error;
     }
+  }
+
+  private buildSysRsTables(systemRequirementsQueryData: any) {
+    const rows = this.flattenRequirementsWithSections(systemRequirementsQueryData);
+    const criticalRequirementsData = rows
+      .filter((row) => this.isRequirementLike(row) && this.isPriorityOne(row.fields))
+      .map((row) => ({
+        fields: [
+          { name: 'ID', value: row.id, url: row.htmlUrl || undefined },
+          { name: 'Title', value: row.title },
+          { name: 'Comment', value: this.readVerificationComment(row.fields) },
+        ],
+      }));
+
+    const vcrmData = rows.map((row) => ({
+      fields: [
+        { name: 'ID', value: row.id, url: row.htmlUrl || undefined },
+        { name: 'Section', value: row.section },
+        { name: 'Title', value: row.title },
+        { name: 'Verification Method', value: this.readVerificationMethod(row.fields) },
+        { name: 'Site', value: this.readSite(row.fields) },
+        { name: 'Test Phase', value: this.readTestPhase(row.fields) },
+      ],
+    }));
+
+    return { criticalRequirementsData, vcrmData };
+  }
+
+  private flattenRequirementsWithSections(nodes: any): any[] {
+    const roots = Array.isArray(nodes) ? nodes : [];
+    const sanitizedRoots = this.sanitizeHierarchy(roots);
+    const flattenedRows: any[] = [];
+
+    const walk = (currentNodes: any[], path: number[] = [], ancestry: Set<any> = new Set()) => {
+      if (!Array.isArray(currentNodes) || currentNodes.length === 0) return;
+      const siblingsSeen = new Set<any>();
+      let nodeIndex = 0;
+
+      for (const node of currentNodes) {
+        const key = node?.id ?? node;
+        if (siblingsSeen.has(key)) continue;
+        siblingsSeen.add(key);
+        if (ancestry.has(key)) continue;
+        nodeIndex += 1;
+
+        const nextPath = [...path, nodeIndex];
+        const fields = node?.fields && typeof node.fields === 'object' ? node.fields : {};
+        const titleFromField = this.readField(fields, ['System.Title', 'Title'], ['title']);
+        const title = String(node?.title || titleFromField || '').trim();
+
+        flattenedRows.push({
+          id: node?.id ?? '',
+          title,
+          htmlUrl: node?.htmlUrl,
+          fields,
+          workItemType: String(
+            node?.workItemType || this.readField(fields, ['System.WorkItemType'], ['workitemtype']),
+          ),
+          section: `{{section:${nextPath.join('.')}}}`,
+        });
+
+        if (Array.isArray(node?.children) && node.children.length > 0) {
+          const nextAncestry = new Set(ancestry);
+          nextAncestry.add(key);
+          walk(node.children, nextPath, nextAncestry);
+        }
+      }
+    };
+
+    walk(sanitizedRoots);
+    return flattenedRows;
+  }
+
+  private isRequirementLike(row: any): boolean {
+    const workItemType = String(row?.workItemType || '').toLowerCase();
+    if (!workItemType) return false;
+    return workItemType.includes('requirement');
+  }
+
+  private isPriorityOne(fields: any): boolean {
+    const priority = this.readField(fields, ['Microsoft.VSTS.Common.Priority', 'Priority'], ['priority']);
+    const normalized = String(priority || '').trim();
+    if (!normalized) return false;
+    const exactNumeric = Number(normalized);
+    if (Number.isFinite(exactNumeric)) return exactNumeric === 1;
+    const firstNumber = normalized.match(/\d+/)?.[0];
+    return Number(firstNumber) === 1;
+  }
+
+  private readVerificationComment(fields: any): string {
+    return this.readField(
+      fields,
+      ['Microsoft.VSTS.Common.VerificationComment', 'Verification Comment', 'VerificationComment'],
+      ['verificationcomment'],
+    );
+  }
+
+  private readVerificationMethod(fields: any): string {
+    return this.readField(
+      fields,
+      ['Microsoft.VSTS.Common.VerificationMethod', 'Verification Method', 'VerificationMethod'],
+      ['verificationmethod', 'verifymethod'],
+    );
+  }
+
+  private readSite(fields: any): string {
+    return this.readField(
+      fields,
+      ['Microsoft.VSTS.Common.VerificationSite', 'Verification Site', 'Site', 'Test Site'],
+      ['verificationsite', 'testsite', 'site'],
+    );
+  }
+
+  private readTestPhase(fields: any): string {
+    return this.readField(
+      fields,
+      ['Microsoft.VSTS.Common.TestPhase', 'Test Phase', 'TestPhase', 'Verification Phase'],
+      ['testphase', 'verificationphase'],
+    );
+  }
+
+  private readField(fields: any, exactCandidates: string[] = [], containsCandidates: string[] = []): string {
+    if (!fields || typeof fields !== 'object') return '';
+    const entries = Object.entries(fields);
+    const valueByNormalizedKey = new Map<string, any>();
+    for (const [key, value] of entries) {
+      valueByNormalizedKey.set(this.normalizeFieldKey(key), value);
+    }
+
+    for (const key of exactCandidates) {
+      const rawValue = valueByNormalizedKey.get(this.normalizeFieldKey(key));
+      const serialized = this.serializeFieldValue(rawValue);
+      if (serialized) return serialized;
+    }
+
+    for (const [key, value] of entries) {
+      const normalizedKey = this.normalizeFieldKey(key);
+      if (containsCandidates.some((candidate) => normalizedKey.includes(this.normalizeFieldKey(candidate)))) {
+        const serialized = this.serializeFieldValue(value);
+        if (serialized) return serialized;
+      }
+    }
+
+    return '';
+  }
+
+  private normalizeFieldKey(value: any): string {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+  }
+
+  private serializeFieldValue(value: any): string {
+    if (value == null) return '';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return String(value).trim();
+    }
+    if (Array.isArray(value)) {
+      return value
+        .map((item) => this.serializeFieldValue(item))
+        .filter(Boolean)
+        .join(', ');
+    }
+    if (typeof value === 'object') {
+      if (value.displayName) return String(value.displayName).trim();
+      if (value.name) return String(value.name).trim();
+      if (value.value != null) return this.serializeFieldValue(value.value);
+    }
+    return String(value).trim();
   }
 
   getAdoptedData() {
@@ -330,7 +545,7 @@ export default class RequirementsDataFactory {
             const cleanedDescription = await htmlUtilsInstance.cleanHtml(
               req.description,
               false,
-              this.formattingSettings?.trimAdditionalSpacingInDescriptions || false
+              this.formattingSettings?.trimAdditionalSpacingInDescriptions || false,
             );
 
             // Process the HTML description using RichTextDataFactory
@@ -343,7 +558,7 @@ export default class RequirementsDataFactory {
               this.minioAccessKey,
               this.minioSecretKey,
               this.PAT,
-              false // excludeImages
+              false, // excludeImages
             );
 
             descriptionRichText = await richTextFactory.factorizeRichTextData();
