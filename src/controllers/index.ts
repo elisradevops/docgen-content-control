@@ -12,6 +12,7 @@ import * as fs from 'fs';
 import * as Minio from 'minio';
 import RequirementsDataFactory from '../factories/RequirementsDataFactory';
 import CriticalRequirementsTableSkinAdapter from '../adapters/CriticalRequirementsTableSkinAdapter';
+import VcrmTableSkinAdapter from '../adapters/VcrmTableSkinAdapter';
 import { formatLocalILShort } from '../services/adapterUtils';
 
 let defaultStyles = {
@@ -2163,6 +2164,7 @@ export default class DgContentControls {
         ...baseStyles,
         isBold: false,
       };
+      const sysRsSectionAnchor = 'requirements-root';
 
       if (adoptedRequirementsData.systemRequirementsData) {
         const systemReqSkin = await this.skins.addNewContentToDocumentSkin(
@@ -2174,7 +2176,14 @@ export default class DgContentControls {
           headingLevel,
           true,
         );
-        contentControls.push({ title: 'system-requirements', wordObjects: systemReqSkin });
+        const sectionAnchorMarker = {
+          type: 'paragraph',
+          runs: [{ text: `{{section-anchor:${sysRsSectionAnchor}}}` }],
+        };
+        contentControls.push({
+          title: 'system-requirements',
+          wordObjects: [sectionAnchorMarker, ...systemReqSkin],
+        });
       }
 
       const criticalRows = Array.isArray(adoptedRequirementsData.criticalRequirementsData)
@@ -2208,7 +2217,7 @@ export default class DgContentControls {
       const vcrmRows = Array.isArray(adoptedRequirementsData.vcrmData)
         ? adoptedRequirementsData.vcrmData
         : [];
-      const vcrmData =
+      const vcrmDataRaw =
         vcrmRows.length > 0
           ? vcrmRows
           : [
@@ -2223,6 +2232,9 @@ export default class DgContentControls {
                 ],
               },
             ];
+      const vcrmAdapter = new VcrmTableSkinAdapter(vcrmDataRaw);
+      vcrmAdapter.adoptSkinData();
+      const vcrmData = vcrmAdapter.getAdoptedData();
       const vcrmSkin = await this.skins.addNewContentToDocumentSkin(
         'vcrm',
         this.skins.SKIN_TYPE_TABLE,

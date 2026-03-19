@@ -961,10 +961,10 @@ describe('RequirementsDataFactory', () => {
       const sectionById = new Map(
         adoptedData.vcrmData.map((row: any) => [row.fields[0].value, row.fields[1].value]),
       );
-      expect(sectionById.get(10)).toBe('{{section:1}}');
-      expect(sectionById.get(11)).toBe('{{section:1.1}}');
-      expect(sectionById.get(13)).toBe('{{section:1.1.1}}');
-      expect(sectionById.get(12)).toBe('{{section:1.2}}');
+      expect(sectionById.get(10)).toBe('{{section:requirements-root:1}}');
+      expect(sectionById.get(11)).toBe('{{section:requirements-root:1.1}}');
+      expect(sectionById.get(13)).toBe('{{section:requirements-root:1.1.1}}');
+      expect(sectionById.get(12)).toBe('{{section:requirements-root:1.2}}');
     });
 
     test('maps SysRS forward/reverse trace queries to alias keys and fetches the correct WIQL urls', async () => {

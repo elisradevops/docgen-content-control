@@ -77,6 +77,7 @@ describe('DgContentControls SysRS generation', () => {
       'critical-requirements',
       'vcrm',
     ]);
+    expect(controls[0].wordObjects[0].runs[0].text).toBe('{{section-anchor:requirements-root}}');
 
     const criticalCall = addNewContentToDocumentSkin.mock.calls.find(
       (call: any[]) => call[0] === 'critical-requirements'
@@ -91,6 +92,9 @@ describe('DgContentControls SysRS generation', () => {
     ) as any[];
     expect(vcrmCall).toBeDefined();
     expect(vcrmCall[1]).toBe('table');
+    expect(vcrmCall[2][0].fields[0].width).toBeDefined();
+    expect(vcrmCall[2][0].fields[1].width).toBeDefined();
+    expect(vcrmCall[2][0].fields[2].width).toBeDefined();
     expect(vcrmCall[2][0].fields[2].value).toBe('No requirements available');
 
     expect(
@@ -134,6 +138,7 @@ describe('DgContentControls SysRS generation', () => {
       'subsystem-to-system-trace',
       'system-to-subsystem-trace',
     ]);
+    expect(controls[0].wordObjects[0].runs[0].text).toBe('{{section-anchor:requirements-root}}');
 
     const subsystemToSystemCall = addNewContentToDocumentSkin.mock.calls.find(
       (call: any[]) => call[0] === 'subsystem-to-system-trace'
