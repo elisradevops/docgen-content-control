@@ -17,6 +17,7 @@ import htmlUtils from '../services/htmlUtils';
  * - Optionally provide link-driven debug payloads for exact link-order rendering
  */
 export default class RequirementsDataFactory {
+  private static readonly SYSRS_SECTION_ANCHOR = 'requirements-root';
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   teamProject: string;
   templatePath: string;
@@ -365,7 +366,7 @@ export default class RequirementsDataFactory {
           workItemType: String(
             node?.workItemType || this.readField(fields, ['System.WorkItemType'], ['workitemtype']),
           ),
-          section: `{{section:${nextPath.join('.')}}}`,
+          section: `{{section:${RequirementsDataFactory.SYSRS_SECTION_ANCHOR}:${nextPath.join('.')}}}`,
         });
 
         if (Array.isArray(node?.children) && node.children.length > 0) {
