@@ -11,6 +11,7 @@ import { contentControl } from '../models/contentControl';
 import * as fs from 'fs';
 import * as Minio from 'minio';
 import RequirementsDataFactory from '../factories/RequirementsDataFactory';
+import CriticalRequirementsTableSkinAdapter from '../adapters/CriticalRequirementsTableSkinAdapter';
 import { formatLocalILShort } from '../services/adapterUtils';
 
 let defaultStyles = {
@@ -2179,7 +2180,7 @@ export default class DgContentControls {
       const criticalRows = Array.isArray(adoptedRequirementsData.criticalRequirementsData)
         ? adoptedRequirementsData.criticalRequirementsData
         : [];
-      const criticalData =
+      const criticalDataRaw =
         criticalRows.length > 0
           ? criticalRows
           : [
@@ -2191,6 +2192,9 @@ export default class DgContentControls {
                 ],
               },
             ];
+      const criticalRequirementsAdapter = new CriticalRequirementsTableSkinAdapter(criticalDataRaw);
+      criticalRequirementsAdapter.adoptSkinData();
+      const criticalData = criticalRequirementsAdapter.getAdoptedData();
       const criticalSkin = await this.skins.addNewContentToDocumentSkin(
         'critical-requirements',
         this.skins.SKIN_TYPE_TABLE,

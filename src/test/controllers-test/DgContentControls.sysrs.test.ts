@@ -83,6 +83,7 @@ describe('DgContentControls SysRS generation', () => {
     ) as any[];
     expect(criticalCall).toBeDefined();
     expect(criticalCall[1]).toBe('table');
+    expect(criticalCall[2][0].fields[0].width).toBe('5.5%');
     expect(criticalCall[2][0].fields[1].value).toBe('No priority 1 requirements found');
 
     const vcrmCall = addNewContentToDocumentSkin.mock.calls.find(
@@ -140,6 +141,11 @@ describe('DgContentControls SysRS generation', () => {
     expect(subsystemToSystemCall).toBeDefined();
     expect(subsystemToSystemCall[1]).toBe('trace');
     expect(subsystemToSystemCall[2].errorMessage).toBeNull();
+
+    const criticalCall = addNewContentToDocumentSkin.mock.calls.find(
+      (call: any[]) => call[0] === 'critical-requirements'
+    ) as any[];
+    expect(criticalCall[2][0].fields[0].width).toBe('5.5%');
 
     const systemToSubsystemCall = addNewContentToDocumentSkin.mock.calls.find(
       (call: any[]) => call[0] === 'system-to-subsystem-trace'
