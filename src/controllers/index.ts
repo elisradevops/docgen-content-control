@@ -379,6 +379,12 @@ export default class DgContentControls {
             contentControlOptions.data.displayMode,
           );
           break;
+        case 'release-file-content-control':
+          contentControlData = this.addReleaseFileContentControl(
+            contentControlOptions.title,
+            contentControlOptions.data?.releaseFileName,
+          );
+          break;
       }
       let jsonLocalData = await this.writeToJson(contentControlData);
       let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
@@ -392,6 +398,49 @@ export default class DgContentControls {
       );
       logger.error(`Error stack: ${error.stack}`);
       throw error;
+    }
+  }
+
+  private addReleaseFileContentControl(contentControlTitle: string, releaseFileName?: string): contentControl[] {
+    const safeReleaseFileName = String(releaseFileName || '').trim();
+    return [
+      {
+        title: contentControlTitle,
+        wordObjects: [
+          {
+            type: 'paragraph',
+            runs: [{ text: safeReleaseFileName }],
+          },
+        ],
+      },
+    ];
+  }
+
+  private normalizeFileToken(value: string): string {
+    return String(value || '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  private async resolveSvdReleaseZipFileName(rangeType: string, toReleaseIdRaw: any): Promise<string> {
+    if (String(rangeType || '').trim().toLowerCase() !== 'release') return '';
+
+    const toReleaseId = Number(toReleaseIdRaw);
+    if (!Number.isFinite(toReleaseId) || toReleaseId <= 0) return '';
+
+    try {
+      const pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+      const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProjectName, toReleaseId);
+      const releaseName = String(toRelease?.releaseDefinition?.name || '').trim();
+      const releaseVersion = String(toRelease?.name || '').trim();
+      if (!releaseName || !releaseVersion) return '';
+      return `${this.normalizeFileToken(releaseName)}-${this.normalizeFileToken(releaseVersion)}.zip`;
+    } catch (error: any) {
+      logger.warn(`Failed resolving release zip file name: ${error?.message || error}`);
+      return '';
     }
   }
 
@@ -1824,6 +1873,14 @@ export default class DgContentControls {
             );
             contentControls.push({ title: element.contentControl, wordObjects: skin });
         }
+      }
+
+      const isSvdChangesControl =
+        String(contentControlTitle || '').trim().toLowerCase() === 'required-states-and-modes';
+      if (isSvdChangesControl) {
+        const releaseZipFileName = await this.resolveSvdReleaseZipFileName(rangeType, to);
+        const releaseFileControlTitle = 'release-file-content-control';
+        contentControls.push(...this.addReleaseFileContentControl(releaseFileControlTitle, releaseZipFileName));
       }
 
       return contentControls;
