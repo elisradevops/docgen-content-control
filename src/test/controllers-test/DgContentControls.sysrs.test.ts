@@ -233,4 +233,58 @@ describe('DgContentControls SysRS generation', () => {
       payload.data.displayMode
     );
   });
+
+  test('generateContentControl routes release-file-content-control to paragraph output', async () => {
+    const { controller } = createController();
+
+    jest.spyOn(controller as any, 'writeToJson').mockResolvedValue('/tmp/release-file.json');
+    jest.spyOn(controller as any, 'uploadToMinio').mockResolvedValue({
+      bucketName: 'content-controls',
+      objectName: 'release-file.json',
+    });
+    jest.spyOn(controller as any, 'deleteFile').mockImplementation(() => undefined);
+
+    const payload = {
+      type: 'release-file-content-control',
+      title: 'release-file-content-control',
+      data: {
+        releaseFileName: 'MEWP-SVD-release-1.2.3.zip',
+      },
+    };
+
+    await controller.generateContentControl(payload as any);
+
+    expect((controller as any).writeToJson).toHaveBeenCalledWith([
+      {
+        title: 'release-file-content-control',
+        wordObjects: [{ type: 'paragraph', runs: [{ text: 'MEWP-SVD-release-1.2.3.zip' }] }],
+      },
+    ]);
+  });
+
+  test('generateContentControl keeps release-file-content-control empty when no file name is provided', async () => {
+    const { controller } = createController();
+
+    jest.spyOn(controller as any, 'writeToJson').mockResolvedValue('/tmp/release-file-empty.json');
+    jest.spyOn(controller as any, 'uploadToMinio').mockResolvedValue({
+      bucketName: 'content-controls',
+      objectName: 'release-file-empty.json',
+    });
+    jest.spyOn(controller as any, 'deleteFile').mockImplementation(() => undefined);
+
+    const payload = {
+      type: 'release-file-content-control',
+      title: 'release-file-content-control',
+      data: {},
+    };
+
+    await controller.generateContentControl(payload as any);
+
+    expect((controller as any).writeToJson).toHaveBeenCalledWith([
+      {
+        title: 'release-file-content-control',
+        wordObjects: [{ type: 'paragraph', runs: [{ text: '' }] }],
+      },
+    ]);
+  });
 });

@@ -379,6 +379,12 @@ export default class DgContentControls {
             contentControlOptions.data.displayMode,
           );
           break;
+        case 'release-file-content-control':
+          contentControlData = this.addReleaseFileContentControl(
+            contentControlOptions.title,
+            contentControlOptions.data?.releaseFileName,
+          );
+          break;
       }
       let jsonLocalData = await this.writeToJson(contentControlData);
       let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
@@ -393,6 +399,21 @@ export default class DgContentControls {
       logger.error(`Error stack: ${error.stack}`);
       throw error;
     }
+  }
+
+  private addReleaseFileContentControl(contentControlTitle: string, releaseFileName?: string): contentControl[] {
+    const safeReleaseFileName = String(releaseFileName || '').trim();
+    return [
+      {
+        title: contentControlTitle,
+        wordObjects: [
+          {
+            type: 'paragraph',
+            runs: [{ text: safeReleaseFileName }],
+          },
+        ],
+      },
+    ];
   }
 
   async addQueryBasedContent(
