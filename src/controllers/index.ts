@@ -380,7 +380,7 @@ export default class DgContentControls {
           );
           break;
         case 'release-file-content-control':
-          contentControlData = this.addReleaseFileContentControl(
+          contentControlData = await this.addReleaseFileContentControl(
             contentControlOptions.title,
             contentControlOptions.data?.releaseFileName,
           );
@@ -401,17 +401,44 @@ export default class DgContentControls {
     }
   }
 
-  private addReleaseFileContentControl(contentControlTitle: string, releaseFileName?: string): contentControl[] {
+  private async addReleaseFileContentControl(
+    contentControlTitle: string,
+    releaseFileName?: string,
+  ): Promise<contentControl[]> {
     const safeReleaseFileName = String(releaseFileName || '').trim();
+    const paragraphBaseStyles = {
+      IsItalic: false,
+      IsUnderline: false,
+      Size: 10,
+      Uri: null,
+      Font: 'Arial',
+      InsertLineBreak: false,
+      InsertSpace: false,
+    };
+    const paragraphStyles = {
+      ...paragraphBaseStyles,
+      isBold: false,
+    };
+    const paragraphData = [
+      {
+        fields: [{ name: '', value: safeReleaseFileName }],
+        Source: 0,
+        level: 0,
+      },
+    ];
+    const paragraphWordObjects = await this.skins.addNewContentToDocumentSkin(
+      contentControlTitle,
+      this.skins.SKIN_TYPE_PARAGRAPH,
+      paragraphData,
+      paragraphStyles,
+      paragraphStyles,
+      0,
+    );
+
     return [
       {
         title: contentControlTitle,
-        wordObjects: [
-          {
-            type: 'paragraph',
-            runs: [{ text: safeReleaseFileName }],
-          },
-        ],
+        wordObjects: paragraphWordObjects || [],
       },
     ];
   }
@@ -1880,7 +1907,9 @@ export default class DgContentControls {
       if (isSvdChangesControl) {
         const releaseZipFileName = await this.resolveSvdReleaseZipFileName(rangeType, to);
         const releaseFileControlTitle = 'release-file-content-control';
-        contentControls.push(...this.addReleaseFileContentControl(releaseFileControlTitle, releaseZipFileName));
+        contentControls.push(
+          ...(await this.addReleaseFileContentControl(releaseFileControlTitle, releaseZipFileName)),
+        );
       }
 
       return contentControls;
