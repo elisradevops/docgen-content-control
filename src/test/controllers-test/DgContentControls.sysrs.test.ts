@@ -28,8 +28,16 @@ describe('DgContentControls SysRS generation', () => {
 
     const addNewContentToDocumentSkin = jest.fn(async (...args: any[]) => {
       const title = args[0];
+      const skinType = args[1];
+      const data = args[2];
       if (title === 'subsystem-to-system-trace' || title === 'system-to-subsystem-trace') {
         return [{ type: 'trace', title }];
+      }
+      if (skinType === 'paragraph') {
+        const paragraphText = Array.isArray(data)
+          ? String(data?.[0]?.fields?.[0]?.value || '')
+          : String(data || '');
+        return [{ type: 'paragraph', runs: [{ text: paragraphText }] }];
       }
       return [{ type: 'paragraph', title }];
     });
@@ -38,6 +46,7 @@ describe('DgContentControls SysRS generation', () => {
       SKIN_TYPE_SYSTEM_OVERVIEW: 'system-overview',
       SKIN_TYPE_TABLE: 'table',
       SKIN_TYPE_TRACE: 'trace',
+      SKIN_TYPE_PARAGRAPH: 'paragraph',
       addNewContentToDocumentSkin,
     };
 
@@ -235,7 +244,7 @@ describe('DgContentControls SysRS generation', () => {
   });
 
   test('generateContentControl routes release-file-content-control to paragraph output', async () => {
-    const { controller } = createController();
+    const { controller, addNewContentToDocumentSkin } = createController();
 
     jest.spyOn(controller as any, 'writeToJson').mockResolvedValue('/tmp/release-file.json');
     jest.spyOn(controller as any, 'uploadToMinio').mockResolvedValue({
@@ -254,6 +263,20 @@ describe('DgContentControls SysRS generation', () => {
 
     await controller.generateContentControl(payload as any);
 
+    expect(addNewContentToDocumentSkin).toHaveBeenCalledWith(
+      'release-file-content-control',
+      'paragraph',
+      [
+        {
+          fields: [{ name: '', value: 'MEWP-SVD-release-1.2.3.zip' }],
+          Source: 0,
+          level: 0,
+        },
+      ],
+      expect.objectContaining({ Size: 10, Font: 'Arial', isBold: false }),
+      expect.objectContaining({ Size: 10, Font: 'Arial', isBold: false }),
+      0
+    );
     expect((controller as any).writeToJson).toHaveBeenCalledWith([
       {
         title: 'release-file-content-control',

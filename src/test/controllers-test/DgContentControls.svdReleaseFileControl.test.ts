@@ -31,7 +31,18 @@ describe('DgContentControls SVD release-file-content-control generation', () => 
       SKIN_TYPE_SYSTEM_OVERVIEW: 'system-overview',
       SKIN_TYPE_INSTALLATION: 'installation',
       SKIN_TYPE_COVER_PAGE: 'cover-page',
-      addNewContentToDocumentSkin: jest.fn(async () => []),
+      SKIN_TYPE_PARAGRAPH: 'paragraph',
+      addNewContentToDocumentSkin: jest.fn(async (...args: any[]) => {
+        const skinType = args[1];
+        const data = args[2];
+        if (skinType === 'paragraph') {
+          const paragraphText = Array.isArray(data)
+            ? String(data?.[0]?.fields?.[0]?.value || '')
+            : String(data || '');
+          return [{ type: 'paragraph', runs: [{ text: paragraphText }] }];
+        }
+        return [];
+      }),
     };
 
     return controller;
