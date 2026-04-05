@@ -66,9 +66,9 @@ export default class RequirementsDataFactory {
     this.adoptedData = [];
     this.attachmentMinioData = [];
     this.allowBiggerThan500 = allowBiggerThan500;
-    this.displayMode = displayMode || 'hierarchical';
-    this.includeTFSLinks = includeTFSLinks;
     this.documentVariant = String(documentVariant || 'srs').toLowerCase();
+    this.displayMode = this.documentVariant === 'sysrs' ? 'hierarchical' : displayMode || 'hierarchical';
+    this.includeTFSLinks = includeTFSLinks;
   }
 
   /**
@@ -108,10 +108,10 @@ export default class RequirementsDataFactory {
         this.queriesRequest.softwareToSystemRequirements ||
         this.queriesRequest.systemToSubsystemRequirements ||
         null;
+      const useCategorizedMode = this.displayMode === 'categorized' && this.documentVariant !== 'sysrs';
 
       if (this.queriesRequest.systemRequirements) {
-        // Check if we're in categorized mode
-        if (this.displayMode === 'categorized') {
+        if (useCategorizedMode) {
           logger.debug('Fetching requirements in categorized mode');
           const categorizedData = await ticketsDataProvider.GetCategorizedRequirementsByType(
             this.queriesRequest.systemRequirements.wiql.href,
@@ -176,15 +176,13 @@ export default class RequirementsDataFactory {
   ) {
     let adoptedRequirementsData: any = {};
     try {
-      // Handle system requirements based on display mode
-      if (this.displayMode === 'categorized' && rawData.systemRequirementsCategorized) {
-        // Categorized mode: process requirements grouped by type
+      const useCategorizedMode = this.displayMode === 'categorized' && this.documentVariant !== 'sysrs';
+
+      if (useCategorizedMode && rawData.systemRequirementsCategorized) {
         adoptedRequirementsData['systemRequirementsData'] = await this.adaptCategorizedData(
           rawData.systemRequirementsCategorized,
         );
       } else if (this.queriesRequest.systemRequirements && rawData.systemRequirementsQueryData) {
-        // Hierarchical mode: process requirements in tree structure
-
         const requirementSkinAdapter = new RequirementDataSkinAdapter(
           this.teamProject,
           this.templatePath,

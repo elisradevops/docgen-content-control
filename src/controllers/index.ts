@@ -373,7 +373,6 @@ export default class DgContentControls {
             contentControlOptions.data.queriesRequest,
             contentControlOptions.title,
             contentControlOptions.headingLevel,
-            contentControlOptions.data.displayMode,
           );
           break;
         case 'release-file-content-control':
@@ -539,7 +538,9 @@ export default class DgContentControls {
   ): Promise<any[]> {
     const compareResult = payload?.compareResult || {};
     const queryName = this.toHistoricalText(payload?.queryName || compareResult?.queryName || '');
-    const teamProjectName = this.toHistoricalText(payload?.teamProjectName || compareResult?.teamProjectName || '');
+    const teamProjectName = this.toHistoricalText(
+      payload?.teamProjectName || compareResult?.teamProjectName || '',
+    );
     const baselineRevision = this.toHistoricalText(compareResult?.baseline?.asOf || '');
     const compareToRevision = this.toHistoricalText(compareResult?.compareTo?.asOf || '');
     const rows = Array.isArray(compareResult?.rows) ? compareResult.rows : [];
@@ -604,8 +605,16 @@ export default class DgContentControls {
         url: '',
         fields: [
           { name: 'Point', value: 'Baseline', width: '20%' },
-          { name: 'Time', value: this.formatHistoricalDate(compareResult?.baseline?.asOf || ''), width: '50%' },
-          { name: '# Sum of Work-Items', value: this.toHistoricalText(compareResult?.baseline?.total || 0), width: '30%' },
+          {
+            name: 'Time',
+            value: this.formatHistoricalDate(compareResult?.baseline?.asOf || ''),
+            width: '50%',
+          },
+          {
+            name: '# Sum of Work-Items',
+            value: this.toHistoricalText(compareResult?.baseline?.total || 0),
+            width: '30%',
+          },
         ],
         Source: 0,
         level: 0,
@@ -614,8 +623,16 @@ export default class DgContentControls {
         url: '',
         fields: [
           { name: 'Point', value: 'Compare to', width: '20%' },
-          { name: 'Time', value: this.formatHistoricalDate(compareResult?.compareTo?.asOf || ''), width: '50%' },
-          { name: '# Sum of Work-Items', value: this.toHistoricalText(compareResult?.compareTo?.total || 0), width: '30%' },
+          {
+            name: 'Time',
+            value: this.formatHistoricalDate(compareResult?.compareTo?.asOf || ''),
+            width: '50%',
+          },
+          {
+            name: '# Sum of Work-Items',
+            value: this.toHistoricalText(compareResult?.compareTo?.total || 0),
+            width: '30%',
+          },
         ],
         Source: 0,
         level: 0,
@@ -623,7 +640,9 @@ export default class DgContentControls {
     ]);
 
     await appendParagraph('Summarize', Math.max(1, headingLevel + 2), true, true);
-    await appendParagraph(`# Sum of Work-Items updated: ${this.toHistoricalText(compareResult?.summary?.updatedCount || 0)}`);
+    await appendParagraph(
+      `# Sum of Work-Items updated: ${this.toHistoricalText(compareResult?.summary?.updatedCount || 0)}`,
+    );
 
     if (rows.length > 0) {
       await appendTable(
@@ -633,8 +652,16 @@ export default class DgContentControls {
             { name: 'ID', value: this.toHistoricalText(row?.id), url: row?.workItemUrl || '', width: '9%' },
             { name: 'Work Item Type', value: this.toHistoricalText(row?.workItemType), width: '14%' },
             { name: 'Title', value: this.toHistoricalText(row?.title), width: '34%' },
-            { name: 'Id Revision of Baseline', value: this.toHistoricalText(row?.baselineRevisionId), width: '14%' },
-            { name: 'Id Revision of CompareTo', value: this.toHistoricalText(row?.compareToRevisionId), width: '14%' },
+            {
+              name: 'Id Revision of Baseline',
+              value: this.toHistoricalText(row?.baselineRevisionId),
+              width: '14%',
+            },
+            {
+              name: 'Id Revision of CompareTo',
+              value: this.toHistoricalText(row?.compareToRevisionId),
+              width: '14%',
+            },
             { name: 'Compare Status', value: this.toHistoricalText(row?.compareStatus), width: '15%' },
           ],
           Source: Number(row?.id || 0),
@@ -652,7 +679,8 @@ export default class DgContentControls {
     }
 
     for (const row of changedRows) {
-      const itemTitle = `${this.toHistoricalText(row?.workItemType)} ${this.toHistoricalText(row?.id)} Changed between version ${this.toHistoricalText(row?.baselineRevisionId || '')} and ${this.toHistoricalText(row?.compareToRevisionId || '')}`.trim();
+      const itemTitle =
+        `${this.toHistoricalText(row?.workItemType)} ${this.toHistoricalText(row?.id)} Changed between version ${this.toHistoricalText(row?.baselineRevisionId || '')} and ${this.toHistoricalText(row?.compareToRevisionId || '')}`.trim();
       await appendParagraph(itemTitle, Math.max(1, headingLevel + 3), true, true);
 
       const differences = Array.isArray(row?.differences) ? row.differences : [];
@@ -669,12 +697,14 @@ export default class DgContentControls {
             fields: [
               {
                 name: 'Baseline',
-                value: `${this.toHistoricalText(row?.baselineRevisionId || '')} ${this.toHistoricalText(diff?.baseline)}`.trim(),
+                value:
+                  `${this.toHistoricalText(row?.baselineRevisionId || '')} ${this.toHistoricalText(diff?.baseline)}`.trim(),
                 width: '50%',
               },
               {
                 name: 'Compare to',
-                value: `${this.toHistoricalText(row?.compareToRevisionId || '')} ${this.toHistoricalText(diff?.compareTo)}`.trim(),
+                value:
+                  `${this.toHistoricalText(row?.compareToRevisionId || '')} ${this.toHistoricalText(diff?.compareTo)}`.trim(),
                 width: '50%',
               },
             ],
@@ -698,7 +728,12 @@ export default class DgContentControls {
   }
 
   private async resolveSvdReleaseZipFileName(rangeType: string, toReleaseIdRaw: any): Promise<string> {
-    if (String(rangeType || '').trim().toLowerCase() !== 'release') return '';
+    if (
+      String(rangeType || '')
+        .trim()
+        .toLowerCase() !== 'release'
+    )
+      return '';
 
     const toReleaseId = Number(toReleaseIdRaw);
     if (!Number.isFinite(toReleaseId) || toReleaseId <= 0) return '';
@@ -2148,7 +2183,9 @@ export default class DgContentControls {
       }
 
       const isSvdChangesControl =
-        String(contentControlTitle || '').trim().toLowerCase() === 'required-states-and-modes';
+        String(contentControlTitle || '')
+          .trim()
+          .toLowerCase() === 'required-states-and-modes';
       if (isSvdChangesControl) {
         const releaseZipFileName = await this.resolveSvdReleaseZipFileName(rangeType, to);
         const releaseFileControlTitle = 'release-file-content-control';
@@ -2439,12 +2476,7 @@ export default class DgContentControls {
     }
   }
 
-  async addSysRSContent(
-    queriesRequest: any,
-    contentControlTitle: string,
-    headingLevel?: number,
-    displayMode?: string,
-  ) {
+  async addSysRSContent(queriesRequest: any, contentControlTitle: string, headingLevel?: number) {
     let adoptedRequirementsData;
     try {
       logger.debug(`adding SysRS content with params:
@@ -2462,7 +2494,7 @@ export default class DgContentControls {
         queriesRequest,
         this.formattingSettings,
         true,
-        displayMode || 'hierarchical',
+        'hierarchical',
         false, // includeTFSLinks – SysRS documents don't include TFS link columns in requirement tables
         'sysrs',
       );
