@@ -229,9 +229,6 @@ export default class DgContentControls {
       undefined,
       this.jfrogToken,
     );
-    if (!this.templatePath) {
-      this.templatePath = 'template path';
-    }
     this.skins = new Skins('json', this.templatePath);
 
     logger.debug(`Initilized`);
@@ -385,6 +382,13 @@ export default class DgContentControls {
             contentControlOptions.data?.releaseFileName,
           );
           break;
+        case 'historical-compare-report':
+          contentControlData = await this.addHistoricalCompareReportContent(
+            contentControlOptions.title,
+            contentControlOptions.data,
+            contentControlOptions.headingLevel || 1,
+          );
+          break;
       }
       let jsonLocalData = await this.writeToJson(contentControlData);
       let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
@@ -441,6 +445,247 @@ export default class DgContentControls {
         wordObjects: paragraphWordObjects || [],
       },
     ];
+  }
+
+  private async addHistoricalCompareReportContent(
+    contentControlTitle: string,
+    data: any,
+    headingLevel: number,
+  ): Promise<contentControl[]> {
+    const headerStyles = {
+      ...defaultStyles,
+      isBold: true,
+      Size: 10,
+      InsertLineBreak: false,
+      InsertSpace: false,
+    };
+    const styles = {
+      ...defaultStyles,
+      isBold: false,
+      Size: 10,
+      InsertLineBreak: false,
+      InsertSpace: false,
+    };
+    const normalizedPayload = {
+      ...data,
+      queryName: data?.queryName || data?.compareResult?.queryName || '',
+      teamProjectName: data?.teamProjectName || this.teamProjectName,
+      compareResult: data?.compareResult || data || {},
+    };
+    const timeMachineSkinType = (this.skins as any).SKIN_TYPE_TIME_MACHINE || 'time-machine-report';
+    let wordObjects: any[] = [];
+    try {
+      wordObjects = await this.skins.addNewContentToDocumentSkin(
+        contentControlTitle,
+        timeMachineSkinType,
+        normalizedPayload,
+        headerStyles,
+        styles,
+        headingLevel,
+      );
+    } catch (error: any) {
+      const message = String(error?.message || '');
+      if (!/Unknown skinType/i.test(message)) {
+        throw error;
+      }
+      logger.warn(
+        `Skin type "${timeMachineSkinType}" is unavailable in the installed skins package. Falling back to paragraph/table composition.`,
+      );
+      wordObjects = await this.buildHistoricalCompareReportWithFallbackSkins(
+        contentControlTitle,
+        normalizedPayload,
+        headerStyles,
+        styles,
+        headingLevel,
+      );
+    }
+    return [
+      {
+        title: contentControlTitle,
+        wordObjects: wordObjects || [],
+      },
+    ];
+  }
+
+  private formatHistoricalDate(value: any): string {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    const month = parsed.toLocaleString('en-US', { month: 'long' });
+    const day = String(parsed.getDate()).padStart(2, '0');
+    const year = parsed.getFullYear();
+    const hours = String(parsed.getHours()).padStart(2, '0');
+    const minutes = String(parsed.getMinutes()).padStart(2, '0');
+    return `${month} ${day}, ${year} ${hours}:${minutes}`;
+  }
+
+  private toHistoricalText(value: any): string {
+    if (value === null || value === undefined) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private async buildHistoricalCompareReportWithFallbackSkins(
+    contentControlTitle: string,
+    payload: any,
+    headerStyles: any,
+    styles: any,
+    headingLevel: number,
+  ): Promise<any[]> {
+    const compareResult = payload?.compareResult || {};
+    const queryName = this.toHistoricalText(payload?.queryName || compareResult?.queryName || '');
+    const teamProjectName = this.toHistoricalText(payload?.teamProjectName || compareResult?.teamProjectName || '');
+    const baselineRevision = this.toHistoricalText(compareResult?.baseline?.asOf || '');
+    const compareToRevision = this.toHistoricalText(compareResult?.compareTo?.asOf || '');
+    const rows = Array.isArray(compareResult?.rows) ? compareResult.rows : [];
+    const changedRows = rows.filter((row) => String(row?.compareStatus || '').toLowerCase() === 'changed');
+    const wordObjects: any[] = [];
+
+    const appendParagraph = async (text: string, heading = 0, useTitleField = false, bold = false) => {
+      const paragraphData = [
+        {
+          fields: [
+            {
+              name: useTitleField ? 'Title' : '',
+              value: text,
+            },
+          ],
+          Source: 0,
+          level: 0,
+        },
+      ];
+      const paragraphStyles = {
+        ...styles,
+        isBold: bold,
+        InsertLineBreak: false,
+        InsertSpace: false,
+      };
+      const result = await this.skins.addNewContentToDocumentSkin(
+        contentControlTitle,
+        this.skins.SKIN_TYPE_PARAGRAPH,
+        paragraphData,
+        paragraphStyles,
+        paragraphStyles,
+        heading,
+      );
+      if (Array.isArray(result)) {
+        wordObjects.push(...result);
+      }
+    };
+
+    const appendTable = async (tableRows: any[]) => {
+      if (!Array.isArray(tableRows) || tableRows.length === 0) return;
+      const result = await this.skins.addNewContentToDocumentSkin(
+        contentControlTitle,
+        this.skins.SKIN_TYPE_TABLE,
+        tableRows,
+        headerStyles,
+        styles,
+        0,
+      );
+      if (Array.isArray(result)) {
+        wordObjects.push(...result);
+      }
+    };
+
+    await appendParagraph('Difference', Math.max(1, headingLevel), true, true);
+    await appendParagraph(`Project: ${teamProjectName || 'N/A'}`);
+    if (queryName) {
+      await appendParagraph(`Query: ${queryName}`);
+    }
+
+    await appendTable([
+      {
+        url: '',
+        fields: [
+          { name: 'Point', value: 'Baseline', width: '20%' },
+          { name: 'Time', value: this.formatHistoricalDate(compareResult?.baseline?.asOf || ''), width: '50%' },
+          { name: '# Sum of Work-Items', value: this.toHistoricalText(compareResult?.baseline?.total || 0), width: '30%' },
+        ],
+        Source: 0,
+        level: 0,
+      },
+      {
+        url: '',
+        fields: [
+          { name: 'Point', value: 'Compare to', width: '20%' },
+          { name: 'Time', value: this.formatHistoricalDate(compareResult?.compareTo?.asOf || ''), width: '50%' },
+          { name: '# Sum of Work-Items', value: this.toHistoricalText(compareResult?.compareTo?.total || 0), width: '30%' },
+        ],
+        Source: 0,
+        level: 0,
+      },
+    ]);
+
+    await appendParagraph('Summarize', Math.max(1, headingLevel + 2), true, true);
+    await appendParagraph(`# Sum of Work-Items updated: ${this.toHistoricalText(compareResult?.summary?.updatedCount || 0)}`);
+
+    if (rows.length > 0) {
+      await appendTable(
+        rows.map((row) => ({
+          url: row?.workItemUrl || '',
+          fields: [
+            { name: 'ID', value: this.toHistoricalText(row?.id), url: row?.workItemUrl || '', width: '9%' },
+            { name: 'Work Item Type', value: this.toHistoricalText(row?.workItemType), width: '14%' },
+            { name: 'Title', value: this.toHistoricalText(row?.title), width: '34%' },
+            { name: 'Id Revision of Baseline', value: this.toHistoricalText(row?.baselineRevisionId), width: '14%' },
+            { name: 'Id Revision of CompareTo', value: this.toHistoricalText(row?.compareToRevisionId), width: '14%' },
+            { name: 'Compare Status', value: this.toHistoricalText(row?.compareStatus), width: '15%' },
+          ],
+          Source: Number(row?.id || 0),
+          level: 0,
+        })),
+      );
+    } else {
+      await appendParagraph('No work-items were returned.');
+    }
+
+    await appendParagraph('2. Work Item Differences', Math.max(1, headingLevel + 2), true, true);
+    if (changedRows.length === 0) {
+      await appendParagraph('No work-items were marked as Changed between the selected date-times.');
+      return wordObjects;
+    }
+
+    for (const row of changedRows) {
+      const itemTitle = `${this.toHistoricalText(row?.workItemType)} ${this.toHistoricalText(row?.id)} Changed between version ${this.toHistoricalText(row?.baselineRevisionId || '')} and ${this.toHistoricalText(row?.compareToRevisionId || '')}`.trim();
+      await appendParagraph(itemTitle, Math.max(1, headingLevel + 3), true, true);
+
+      const differences = Array.isArray(row?.differences) ? row.differences : [];
+      if (differences.length === 0) {
+        await appendParagraph('No field differences found.');
+        continue;
+      }
+
+      for (const diff of differences) {
+        await appendParagraph(`${this.toHistoricalText(diff?.field)}:`, 0, false, true);
+        await appendTable([
+          {
+            url: '',
+            fields: [
+              {
+                name: 'Baseline',
+                value: `${this.toHistoricalText(row?.baselineRevisionId || '')} ${this.toHistoricalText(diff?.baseline)}`.trim(),
+                width: '50%',
+              },
+              {
+                name: 'Compare to',
+                value: `${this.toHistoricalText(row?.compareToRevisionId || '')} ${this.toHistoricalText(diff?.compareTo)}`.trim(),
+                width: '50%',
+              },
+            ],
+            Source: Number(row?.id || 0),
+            level: 0,
+          },
+        ]);
+      }
+    }
+
+    return wordObjects;
   }
 
   private normalizeFileToken(value: string): string {

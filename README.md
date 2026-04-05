@@ -57,6 +57,7 @@ Key environment variables used by the service:
 ### `POST /generate-doc-template`
 
 Generates a **document template JSON** for a given Word/Excel template stored in MinIO.
+For template-less flows (for example, Historical Query compare report), `templateUrl` may be an empty string.
 
 #### Request body
 
@@ -205,6 +206,28 @@ Generates a changes table based on git commits over a range, including linked wo
     "includeUnlinkedCommits": false,
     "replaceTaskWithParent": false,
     "compareMode": "range"
+  }
+}
+```
+
+##### `type: "historical-compare-report"`
+
+Generates a standalone Historical Query Compare report content control (no `.dotx` template is required).
+
+```jsonc
+"contentControlOptions": {
+  "type": "historical-compare-report",
+  "title": "historical-compare-report-content-control",
+  "headingLevel": 1,
+  "data": {
+    "teamProjectName": "MEWP",
+    "queryName": "Shared Query Name",
+    "compareResult": {
+      "baseline": { "asOf": "2025-12-22T17:08:00.000Z", "total": 4 },
+      "compareTo": { "asOf": "2025-12-28T08:57:00.000Z", "total": 4 },
+      "summary": { "updatedCount": 1 },
+      "rows": []
+    }
   }
 }
 ```
