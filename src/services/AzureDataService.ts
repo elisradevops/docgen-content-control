@@ -29,7 +29,7 @@ export default class AzureDataService {
   }
 
   // Queries & Fields
-  async getSharedQueries(teamProjectId = '', docType = '', path = '') {
+  async getSharedQueries(teamProjectId = '', docType = '', path = 'shared') {
     const tickets = await this.dg.getTicketsDataProvider();
     return tickets.GetSharedQueries(teamProjectId, path, docType);
   }
@@ -42,6 +42,26 @@ export default class AzureDataService {
   async getQueryResults(queryId: string, teamProjectId = '') {
     const tickets = await this.dg.getTicketsDataProvider();
     return tickets.GetQueryResultById(queryId, teamProjectId);
+  }
+
+  async getHistoricalQueries(teamProjectId = '', path = 'shared') {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.GetHistoricalQueries(teamProjectId, path);
+  }
+
+  async getHistoricalQueryResults(queryId: string, teamProjectId = '', asOf = '') {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.GetHistoricalQueryResults(queryId, teamProjectId, asOf);
+  }
+
+  async compareHistoricalQueryResults(
+    queryId: string,
+    teamProjectId = '',
+    baselineAsOf = '',
+    compareToAsOf = '',
+  ) {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.CompareHistoricalQueryResults(queryId, teamProjectId, baselineAsOf, compareToAsOf);
   }
 
   // Tests

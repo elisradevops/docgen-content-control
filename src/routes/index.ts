@@ -68,7 +68,9 @@ const getHostFromEndpoint = (endpoint: string) => {
 };
 
 const normalizeDependencyProbeError = (error: any, endpoint: string) => {
-  const code = String(error?.code || '').trim().toUpperCase();
+  const code = String(error?.code || '')
+    .trim()
+    .toUpperCase();
   const message = String(error?.message || '').trim();
   const host = getHostFromEndpoint(endpoint) || 'unknown-host';
 
@@ -229,7 +231,10 @@ export class Routes {
           '@elisra-devops/docgen-data-provider',
           dataProviderDeclaredVersion,
         );
-        const skinsVersion = readResolvedDependencyVersion('@elisra-devops/docgen-skins', skinsDeclaredVersion);
+        const skinsVersion = readResolvedDependencyVersion(
+          '@elisra-devops/docgen-skins',
+          skinsDeclaredVersion,
+        );
         const downloadManagerHealth = await buildDownloadManagerHealth(checkedAt);
         const isDownloadManagerConnected =
           String(downloadManagerHealth?.connectionStatus || '').toLowerCase() === 'connected';
@@ -248,7 +253,8 @@ export class Routes {
               name: '@elisra-devops/docgen-data-provider',
               version: dataProviderVersion,
               declaredVersion: dataProviderDeclaredVersion,
-              connectionStatus: dataProviderVersion && dataProviderVersion !== 'unknown' ? 'connected' : 'disconnected',
+              connectionStatus:
+                dataProviderVersion && dataProviderVersion !== 'unknown' ? 'connected' : 'disconnected',
             },
             dgSkinsPackage: {
               name: '@elisra-devops/docgen-skins',
@@ -338,7 +344,7 @@ export class Routes {
           body.minioAccessKey,
           body.minioSecretKey,
           undefined,
-          body.formattingSettings
+          body.formattingSettings,
         );
         await dgContentControls.init();
         const result = await dgContentControls.validateMewpExternalFiles({
@@ -374,7 +380,7 @@ export class Routes {
           ${JSON.stringify(body)}`);
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateTestReporterFlatContent(
-          body.contentControlOptions
+          body.contentControlOptions,
         );
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
         resJson.isExcelSpreadsheet = true;
@@ -604,6 +610,21 @@ export class Routes {
       }
     });
 
+    app.route('/azure/queries/historical').post(async (req: Request, res: Response) => {
+      try {
+        const { body } = req;
+        const { teamProjectId = '', path = 'shared' } = body || {};
+        const svc = getAzureService(body);
+        const data = await svc.getHistoricalQueries(teamProjectId, path);
+        res.status(StatusCodes.OK).json(data ?? []);
+      } catch (error) {
+        const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
+        const message = error?.response?.data?.message || error?.message || 'Unknown error';
+        logger.error(`azure/queries/historical error (${status}): ${message}`);
+        res.status(status).json({ message });
+      }
+    });
+
     app.route('/azure/fields').post(async ({ body }: Request, res: Response) => {
       try {
         const { teamProjectId = '', type = '' } = body || {};
@@ -623,10 +644,66 @@ export class Routes {
         const queryId = params.queryId;
         const svc = getAzureService(body);
         const data = await svc.getQueryResults(queryId, teamProjectId);
+
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
         logger.error(`azure/queries/:queryId/results error: ${error.message}`);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      }
+    });
+
+    app.route('/azure/queries/:queryId/historical-results').post(async (req: Request, res: Response) => {
+      try {
+        const { body, params } = req;
+        const { teamProjectId = '', asOf = '' } = body || {};
+        const queryId = String(params?.queryId || '').trim();
+        if (!queryId) {
+          res.status(StatusCodes.BAD_REQUEST).json({ message: 'queryId is required' });
+          return;
+        }
+        if (!String(asOf || '').trim()) {
+          res.status(StatusCodes.BAD_REQUEST).json({ message: 'asOf is required' });
+          return;
+        }
+        const svc = getAzureService(body);
+        const data = await svc.getHistoricalQueryResults(queryId, teamProjectId, asOf);
+        res.status(StatusCodes.OK).json(data ?? {});
+      } catch (error) {
+        const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
+        const message = error?.response?.data?.message || error?.message || 'Unknown error';
+        logger.error(`azure/queries/:queryId/historical-results error (${status}): ${message}`);
+        res.status(status).json({ message });
+      }
+    });
+
+    app.route('/azure/queries/:queryId/historical-compare').post(async (req: Request, res: Response) => {
+      try {
+        const { body, params } = req;
+        const { teamProjectId = '', baselineAsOf = '', compareToAsOf = '' } = body || {};
+        const queryId = String(params?.queryId || '').trim();
+        if (!queryId) {
+          res.status(StatusCodes.BAD_REQUEST).json({ message: 'queryId is required' });
+          return;
+        }
+        if (!String(baselineAsOf || '').trim() || !String(compareToAsOf || '').trim()) {
+          res.status(StatusCodes.BAD_REQUEST).json({
+            message: 'baselineAsOf and compareToAsOf are required',
+          });
+          return;
+        }
+        const svc = getAzureService(body);
+        const data = await svc.compareHistoricalQueryResults(
+          queryId,
+          teamProjectId,
+          baselineAsOf,
+          compareToAsOf,
+        );
+        res.status(StatusCodes.OK).json(data ?? {});
+      } catch (error) {
+        const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
+        const message = error?.response?.data?.message || error?.message || 'Unknown error';
+        logger.error(`azure/queries/:queryId/historical-compare error (${status}): ${message}`);
+        res.status(status).json({ message });
       }
     });
 
