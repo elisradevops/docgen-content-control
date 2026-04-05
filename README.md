@@ -129,6 +129,11 @@ Returns a JSON payload describing the generated content control, plus:
 
 The `contentControlOptions` object supports multiple `type` values. Below are some common ones.
 
+For requirements-based documents:
+
+- `srs-document` supports `data.displayMode` (`hierarchical` or `categorized`).
+- `sysrs-document` always uses hierarchical rendering; `displayMode` is ignored for SysRS.
+
 ##### `type: "test-description"`
 
 Generates a test description table based on a test plan and selected suites.

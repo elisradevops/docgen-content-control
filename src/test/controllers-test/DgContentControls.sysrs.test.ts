@@ -23,7 +23,7 @@ describe('DgContentControls SysRS generation', () => {
       '',
       'http://minio:9000',
       'ak',
-      'sk'
+      'sk',
     );
 
     const addNewContentToDocumentSkin = jest.fn(async (...args: any[]) => {
@@ -78,7 +78,6 @@ describe('DgContentControls SysRS generation', () => {
       },
       'sysrs-document',
       4,
-      'hierarchical'
     );
 
     expect(controls.map((c: any) => c.title)).toEqual([
@@ -89,7 +88,7 @@ describe('DgContentControls SysRS generation', () => {
     expect(controls[0].wordObjects[0].runs[0].text).toBe('{{section-anchor:requirements-root}}');
 
     const criticalCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'critical-requirements'
+      (call: any[]) => call[0] === 'critical-requirements',
     ) as any[];
     expect(criticalCall).toBeDefined();
     expect(criticalCall[1]).toBe('table');
@@ -97,7 +96,7 @@ describe('DgContentControls SysRS generation', () => {
     expect(criticalCall[2][0].fields[1].value).toBe('No priority 1 requirements found');
 
     const vcrmCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'vcrm'
+      (call: any[]) => call[0] === 'vcrm',
     ) as any[];
     expect(vcrmCall).toBeDefined();
     expect(vcrmCall[1]).toBe('table');
@@ -107,10 +106,10 @@ describe('DgContentControls SysRS generation', () => {
     expect(vcrmCall[2][0].fields[2].value).toBe('No requirements available');
 
     expect(
-      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'subsystem-to-system-trace')
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'subsystem-to-system-trace'),
     ).toBe(false);
     expect(
-      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'system-to-subsystem-trace')
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'system-to-subsystem-trace'),
     ).toBe(false);
   });
 
@@ -137,7 +136,6 @@ describe('DgContentControls SysRS generation', () => {
       },
       'sysrs-document',
       4,
-      'hierarchical'
     );
 
     expect(controls.map((c: any) => c.title)).toEqual([
@@ -150,19 +148,19 @@ describe('DgContentControls SysRS generation', () => {
     expect(controls[0].wordObjects[0].runs[0].text).toBe('{{section-anchor:requirements-root}}');
 
     const subsystemToSystemCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'subsystem-to-system-trace'
+      (call: any[]) => call[0] === 'subsystem-to-system-trace',
     ) as any[];
     expect(subsystemToSystemCall).toBeDefined();
     expect(subsystemToSystemCall[1]).toBe('trace');
     expect(subsystemToSystemCall[2].errorMessage).toBeNull();
 
     const criticalCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'critical-requirements'
+      (call: any[]) => call[0] === 'critical-requirements',
     ) as any[];
     expect(criticalCall[2][0].fields[0].width).toBe('5.5%');
 
     const systemToSubsystemCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'system-to-subsystem-trace'
+      (call: any[]) => call[0] === 'system-to-subsystem-trace',
     ) as any[];
     expect(systemToSubsystemCall).toBeDefined();
     expect(systemToSubsystemCall[1]).toBe('trace');
@@ -192,17 +190,16 @@ describe('DgContentControls SysRS generation', () => {
       },
       'sysrs-document',
       4,
-      'hierarchical'
     );
 
     const subsystemToSystemCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'subsystem-to-system-trace'
+      (call: any[]) => call[0] === 'subsystem-to-system-trace',
     ) as any[];
     expect(subsystemToSystemCall).toBeDefined();
     expect(subsystemToSystemCall[2].errorMessage).toBe('No Sub-System to System traceability data');
 
     const systemToSubsystemCall = addNewContentToDocumentSkin.mock.calls.find(
-      (call: any[]) => call[0] === 'system-to-subsystem-trace'
+      (call: any[]) => call[0] === 'system-to-subsystem-trace',
     ) as any[];
     expect(systemToSubsystemCall).toBeDefined();
     expect(systemToSubsystemCall[2].errorMessage).toBe('No System to Sub-System traceability data');
@@ -226,7 +223,6 @@ describe('DgContentControls SysRS generation', () => {
       title: 'sysrs-document-content-control',
       headingLevel: 4,
       data: {
-        displayMode: 'hierarchical',
         queriesRequest: {
           systemRequirements: { wiql: { href: 'sys-req-url' } },
         },
@@ -239,7 +235,6 @@ describe('DgContentControls SysRS generation', () => {
       payload.data.queriesRequest,
       payload.title,
       payload.headingLevel,
-      payload.data.displayMode
     );
   });
 
@@ -275,7 +270,7 @@ describe('DgContentControls SysRS generation', () => {
       ],
       expect.objectContaining({ Size: 10, Font: 'Arial', isBold: false }),
       expect.objectContaining({ Size: 10, Font: 'Arial', isBold: false }),
-      0
+      0,
     );
     expect((controller as any).writeToJson).toHaveBeenCalledWith([
       {

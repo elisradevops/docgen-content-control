@@ -905,15 +905,11 @@ describe('RequirementsDataFactory', () => {
             children: [
               {
                 id: 11,
-                title: 'REQ-11',
+                title: 'Feature-11',
                 htmlUrl: 'http://example.com/11',
-                workItemType: 'Requirement',
+                workItemType: 'Feature',
                 fields: {
-                  Priority: '1 - High',
-                  'Microsoft.VSTS.Common.VerificationComment': 'Critical from MS field',
-                  'Verification Method': 'Test',
-                  Site: 'Lab',
-                  'Test Phase': 'P1',
+                  Priority: '2 - Medium',
                 },
                 children: [
                   {
@@ -922,7 +918,11 @@ describe('RequirementsDataFactory', () => {
                     htmlUrl: 'http://example.com/13',
                     workItemType: 'Requirement',
                     fields: {
-                      Priority: 2,
+                      Priority: '1 - High',
+                      'Microsoft.VSTS.Common.VerificationComment': 'Critical from MS field',
+                      'Verification Method': 'Test',
+                      Site: 'Lab',
+                      'Test Phase': 'P1',
                     },
                     children: [],
                   },
@@ -951,7 +951,7 @@ describe('RequirementsDataFactory', () => {
       const adoptedData: any = sysRsFactory.getAdoptedData();
 
       expect(Array.isArray(adoptedData.criticalRequirementsData)).toBe(true);
-      expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[0].value)).toEqual([11, 12]);
+      expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[0].value)).toEqual([13, 12]);
       expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[2].value)).toEqual([
         'Critical from MS field',
         'Critical from generic field',
@@ -965,6 +965,40 @@ describe('RequirementsDataFactory', () => {
       expect(sectionById.get(11)).toBe('{{section:requirements-root:1.1}}');
       expect(sectionById.get(13)).toBe('{{section:requirements-root:1.1.1}}');
       expect(sectionById.get(12)).toBe('{{section:requirements-root:1.2}}');
+
+      expect(adoptedData.vcrmData.map((row: any) => row.fields[0].value)).toEqual([10, 11, 13, 12]);
+
+      const vcrmRowById = new Map<number, any>(
+        adoptedData.vcrmData.map((row: any) => [row.fields[0].value, row]),
+      );
+
+      const epicRow = vcrmRowById.get(10) as any;
+      expect(epicRow.fields[2].value).toBe('<b>Epic-10</b>');
+      expect(epicRow.fields[3].value).toBe('N/A');
+      expect(epicRow.fields[4].value).toBe('N/A');
+      expect(epicRow.fields[5].value).toBe('N/A');
+      expect(epicRow.fields.every((field: any) => field.shading?.fill === 'D9D9D9')).toBe(true);
+
+      const featureRow = vcrmRowById.get(11) as any;
+      expect(featureRow.fields[2].value).toBe('<b>Feature-11</b>');
+      expect(featureRow.fields[3].value).toBe('N/A');
+      expect(featureRow.fields[4].value).toBe('N/A');
+      expect(featureRow.fields[5].value).toBe('N/A');
+      expect(featureRow.fields.every((field: any) => field.shading?.fill === 'EDEDED')).toBe(true);
+
+      const requirementRow = vcrmRowById.get(13) as any;
+      expect(requirementRow.fields[2].value).toBe('REQ-13');
+      expect(requirementRow.fields[3].value).toBe('Test');
+      expect(requirementRow.fields[4].value).toBe('Lab');
+      expect(requirementRow.fields[5].value).toBe('P1');
+      expect(requirementRow.fields.every((field: any) => field.shading === undefined)).toBe(true);
+
+      const requirementRowWithValues = vcrmRowById.get(12) as any;
+      expect(requirementRowWithValues.fields[2].value).toBe('REQ-12');
+      expect(requirementRowWithValues.fields[3].value).toBe('Inspection');
+      expect(requirementRowWithValues.fields[4].value).toBe('Factory');
+      expect(requirementRowWithValues.fields[5].value).toBe('P2');
+      expect(requirementRowWithValues.fields.every((field: any) => field.shading === undefined)).toBe(true);
     });
 
     test('maps SysRS forward/reverse trace queries to alias keys and fetches the correct WIQL urls', async () => {
