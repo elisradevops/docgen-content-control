@@ -18,6 +18,9 @@ import htmlUtils from '../services/htmlUtils';
  */
 export default class RequirementsDataFactory {
   private static readonly SYSRS_SECTION_ANCHOR = 'requirements-root';
+  private static readonly SYSRS_VCRM_NA = 'N/A';
+  private static readonly SYSRS_VCRM_EPIC_FILL = 'D9D9D9';
+  private static readonly SYSRS_VCRM_FEATURE_FILL = 'EDEDED';
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
   teamProject: string;
   templatePath: string;
@@ -66,9 +69,9 @@ export default class RequirementsDataFactory {
     this.adoptedData = [];
     this.attachmentMinioData = [];
     this.allowBiggerThan500 = allowBiggerThan500;
-    this.displayMode = displayMode || 'hierarchical';
-    this.includeTFSLinks = includeTFSLinks;
     this.documentVariant = String(documentVariant || 'srs').toLowerCase();
+    this.displayMode = this.documentVariant === 'sysrs' ? 'hierarchical' : displayMode || 'hierarchical';
+    this.includeTFSLinks = includeTFSLinks;
   }
 
   /**
@@ -108,10 +111,10 @@ export default class RequirementsDataFactory {
         this.queriesRequest.softwareToSystemRequirements ||
         this.queriesRequest.systemToSubsystemRequirements ||
         null;
+      const useCategorizedMode = this.displayMode === 'categorized' && this.documentVariant !== 'sysrs';
 
       if (this.queriesRequest.systemRequirements) {
-        // Check if we're in categorized mode
-        if (this.displayMode === 'categorized') {
+        if (useCategorizedMode) {
           logger.debug('Fetching requirements in categorized mode');
           const categorizedData = await ticketsDataProvider.GetCategorizedRequirementsByType(
             this.queriesRequest.systemRequirements.wiql.href,
@@ -176,15 +179,13 @@ export default class RequirementsDataFactory {
   ) {
     let adoptedRequirementsData: any = {};
     try {
-      // Handle system requirements based on display mode
-      if (this.displayMode === 'categorized' && rawData.systemRequirementsCategorized) {
-        // Categorized mode: process requirements grouped by type
+      const useCategorizedMode = this.displayMode === 'categorized' && this.documentVariant !== 'sysrs';
+
+      if (useCategorizedMode && rawData.systemRequirementsCategorized) {
         adoptedRequirementsData['systemRequirementsData'] = await this.adaptCategorizedData(
           rawData.systemRequirementsCategorized,
         );
       } else if (this.queriesRequest.systemRequirements && rawData.systemRequirementsQueryData) {
-        // Hierarchical mode: process requirements in tree structure
-
         const requirementSkinAdapter = new RequirementDataSkinAdapter(
           this.teamProject,
           this.templatePath,
@@ -322,16 +323,40 @@ export default class RequirementsDataFactory {
         ],
       }));
 
-    const vcrmData = rows.map((row) => ({
-      fields: [
-        { name: 'ID', value: row.id, url: row.htmlUrl || undefined },
-        { name: 'Section', value: row.section },
-        { name: 'Title', value: row.title },
-        { name: 'Verification Method', value: this.readVerificationMethod(row.fields) },
-        { name: 'Site', value: this.readSite(row.fields) },
-        { name: 'Test Phase', value: this.readTestPhase(row.fields) },
-      ],
-    }));
+    const vcrmData = rows.map((row) => {
+      const rowType = this.resolveSysRsHierarchyRowType(row);
+      const isRequirementRow = rowType === 'requirement';
+      const rowShading = this.resolveSysRsVcrmShading(rowType);
+
+      const makeField = (name: string, value: any, url?: string) => ({
+        name,
+        value,
+        url,
+        shading: rowShading,
+      });
+
+      return {
+        fields: [
+          makeField('ID', row.id, row.htmlUrl || undefined),
+          makeField('Section', row.section),
+          makeField('Title', isRequirementRow ? row.title : `<b>${this.escapeHtml(row.title)}</b>`),
+          makeField(
+            'Verification Method',
+            isRequirementRow
+              ? this.readVerificationMethod(row.fields)
+              : RequirementsDataFactory.SYSRS_VCRM_NA,
+          ),
+          makeField(
+            'Site',
+            isRequirementRow ? this.readSite(row.fields) : RequirementsDataFactory.SYSRS_VCRM_NA,
+          ),
+          makeField(
+            'Test Phase',
+            isRequirementRow ? this.readTestPhase(row.fields) : RequirementsDataFactory.SYSRS_VCRM_NA,
+          ),
+        ],
+      };
+    });
 
     return { criticalRequirementsData, vcrmData };
   }
@@ -366,6 +391,7 @@ export default class RequirementsDataFactory {
           workItemType: String(
             node?.workItemType || this.readField(fields, ['System.WorkItemType'], ['workitemtype']),
           ),
+          hierarchyLevel: nextPath.length,
           section: `{{section:${RequirementsDataFactory.SYSRS_SECTION_ANCHOR}:${nextPath.join('.')}}}`,
         });
 
@@ -385,6 +411,35 @@ export default class RequirementsDataFactory {
     const workItemType = String(row?.workItemType || '').toLowerCase();
     if (!workItemType) return false;
     return workItemType.includes('requirement');
+  }
+
+  private resolveSysRsHierarchyRowType(row: any): 'epic' | 'feature' | 'requirement' {
+    if (this.isRequirementLike(row)) {
+      return 'requirement';
+    }
+
+    const workItemType = String(row?.workItemType || '').toLowerCase();
+    if (workItemType.includes('epic') || Number(row?.hierarchyLevel || 0) <= 1) {
+      return 'epic';
+    }
+
+    return 'feature';
+  }
+
+  private resolveSysRsVcrmShading(rowType: 'epic' | 'feature' | 'requirement') {
+    if (rowType === 'epic') {
+      return {
+        color: 'auto',
+        fill: RequirementsDataFactory.SYSRS_VCRM_EPIC_FILL,
+      };
+    }
+    if (rowType === 'feature') {
+      return {
+        color: 'auto',
+        fill: RequirementsDataFactory.SYSRS_VCRM_FEATURE_FILL,
+      };
+    }
+    return undefined;
   }
 
   private isPriorityOne(fields: any): boolean {
@@ -477,6 +532,15 @@ export default class RequirementsDataFactory {
       if (value.value != null) return this.serializeFieldValue(value.value);
     }
     return String(value).trim();
+  }
+
+  private escapeHtml(value: string): string {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   getAdoptedData() {
