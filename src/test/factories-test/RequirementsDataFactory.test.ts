@@ -55,6 +55,7 @@ describe('RequirementsDataFactory', () => {
   const setupMockProviders = () => {
     const ticketsDataProvider = {
       GetQueryResultsFromWiql: jest.fn(),
+      PopulateWorkItemsByIds: jest.fn(),
     };
 
     const dgDataProvider = {
@@ -564,6 +565,198 @@ describe('RequirementsDataFactory', () => {
         'sys-req-to-soft-req',
         expect.any(Map),
         expect.any(Map),
+      );
+    });
+  });
+
+  describe('SysRS customer coverage', () => {
+    const createSysRsFactory = (queriesRequest: any = {}) =>
+      new RequirementsDataFactory(
+        defaultParams.teamProjectName,
+        defaultParams.templatePath,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT,
+        mockProviders.dgDataProvider,
+        queriesRequest,
+        defaultParams.formattingSettings,
+        false,
+        'hierarchical',
+        false,
+        'sysrs',
+      ) as any;
+
+    test('isTraceabilityRel (from tablePresentation) matches Affects and CoveredBy only', () => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { isTraceabilityRel } = require('../../utils/tablePresentation');
+
+      expect(isTraceabilityRel('System.LinkTypes.Affects-Forward')).toBe(true);
+      expect(isTraceabilityRel('System.LinkTypes.Affects-Reverse')).toBe(true);
+      expect(isTraceabilityRel('Elisra.CoveredBy-Forward')).toBe(true);
+      expect(isTraceabilityRel('Elisra.CoveredBy-Reverse')).toBe(true);
+      expect(isTraceabilityRel('System.LinkTypes.Related')).toBe(false);
+      expect(isTraceabilityRel('System.LinkTypes.Hierarchy-Forward')).toBe(false);
+      expect(isTraceabilityRel('System.LinkTypes.Dependency-Forward')).toBe(false);
+      expect(isTraceabilityRel('')).toBe(false);
+      expect(isTraceabilityRel(undefined)).toBe(false);
+    });
+
+    test('isRequirementWorkItem matches only canonical Requirement types', () => {
+      const factory = createSysRsFactory();
+      const isRequirementWorkItem = (workItem: any) => (factory as any).isRequirementWorkItem(workItem);
+
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': 'Requirement' } })).toBe(true);
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': 'requirement' } })).toBe(true);
+      expect(isRequirementWorkItem({ workItemType: 'Requirement' })).toBe(true);
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': 'Requirement Change' } })).toBe(false);
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': 'Non-Requirement' } })).toBe(false);
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': 'Epic' } })).toBe(false);
+      expect(isRequirementWorkItem({ fields: { 'System.WorkItemType': '' } })).toBe(false);
+      expect(isRequirementWorkItem({})).toBe(false);
+    });
+
+    test('computeCoverageFromSourceLinks filters, dedupes, ignores self links and hydrates requirement targets once', async () => {
+      const factory = createSysRsFactory();
+      const sourceSet = [
+        {
+          id: 100,
+          relations: [
+            { rel: 'System.LinkTypes.Affects-Forward', url: 'https://ado/_apis/wit/workItems/201' },
+            { rel: 'System.LinkTypes.Affects-Reverse', url: 'https://ado/_apis/wit/workItems/202' },
+            { rel: 'Elisra.CoveredBy-Forward', url: 'https://ado/_apis/wit/workItems/203' },
+            { rel: 'Elisra.CoveredBy-Reverse', url: 'https://ado/_apis/wit/workItems/201' },
+            { rel: 'System.LinkTypes.Related', url: 'https://ado/_apis/wit/workItems/204' },
+            { rel: 'System.LinkTypes.Affects-Forward', url: 'https://ado/_apis/wit/workItems/999' },
+            { rel: 'System.LinkTypes.Affects-Forward', url: 'https://ado/_apis/wit/workItems/100' },
+            { rel: 'AttachedFile', url: 'https://ado/_apis/wit/attachments/abc' },
+          ],
+        },
+        {
+          id: 101,
+          relations: [{ rel: 'System.LinkTypes.Related', url: 'https://ado/_apis/wit/workItems/201' }],
+        },
+      ];
+
+      mockProviders.ticketsDataProvider.PopulateWorkItemsByIds.mockResolvedValue([
+        { id: 201, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Target 201' } },
+        { id: 202, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Target 202' } },
+        { id: 203, fields: { 'System.WorkItemType': 'Task', 'System.Title': 'Target 203' } },
+        { id: 999, fields: { 'System.WorkItemType': 'Feature', 'System.Title': 'Target 999' } },
+      ]);
+
+      const coverage = await factory.computeCoverageFromSourceLinks(sourceSet);
+
+      expect(mockProviders.ticketsDataProvider.PopulateWorkItemsByIds).toHaveBeenCalledTimes(1);
+      expect(mockProviders.ticketsDataProvider.PopulateWorkItemsByIds).toHaveBeenCalledWith(
+        [201, 202, 203, 999],
+        'test-project',
+      );
+      expect(coverage.get(100).covers.map((item: any) => item.id)).toEqual([201, 202]);
+      expect(coverage.get(101).covers).toEqual([]);
+    });
+
+    test('buildCustomerCoverageTable keeps only Requirement sources and builds rows/stats from linked requirements', async () => {
+      const factory = createSysRsFactory();
+
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue([
+        { id: 100, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Customer 100' } },
+        { id: 101, fields: { 'System.WorkItemType': 'Epic', 'System.Title': 'Epic 101' } },
+        { id: 102, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Customer 102' } },
+        { id: 103, fields: { 'System.WorkItemType': 'Feature', 'System.Title': 'Feature 103' } },
+        { id: 104, fields: { 'System.WorkItemType': 'Task', 'System.Title': 'Task 104' } },
+      ]);
+      mockProviders.ticketsDataProvider.PopulateWorkItemsByIds.mockResolvedValueOnce([
+        {
+          id: 100,
+          fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Customer 100' },
+          relations: [
+            { rel: 'System.LinkTypes.Affects-Forward', url: 'https://ado/_apis/wit/workItems/302' },
+            { rel: 'Elisra.CoveredBy-Reverse', url: 'https://ado/_apis/wit/workItems/301' },
+            { rel: 'Elisra.CoveredBy-Forward', url: 'https://ado/_apis/wit/workItems/302' },
+            { rel: 'System.LinkTypes.Affects-Reverse', url: 'https://ado/_apis/wit/workItems/303' },
+          ],
+        },
+        {
+          id: 102,
+          fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Customer 102' },
+          relations: [],
+        },
+      ]).mockResolvedValueOnce([
+        { id: 301, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Hydrated 301' } },
+        { id: 302, fields: { 'System.WorkItemType': 'Requirement', 'System.Title': 'Hydrated 302' } },
+        { id: 303, fields: { 'System.WorkItemType': 'Task', 'System.Title': 'Hydrated 303' } },
+      ]);
+
+      const result = await factory.buildCustomerCoverageTable({
+        id: 'query-1',
+        queryType: 'flat',
+        wiql: { href: 'customer-wiql-url' },
+      });
+
+      expect(mockProviders.ticketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledWith(
+        'customer-wiql-url',
+        false,
+        null,
+      );
+      expect(mockProviders.ticketsDataProvider.PopulateWorkItemsByIds).toHaveBeenNthCalledWith(
+        1,
+        [100, 102],
+        'test-project',
+      );
+      expect(mockProviders.ticketsDataProvider.PopulateWorkItemsByIds).toHaveBeenNthCalledWith(
+        2,
+        [302, 301, 303],
+        'test-project',
+      );
+      expect(result.stats).toEqual({ total: 2, covered: 1, uncovered: 1 });
+      expect(result.sourceOrder).toEqual([100, 102]);
+      expect(result.rows.map((row: any) => row.coveringId || null)).toEqual([301, 302, null]);
+      expect(result.rows[0].coveringTitle).toBe('Hydrated 301');
+      expect(result.rows[2].uncovered).toBe(true);
+      expect(logger.info).toHaveBeenCalledWith('Found 2 customer requirements from query.');
+      expect(logger.info).toHaveBeenCalledWith(
+        'Customer requirements traceability coverage: total=2, covered=1 (50%), uncovered=1 (50%)',
+      );
+    });
+
+    test('buildCustomerCoverageTable rejects hierarchical customer queries', async () => {
+      const factory = createSysRsFactory();
+
+      await expect(
+        factory.buildCustomerCoverageTable({
+          queryType: 'tree',
+          wiql: { href: 'customer-wiql-url' },
+        }),
+      ).rejects.toThrow('Customer-side query must be flat. Please revise.');
+    });
+
+    test('buildCustomerCoverageTable rejects missing WIQL href', async () => {
+      const factory = createSysRsFactory();
+
+      await expect(
+        factory.buildCustomerCoverageTable({
+          queryType: 'flat',
+        }),
+      ).rejects.toThrow('Customer-side query is missing WIQL href.');
+    });
+
+    test('buildCustomerCoverageTable does not emit coverage summary log when total=0', async () => {
+      const factory = createSysRsFactory();
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue([
+        { id: 500, fields: { 'System.WorkItemType': 'Task', 'System.Title': 'Not a requirement' } },
+      ]);
+
+      const result = await factory.buildCustomerCoverageTable({
+        queryType: 'flat',
+        wiql: { href: 'customer-wiql-url' },
+      });
+
+      expect(result.stats).toEqual({ total: 0, covered: 0, uncovered: 0 });
+      expect(logger.info).toHaveBeenCalledWith('Found 0 customer requirements from query.');
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.stringContaining('Customer requirements traceability coverage:'),
       );
     });
   });

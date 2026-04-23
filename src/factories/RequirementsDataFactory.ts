@@ -1,8 +1,15 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
-import { COLOR_REQ_SYS, COLOR_TEST_SOFT, buildGroupedHeader } from '../utils/tablePresentation';
+import {
+  COLOR_REQ_SYS,
+  COLOR_TEST_SOFT,
+  REQUIREMENT_WORK_ITEM_TYPES,
+  buildGroupedHeader,
+  isTraceabilityRel,
+} from '../utils/tablePresentation';
 import logger from '../services/logger';
 import RequirementDataSkinAdapter from '../adapters/RequirementDataSkinAdapter';
 import TraceAnalysisRequirementsAdapter from '../adapters/TraceAnalysisRequirementsAdapter';
+import type { CustomerCoverageRow } from '../adapters/CustomerCoverageTableSkinAdapter';
 import RichTextDataFactory from './RichTextDataFactory';
 import htmlUtils from '../services/htmlUtils';
 //Import Data skin adapter
@@ -217,6 +224,18 @@ export default class RequirementsDataFactory {
           const sysRsTables = this.buildSysRsTables(rawData.systemRequirementsQueryData);
           adoptedRequirementsData['criticalRequirementsData'] = sysRsTables.criticalRequirementsData;
           adoptedRequirementsData['vcrmData'] = sysRsTables.vcrmData;
+          if (this.queriesRequest?.customerRequirements) {
+            try {
+              adoptedRequirementsData.customerCoverageTableData = await this.buildCustomerCoverageTable(
+                this.queriesRequest.customerRequirements,
+              );
+            } catch (err: any) {
+              logger.error(`Customer traceability coverage build failed: ${err?.message}`);
+              adoptedRequirementsData.customerCoverageTableData = {
+                error: err?.message || 'Unknown error',
+              };
+            }
+          }
         }
       }
 
@@ -309,6 +328,193 @@ export default class RequirementsDataFactory {
       );
       throw error;
     }
+  }
+
+  private async computeCoverageFromSourceLinks(
+    sourceSet: any[],
+    isCoverageRel: (rel: string) => boolean = isTraceabilityRel,
+  ): Promise<Map<number, { source: any; covers: any[] }>> {
+    const coverageBySource = new Map<number, { source: any; coversById: Map<number, any> }>();
+    const uniqueLinkedIds = new Set<number>();
+
+    for (const source of Array.isArray(sourceSet) ? sourceSet : []) {
+      const sourceId = Number(source?.id);
+      if (!Number.isFinite(sourceId)) {
+        continue;
+      }
+      coverageBySource.set(sourceId, {
+        source,
+        coversById: new Map<number, any>(),
+      });
+
+      const relations = Array.isArray(source?.relations) ? source.relations : [];
+      for (const relation of relations) {
+        const relName = String(relation?.rel || '');
+        if (!isCoverageRel(relName)) {
+          continue;
+        }
+
+        const match = String(relation?.url || '').match(/\/workItems\/(\d+)/);
+        if (!match?.[1]) {
+          continue;
+        }
+
+        const targetId = Number(match[1]);
+        if (targetId === sourceId) {
+          continue;
+        }
+
+        uniqueLinkedIds.add(targetId);
+        coverageBySource.get(sourceId)?.coversById.set(targetId, { id: targetId });
+      }
+    }
+
+    if (uniqueLinkedIds.size > 0) {
+      const ticketsDP = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      const hydratedTargets = await ticketsDP.PopulateWorkItemsByIds([...uniqueLinkedIds], this.teamProject);
+      const hydratedById = new Map<number, any>();
+      for (const target of Array.isArray(hydratedTargets) ? hydratedTargets : []) {
+        const targetId = Number(target?.id);
+        if (Number.isFinite(targetId)) {
+          hydratedById.set(targetId, target);
+        }
+      }
+
+      for (const coverage of coverageBySource.values()) {
+        for (const targetId of coverage.coversById.keys()) {
+          const hydratedTarget = hydratedById.get(targetId);
+          if (hydratedTarget && this.isRequirementWorkItem(hydratedTarget)) {
+            coverage.coversById.set(targetId, hydratedTarget);
+          } else {
+            coverage.coversById.delete(targetId);
+          }
+        }
+      }
+    }
+
+    const result = new Map<number, { source: any; covers: any[] }>();
+    for (const [sourceId, coverage] of coverageBySource.entries()) {
+      result.set(sourceId, {
+        source: coverage.source,
+        covers: [...coverage.coversById.values()],
+      });
+    }
+
+    return result;
+  }
+
+  private async buildCustomerCoverageTable(customerRequirementsQuery: any): Promise<any> {
+    if (!customerRequirementsQuery?.wiql?.href) {
+      throw new Error('Customer-side query is missing WIQL href.');
+    }
+
+    const queryType = String(customerRequirementsQuery?.queryType || '').toLowerCase();
+    if (queryType && queryType !== 'flat') {
+      throw new Error('Customer-side query must be flat. Please revise.');
+    }
+
+    const ticketsDP = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+    const queryResult = await ticketsDP.GetQueryResultsFromWiql(
+      customerRequirementsQuery.wiql.href,
+      false,
+      null,
+    );
+
+    if (!Array.isArray(queryResult)) {
+      throw new Error('Customer-side query must be flat. Please revise.');
+    }
+
+    const customerWIs = queryResult.filter((wi) => this.isRequirementWorkItem(wi));
+    logger.info(`Found ${customerWIs.length} customer requirements from query.`);
+
+    const customerIds = customerWIs
+      .map((workItem) => Number(workItem?.id))
+      .filter((id) => Number.isFinite(id));
+    const hydratedCustomerResults =
+      customerIds.length > 0 ? await ticketsDP.PopulateWorkItemsByIds(customerIds, this.teamProject) : [];
+    const hydratedCustomerById = new Map<number, any>();
+    for (const customer of Array.isArray(hydratedCustomerResults) ? hydratedCustomerResults : []) {
+      const customerId = Number(customer?.id);
+      if (Number.isFinite(customerId)) {
+        hydratedCustomerById.set(customerId, customer);
+      }
+    }
+    const hydratedCustomers = customerIds
+      .map((customerId) => hydratedCustomerById.get(customerId))
+      .filter(Boolean);
+
+    const coverageMap = await this.computeCoverageFromSourceLinks(hydratedCustomers);
+    const rows: CustomerCoverageRow[] = [];
+    const sourceOrder: number[] = [];
+
+    for (const source of hydratedCustomers) {
+      const sourceId = Number(source?.id);
+      if (!Number.isFinite(sourceId)) {
+        continue;
+      }
+      sourceOrder.push(sourceId);
+      const covers = [...(coverageMap.get(sourceId)?.covers ?? [])].sort(
+        (left, right) => Number(left?.id) - Number(right?.id),
+      );
+      const sourceTitle = this.readWorkItemTitle(source);
+
+      if (covers.length === 0) {
+        rows.push({
+          sourceId,
+          sourceTitle,
+          sourceUrl: source?._links?.html?.href,
+          uncovered: true,
+        });
+        continue;
+      }
+
+      for (const cover of covers) {
+        const coveringId = Number(cover?.id);
+        rows.push({
+          sourceId,
+          sourceTitle,
+          sourceUrl: source?._links?.html?.href,
+          coveringId,
+          coveringTitle: this.readWorkItemTitle(cover),
+          coveringUrl: cover?._links?.html?.href,
+          uncovered: false,
+        });
+      }
+    }
+
+    const total = hydratedCustomers.length;
+    const covered = [...coverageMap.values()].filter((value) => value.covers.length > 0).length;
+    const uncovered = total - covered;
+    if (total > 0) {
+      const pct = (value: number) => Math.round((value * 100) / total);
+      logger.info(
+        `Customer requirements traceability coverage: total=${total}, covered=${covered} (${pct(
+          covered,
+        )}%), uncovered=${uncovered} (${pct(uncovered)}%)`,
+      );
+    }
+
+    return {
+      rows,
+      sourceOrder,
+      stats: {
+        total,
+        covered,
+        uncovered,
+      },
+    };
+  }
+
+  private readWorkItemTitle(workItem: any): string {
+    return String(workItem?.fields?.['System.Title'] || workItem?.title || '').trim();
+  }
+
+  private isRequirementWorkItem(workItem: any): boolean {
+    const workItemType = String(workItem?.fields?.['System.WorkItemType'] || workItem?.workItemType || '')
+      .trim()
+      .toLowerCase();
+    if (!workItemType) return false;
+    return REQUIREMENT_WORK_ITEM_TYPES.includes(workItemType);
   }
 
   private buildSysRsTables(systemRequirementsQueryData: any) {

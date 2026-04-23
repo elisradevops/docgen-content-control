@@ -13,6 +13,8 @@ import * as Minio from 'minio';
 import RequirementsDataFactory from '../factories/RequirementsDataFactory';
 import CriticalRequirementsTableSkinAdapter from '../adapters/CriticalRequirementsTableSkinAdapter';
 import VcrmTableSkinAdapter from '../adapters/VcrmTableSkinAdapter';
+import CustomerCoverageTableSkinAdapter from '../adapters/CustomerCoverageTableSkinAdapter';
+import { UNCOVERED_PLACEHOLDER } from '../utils/tablePresentation';
 import { formatLocalILShort } from '../services/adapterUtils';
 
 let defaultStyles = {
@@ -2607,6 +2609,91 @@ export default class DgContentControls {
         headingLevel,
       );
       contentControls.push({ title: 'vcrm', wordObjects: vcrmSkin });
+
+      if (queriesRequest?.customerRequirements) {
+        const coverage = adoptedRequirementsData.customerCoverageTableData;
+        const wordObjects: any[] = [];
+
+        wordObjects.push(
+          ...(await this.skins.addNewContentToDocumentSkin(
+            'traceability-intro',
+            this.skins.SKIN_TYPE_PARAGRAPH,
+            [
+              {
+                fields: [
+                  {
+                    value:
+                      'The following table maps source requirements to the requirements that cover them. Requirements with no coverage are highlighted.',
+                  },
+                ],
+              },
+            ],
+            headerStyles,
+            styles,
+            headingLevel,
+          )),
+        );
+
+        if (coverage?.error) {
+          wordObjects.push(
+            ...(await this.skins.addNewContentToDocumentSkin(
+              'customer-traceability',
+              this.skins.SKIN_TYPE_TABLE,
+              [
+                {
+                  fields: [
+                    { name: 'Source Req ID', value: UNCOVERED_PLACEHOLDER },
+                    { name: 'Source Req Title', value: coverage.error },
+                    { name: 'Covering Req ID', value: UNCOVERED_PLACEHOLDER },
+                    { name: 'Covering Req Title', value: UNCOVERED_PLACEHOLDER },
+                  ],
+                },
+              ],
+              headerStyles,
+              styles,
+              headingLevel,
+            )),
+          );
+        } else if (coverage?.rows?.length) {
+          const adapter = new CustomerCoverageTableSkinAdapter(coverage.rows, {}, coverage.sourceOrder);
+          adapter.adoptSkinData();
+          wordObjects.push(
+            ...(await this.skins.addNewContentToDocumentSkin(
+              'customer-traceability',
+              this.skins.SKIN_TYPE_TABLE,
+              adapter.getAdoptedData(),
+              headerStyles,
+              styles,
+              headingLevel,
+            )),
+          );
+        } else {
+          wordObjects.push(
+            ...(await this.skins.addNewContentToDocumentSkin(
+              'customer-traceability',
+              this.skins.SKIN_TYPE_TABLE,
+              [
+                {
+                  fields: [
+                    { name: 'Source Req ID', value: UNCOVERED_PLACEHOLDER },
+                    {
+                      name: 'Source Req Title',
+                      value: 'No Customer/System Requirement items found in the selected query.',
+                    },
+                    { name: 'Covering Req ID', value: UNCOVERED_PLACEHOLDER },
+                    { name: 'Covering Req Title', value: UNCOVERED_PLACEHOLDER },
+                  ],
+                },
+              ],
+              headerStyles,
+              styles,
+              headingLevel,
+            )),
+          );
+        }
+
+        contentControls.push({ title: 'customer-traceability', wordObjects });
+      }
 
       const traceabilityConfig = [
         {

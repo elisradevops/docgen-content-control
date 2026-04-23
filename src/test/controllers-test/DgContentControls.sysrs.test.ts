@@ -205,6 +205,44 @@ describe('DgContentControls SysRS generation', () => {
     expect(systemToSubsystemCall[2].errorMessage).toBe('No System to Sub-System traceability data');
   });
 
+  test('renders customer traceability no-data row when customer query has no supported items', async () => {
+    mockedRequirementsDataFactory.mockImplementation(() => ({
+      fetchRequirementsData: jest.fn().mockResolvedValue(undefined),
+      getAdoptedData: jest.fn().mockReturnValue({
+        systemRequirementsData: [{ fields: [{ name: 'Title', value: 'REQ-1' }] }],
+        criticalRequirementsData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        vcrmData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        customerCoverageTableData: { rows: [], stats: { total: 0, covered: 0, uncovered: 0 } },
+      }),
+      getAttachmentMinioData: jest.fn().mockReturnValue([]),
+    }));
+
+    const { controller, addNewContentToDocumentSkin } = createController();
+
+    const controls = await controller.addSysRSContent(
+      {
+        systemRequirements: { wiql: { href: 'sys-req-url' } },
+        customerRequirements: { wiql: { href: 'customer-flat-url' } },
+      },
+      'sysrs-document',
+      4,
+    );
+
+    expect(controls.map((c: any) => c.title)).toContain('customer-traceability');
+    const chapter6NoDataCall = addNewContentToDocumentSkin.mock.calls.find(
+      (call: any[]) =>
+        call[0] === 'customer-traceability' &&
+        call[1] === 'table' &&
+        call[2]?.[0]?.fields?.[1]?.value ===
+          'No Customer/System Requirement items found in the selected query.',
+    ) as any[];
+    expect(chapter6NoDataCall).toBeDefined();
+    expect(chapter6NoDataCall[2][0].fields).toHaveLength(4);
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'traceability-summary'),
+    ).toBe(false);
+  });
+
   test('generateContentControl routes sysrs-document to addSysRSContent', async () => {
     const { controller } = createController();
 
