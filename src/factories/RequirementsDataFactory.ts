@@ -1,8 +1,15 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
-import { COLOR_REQ_SYS, COLOR_TEST_SOFT, buildGroupedHeader } from '../utils/tablePresentation';
+import {
+  COLOR_REQ_SYS,
+  COLOR_TEST_SOFT,
+  REQUIREMENT_WORK_ITEM_TYPES,
+  buildGroupedHeader,
+  isTraceabilityRel,
+} from '../utils/tablePresentation';
 import logger from '../services/logger';
 import RequirementDataSkinAdapter from '../adapters/RequirementDataSkinAdapter';
 import TraceAnalysisRequirementsAdapter from '../adapters/TraceAnalysisRequirementsAdapter';
+import type { CustomerCoverageRow } from '../adapters/CustomerCoverageTableSkinAdapter';
 import RichTextDataFactory from './RichTextDataFactory';
 import htmlUtils from '../services/htmlUtils';
 //Import Data skin adapter
@@ -220,6 +227,19 @@ export default class RequirementsDataFactory {
         }
       }
 
+      if (this.documentVariant === 'sysrs' && this.queriesRequest?.customerRequirements) {
+        try {
+          adoptedRequirementsData.customerCoverageTableData = await this.buildCustomerCoverageTable(
+            this.queriesRequest.customerRequirements,
+          );
+        } catch (err: any) {
+          logger.error(`Customer traceability coverage build failed: ${err?.message}`);
+          adoptedRequirementsData.customerCoverageTableData = {
+            error: err?.message || 'Unknown error',
+          };
+        }
+      }
+
       // Handle forward traceability
       const hasForwardTraceRequest = !!(
         this.queriesRequest.systemToSoftwareRequirements || this.queriesRequest.subsystemToSystemRequirements
@@ -309,6 +329,383 @@ export default class RequirementsDataFactory {
       );
       throw error;
     }
+  }
+
+  private async computeCoverageFromSourceLinks(
+    sourceSet: any[],
+    isCoverageRel: (rel: string) => boolean = isTraceabilityRel,
+  ): Promise<Map<number, { source: any; covers: any[] }>> {
+    const coverageBySource = new Map<number, { source: any; coversById: Map<number, any> }>();
+    const uniqueLinkedIds = new Set<number>();
+
+    for (const source of Array.isArray(sourceSet) ? sourceSet : []) {
+      const sourceId = Number(source?.id);
+      if (!Number.isFinite(sourceId)) {
+        continue;
+      }
+      coverageBySource.set(sourceId, {
+        source,
+        coversById: new Map<number, any>(),
+      });
+
+      const relations = Array.isArray(source?.relations) ? source.relations : [];
+      for (const relation of relations) {
+        const relName = String(relation?.rel || '');
+        if (!isCoverageRel(relName)) {
+          continue;
+        }
+
+        const match = String(relation?.url || '').match(/\/workItems\/(\d+)/);
+        if (!match?.[1]) {
+          continue;
+        }
+
+        const targetId = Number(match[1]);
+        if (targetId === sourceId) {
+          continue;
+        }
+
+        uniqueLinkedIds.add(targetId);
+        coverageBySource.get(sourceId)?.coversById.set(targetId, { id: targetId });
+      }
+    }
+
+    if (uniqueLinkedIds.size > 0) {
+      const ticketsDP = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      const hydratedTargets = await ticketsDP.PopulateWorkItemsByIds([...uniqueLinkedIds], this.teamProject);
+      const hydratedById = new Map<number, any>();
+      for (const target of Array.isArray(hydratedTargets) ? hydratedTargets : []) {
+        const targetId = Number(target?.id);
+        if (Number.isFinite(targetId)) {
+          hydratedById.set(targetId, target);
+        }
+      }
+
+      for (const coverage of coverageBySource.values()) {
+        for (const targetId of coverage.coversById.keys()) {
+          const hydratedTarget = hydratedById.get(targetId);
+          if (hydratedTarget && this.isRequirementWorkItem(hydratedTarget)) {
+            coverage.coversById.set(targetId, hydratedTarget);
+          } else {
+            coverage.coversById.delete(targetId);
+          }
+        }
+      }
+    }
+
+    const result = new Map<number, { source: any; covers: any[] }>();
+    for (const [sourceId, coverage] of coverageBySource.entries()) {
+      result.set(sourceId, {
+        source: coverage.source,
+        covers: [...coverage.coversById.values()],
+      });
+    }
+
+    return result;
+  }
+
+  private classifyCustomerTraceRelation(
+    relation: any,
+  ): 'customer-to-system' | 'system-to-customer' | null {
+    const displayName = String(relation?.attributes?.name || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '');
+    const relRef = String(relation?.rel || '').toLowerCase();
+
+    if (displayName === 'affects' || displayName === 'coveredby') {
+      return 'customer-to-system';
+    }
+    if (displayName === 'affectedby' || displayName === 'covers') {
+      return 'system-to-customer';
+    }
+
+    if (relRef.includes('affects-forward') || relRef.includes('coveredby-forward')) {
+      return 'customer-to-system';
+    }
+    if (relRef.includes('affects-reverse') || relRef.includes('coveredby-reverse')) {
+      return 'system-to-customer';
+    }
+
+    return null;
+  }
+
+  private extractRelationWorkItemId(relation: any): number | null {
+    const match = String(relation?.url || '').match(/\/workItems\/(\d+)/);
+    if (!match?.[1]) {
+      return null;
+    }
+
+    const workItemId = Number(match[1]);
+    return Number.isFinite(workItemId) ? workItemId : null;
+  }
+
+  private async buildOrientedCustomerCoverageRows(
+    selectedRequirements: any[],
+    ticketsDP: any,
+    selectedRequirementsById: Map<number, any>,
+  ): Promise<{ rows: CustomerCoverageRow[]; sourceOrder: number[]; stats: any }> {
+    const relationRecords: Array<{
+      selected: any;
+      selectedId: number;
+      targetId: number;
+      orientation: 'customer-to-system' | 'system-to-customer';
+    }> = [];
+    const linkedIds = new Set<number>();
+
+    for (const selected of Array.isArray(selectedRequirements) ? selectedRequirements : []) {
+      const selectedId = Number(selected?.id);
+      if (!Number.isFinite(selectedId)) {
+        continue;
+      }
+
+      const relations = Array.isArray(selected?.relations) ? selected.relations : [];
+      for (const relation of relations) {
+        const orientation = this.classifyCustomerTraceRelation(relation);
+        if (!orientation) {
+          continue;
+        }
+
+        const targetId = this.extractRelationWorkItemId(relation);
+        if (!targetId || targetId === selectedId) {
+          continue;
+        }
+
+        if (!selectedRequirementsById.has(targetId)) {
+          linkedIds.add(targetId);
+        }
+        relationRecords.push({
+          selected,
+          selectedId,
+          targetId,
+          orientation,
+        });
+      }
+    }
+    const hasCustomerToSystemRelations = relationRecords.some(
+      (record) => record.orientation === 'customer-to-system',
+    );
+    const hasSystemToCustomerRelations = relationRecords.some(
+      (record) => record.orientation === 'system-to-customer',
+    );
+    const suppressUnlinkedSelectedAsCustomers =
+      hasSystemToCustomerRelations && !hasCustomerToSystemRelations;
+
+    const hydratedTargets =
+      linkedIds.size > 0 ? await ticketsDP.PopulateWorkItemsByIds([...linkedIds], this.teamProject) : [];
+    const hydratedTargetsById = new Map<number, any>(selectedRequirementsById);
+    for (const target of Array.isArray(hydratedTargets) ? hydratedTargets : []) {
+      const targetId = Number(target?.id);
+      if (Number.isFinite(targetId)) {
+        hydratedTargetsById.set(targetId, target);
+      }
+    }
+
+    const rows: CustomerCoverageRow[] = [];
+    const rowKeys = new Set<string>();
+    const sourceOrder: number[] = [];
+    const orderedCustomers = new Set<number>();
+    const coveredCustomers = new Set<number>();
+    const systemSideRequirements = new Set<number>();
+    const selectedIdsWithValidCoverage = new Set<number>();
+
+    const addCustomerOrder = (customerId: number) => {
+      if (!orderedCustomers.has(customerId)) {
+        orderedCustomers.add(customerId);
+        sourceOrder.push(customerId);
+      }
+    };
+
+    const addCoveredRow = (customer: any, system: any, selectedId: number) => {
+      const customerId = Number(customer?.id);
+      const systemId = Number(system?.id);
+      if (!Number.isFinite(customerId) || !Number.isFinite(systemId)) {
+        return;
+      }
+
+      const rowKey = `${customerId}:${systemId}`;
+      if (rowKeys.has(rowKey)) {
+        selectedIdsWithValidCoverage.add(selectedId);
+        return;
+      }
+
+      rowKeys.add(rowKey);
+      selectedIdsWithValidCoverage.add(selectedId);
+      addCustomerOrder(customerId);
+      coveredCustomers.add(customerId);
+      systemSideRequirements.add(systemId);
+      rows.push({
+        sourceId: customerId,
+        sourceTitle: this.readWorkItemTitle(customer),
+        sourceUrl: customer?._links?.html?.href,
+        coveringId: systemId,
+        coveringTitle: this.readWorkItemTitle(system),
+        coveringUrl: system?._links?.html?.href,
+        uncovered: false,
+      });
+    };
+
+    for (const record of relationRecords) {
+      const linkedTarget = hydratedTargetsById.get(record.targetId);
+      if (!linkedTarget || !this.isRequirementWorkItem(linkedTarget)) {
+        continue;
+      }
+
+      if (record.orientation === 'customer-to-system') {
+        addCoveredRow(record.selected, linkedTarget, record.selectedId);
+      } else {
+        addCoveredRow(linkedTarget, record.selected, record.selectedId);
+      }
+    }
+
+    for (const selected of selectedRequirements) {
+      if (suppressUnlinkedSelectedAsCustomers) {
+        continue;
+      }
+
+      const selectedId = Number(selected?.id);
+      if (!Number.isFinite(selectedId)) {
+        continue;
+      }
+      if (
+        selectedIdsWithValidCoverage.has(selectedId) ||
+        coveredCustomers.has(selectedId) ||
+        systemSideRequirements.has(selectedId)
+      ) {
+        continue;
+      }
+
+      const rowKey = `${selectedId}:`;
+      if (rowKeys.has(rowKey)) {
+        continue;
+      }
+
+      rowKeys.add(rowKey);
+      addCustomerOrder(selectedId);
+      rows.push({
+        sourceId: selectedId,
+        sourceTitle: this.readWorkItemTitle(selected),
+        sourceUrl: selected?._links?.html?.href,
+        uncovered: true,
+      });
+    }
+
+    const total = sourceOrder.length;
+    const covered = sourceOrder.filter((sourceId) => coveredCustomers.has(sourceId)).length;
+    const uncovered = total - covered;
+
+    return {
+      rows,
+      sourceOrder,
+      stats: {
+        total,
+        covered,
+        uncovered,
+      },
+    };
+  }
+
+  private async buildCustomerCoverageTable(customerRequirementsQuery: any): Promise<any> {
+    if (!customerRequirementsQuery?.wiql?.href) {
+      throw new Error('Customer-side query is missing WIQL href.');
+    }
+
+    const ticketsDP = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+    const queryResult = await ticketsDP.GetQueryResultsFromWiql(
+      customerRequirementsQuery.wiql.href,
+      false,
+      null,
+    );
+
+    const customerWIs = this.extractRequirementCandidates(queryResult).filter((wi) =>
+      this.isRequirementWorkItem(wi),
+    );
+    logger.info(`Found ${customerWIs.length} customer requirements from query.`);
+
+    const customerIds = customerWIs
+      .map((workItem) => Number(workItem?.id))
+      .filter((id) => Number.isFinite(id));
+    const hydratedCustomerResults =
+      customerIds.length > 0 ? await ticketsDP.PopulateWorkItemsByIds(customerIds, this.teamProject) : [];
+    const hydratedCustomerById = new Map<number, any>();
+    for (const customer of Array.isArray(hydratedCustomerResults) ? hydratedCustomerResults : []) {
+      const customerId = Number(customer?.id);
+      if (Number.isFinite(customerId)) {
+        hydratedCustomerById.set(customerId, customer);
+      }
+    }
+    const hydratedCustomers = customerIds
+      .map((customerId) => hydratedCustomerById.get(customerId))
+      .filter(Boolean);
+
+    const { rows, sourceOrder, stats } = await this.buildOrientedCustomerCoverageRows(
+      hydratedCustomers,
+      ticketsDP,
+      hydratedCustomerById,
+    );
+    if (stats.total > 0) {
+      const pct = (value: number) => Math.round((value * 100) / stats.total);
+      logger.info(
+        `Customer requirements traceability coverage: total=${stats.total}, covered=${stats.covered} (${pct(
+          stats.covered,
+        )}%), uncovered=${stats.uncovered} (${pct(stats.uncovered)}%)`,
+      );
+    }
+
+    return {
+      rows,
+      sourceOrder,
+      stats,
+    };
+  }
+
+  private extractRequirementCandidates(queryResult: any): any[] {
+    const candidates: any[] = [];
+
+    if (Array.isArray(queryResult)) {
+      candidates.push(...queryResult);
+    } else if (queryResult?.allItems || Array.isArray(queryResult?.roots)) {
+      if (queryResult?.allItems && typeof queryResult.allItems === 'object') {
+        candidates.push(...Object.values(queryResult.allItems));
+      }
+      if (Array.isArray(queryResult?.roots)) {
+        const traverse = (nodes: any[]) => {
+          for (const node of nodes) {
+            candidates.push(node);
+            if (Array.isArray(node?.children)) {
+              traverse(node.children);
+            }
+          }
+        };
+        traverse(queryResult.roots);
+      }
+    } else {
+      throw new Error('Customer-side query returned an unsupported result shape.');
+    }
+
+    const deduped: any[] = [];
+    const seenIds = new Set<number>();
+    for (const candidate of candidates) {
+      const candidateId = Number(candidate?.id);
+      if (!Number.isFinite(candidateId) || seenIds.has(candidateId)) {
+        continue;
+      }
+      seenIds.add(candidateId);
+      deduped.push(candidate);
+    }
+    return deduped;
+  }
+
+  private readWorkItemTitle(workItem: any): string {
+    return String(workItem?.fields?.['System.Title'] || workItem?.title || '').trim();
+  }
+
+  private isRequirementWorkItem(workItem: any): boolean {
+    const workItemType = String(workItem?.fields?.['System.WorkItemType'] || workItem?.workItemType || '')
+      .trim()
+      .toLowerCase();
+    if (!workItemType) return false;
+    return REQUIREMENT_WORK_ITEM_TYPES.includes(workItemType);
   }
 
   private buildSysRsTables(systemRequirementsQueryData: any) {

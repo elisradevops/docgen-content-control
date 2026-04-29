@@ -30,7 +30,7 @@ describe('DgContentControls SysRS generation', () => {
       const title = args[0];
       const skinType = args[1];
       const data = args[2];
-      if (title === 'subsystem-to-system-trace' || title === 'system-to-subsystem-trace') {
+      if (skinType === 'trace') {
         return [{ type: 'trace', title }];
       }
       if (skinType === 'paragraph') {
@@ -203,6 +203,142 @@ describe('DgContentControls SysRS generation', () => {
     ) as any[];
     expect(systemToSubsystemCall).toBeDefined();
     expect(systemToSubsystemCall[2].errorMessage).toBe('No System to Sub-System traceability data');
+  });
+
+  test('renders customer traceability via the trace skin when coverage rows exist', async () => {
+    mockedRequirementsDataFactory.mockImplementation(() => ({
+      fetchRequirementsData: jest.fn().mockResolvedValue(undefined),
+      getAdoptedData: jest.fn().mockReturnValue({
+        systemRequirementsData: [{ fields: [{ name: 'Title', value: 'REQ-1' }] }],
+        criticalRequirementsData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        vcrmData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        customerCoverageTableData: {
+          rows: [
+            {
+              sourceId: 100,
+              sourceTitle: 'Customer 100',
+              sourceUrl: 'https://ado/items/100',
+              coveringId: 201,
+              coveringTitle: 'System 201',
+              coveringUrl: 'https://ado/items/201',
+            },
+            {
+              sourceId: 100,
+              sourceTitle: 'Customer 100',
+              sourceUrl: 'https://ado/items/100',
+              coveringId: 202,
+              coveringTitle: 'System 202',
+              coveringUrl: 'https://ado/items/202',
+            },
+          ],
+          sourceOrder: [100],
+          stats: { total: 1, covered: 1, uncovered: 0 },
+        },
+      }),
+      getAttachmentMinioData: jest.fn().mockReturnValue([]),
+    }));
+
+    const { controller, addNewContentToDocumentSkin } = createController();
+
+    const controls = await controller.addSysRSContent(
+      {
+        systemRequirements: { wiql: { href: 'sys-req-url' } },
+        customerRequirements: { wiql: { href: 'customer-flat-url' } },
+      },
+      'sysrs-document',
+      4,
+    );
+
+    expect(controls.map((c: any) => c.title)).toContain('customer-traceability');
+    const chapter6Call = addNewContentToDocumentSkin.mock.calls.find(
+      (call: any[]) => call[0] === 'customer-traceability',
+    ) as any[];
+    expect(chapter6Call).toBeDefined();
+    expect(chapter6Call[1]).toBe('trace');
+    expect(chapter6Call[2].errorMessage).toBeNull();
+    expect(chapter6Call[2].groupedHeader.leftLabel).toBe('Customer');
+    expect(chapter6Call[2].groupedHeader.rightLabel).toBe('System');
+    expect(chapter6Call[2].adoptedData[1].fields[0].value).toBe('');
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'traceability-summary'),
+    ).toBe(false);
+  });
+
+  test('skips customer traceability entirely when customer query has no supported items', async () => {
+    mockedRequirementsDataFactory.mockImplementation(() => ({
+      fetchRequirementsData: jest.fn().mockResolvedValue(undefined),
+      getAdoptedData: jest.fn().mockReturnValue({
+        systemRequirementsData: [{ fields: [{ name: 'Title', value: 'REQ-1' }] }],
+        criticalRequirementsData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        vcrmData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        customerCoverageTableData: { rows: [], stats: { total: 0, covered: 0, uncovered: 0 } },
+      }),
+      getAttachmentMinioData: jest.fn().mockReturnValue([]),
+    }));
+
+    const { controller, addNewContentToDocumentSkin } = createController();
+
+    const controls = await controller.addSysRSContent(
+      {
+        systemRequirements: { wiql: { href: 'sys-req-url' } },
+        customerRequirements: { wiql: { href: 'customer-flat-url' } },
+      },
+      'sysrs-document',
+      4,
+    );
+
+    expect(controls.map((c: any) => c.title)).not.toContain('customer-traceability');
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'customer-traceability'),
+    ).toBe(false);
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'traceability-intro'),
+    ).toBe(false);
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'traceability-summary'),
+    ).toBe(false);
+  });
+
+  test('routes customer traceability query errors through trace errorMessage', async () => {
+    mockedRequirementsDataFactory.mockImplementation(() => ({
+      fetchRequirementsData: jest.fn().mockResolvedValue(undefined),
+      getAdoptedData: jest.fn().mockReturnValue({
+        systemRequirementsData: [{ fields: [{ name: 'Title', value: 'REQ-1' }] }],
+        criticalRequirementsData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        vcrmData: [{ fields: [{ name: 'ID', value: 1 }] }],
+        customerCoverageTableData: {
+          error: 'Customer-side query returned an unsupported result shape.',
+        },
+      }),
+      getAttachmentMinioData: jest.fn().mockReturnValue([]),
+    }));
+
+    const { controller, addNewContentToDocumentSkin } = createController();
+
+    const controls = await controller.addSysRSContent(
+      {
+        systemRequirements: { wiql: { href: 'sys-req-url' } },
+        customerRequirements: { wiql: { href: 'customer-tree-url' } },
+      },
+      'sysrs-document',
+      4,
+    );
+
+    expect(controls.map((c: any) => c.title)).toContain('customer-traceability');
+    const chapter6ErrorCall = addNewContentToDocumentSkin.mock.calls.find(
+      (call: any[]) => call[0] === 'customer-traceability',
+    ) as any[];
+    expect(chapter6ErrorCall).toBeDefined();
+    expect(chapter6ErrorCall[1]).toBe('trace');
+    expect(chapter6ErrorCall[2].adoptedData).toEqual([]);
+    expect(chapter6ErrorCall[2].errorMessage).toBe(
+      'Customer-side query returned an unsupported result shape.',
+    );
+    expect(chapter6ErrorCall[2].groupedHeader.leftLabel).toBe('Customer');
+    expect(chapter6ErrorCall[2].groupedHeader.rightLabel).toBe('System');
+    expect(
+      addNewContentToDocumentSkin.mock.calls.some((call: any[]) => call[0] === 'traceability-summary'),
+    ).toBe(false);
   });
 
   test('generateContentControl routes sysrs-document to addSysRSContent', async () => {
