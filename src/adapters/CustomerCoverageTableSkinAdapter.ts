@@ -1,7 +1,7 @@
 import {
-  COLOR_TRACE_UNCOVERED,
-  UNCOVERED_PLACEHOLDER,
-  calculateAdaptiveIdColumnWidth,
+  COLOR_REQ_SYS,
+  COLOR_TEST_SOFT,
+  buildGroupedHeader,
 } from '../utils/tablePresentation';
 
 export interface CustomerCoverageColumnConfig {
@@ -9,8 +9,6 @@ export interface CustomerCoverageColumnConfig {
   sourceTitleHeader: string;
   coveringIdHeader: string;
   coveringTitleHeader: string;
-  uncoveredFill: string;
-  uncoveredPlaceholder: string;
 }
 
 export type CustomerCoverageRow = {
@@ -23,20 +21,35 @@ export type CustomerCoverageRow = {
   uncovered?: boolean;
 };
 
+const SOURCE_COLUMN_WIDTH = '7%';
+const SOURCE_TITLE_WIDTH = '43%';
+const COVERING_COLUMN_WIDTH = '7%';
+const COVERING_TITLE_WIDTH = '43%';
+const SOURCE_GROUP_FILLS = [COLOR_REQ_SYS, 'FFFFFF'];
+const COVERING_GROUP_FILLS = [COLOR_TEST_SOFT, 'FFFFFF'];
+
+const buildCustomerCoverageGroupedHeader = () =>
+  buildGroupedHeader('Customer', 'System', COLOR_REQ_SYS, COLOR_TEST_SOFT, {
+    leftColumns: 2,
+    rightColumns: 2,
+  });
+
 const defaultConfig: CustomerCoverageColumnConfig = {
-  sourceIdHeader: 'Source Req ID',
-  sourceTitleHeader: 'Source Req Title',
-  coveringIdHeader: 'Covering Req ID',
-  coveringTitleHeader: 'Covering Req Title',
-  uncoveredFill: COLOR_TRACE_UNCOVERED,
-  uncoveredPlaceholder: UNCOVERED_PLACEHOLDER,
+  sourceIdHeader: 'ID',
+  sourceTitleHeader: 'Title',
+  coveringIdHeader: 'ID',
+  coveringTitleHeader: 'Title',
 };
 
 export default class CustomerCoverageTableSkinAdapter {
   private readonly rawRows: CustomerCoverageRow[];
   private readonly config: CustomerCoverageColumnConfig;
   private readonly sourceOrderIndex: Map<string, number>;
-  private adoptedData: any[] = [];
+  private adoptedData: any = {
+    adoptedData: [],
+    groupedHeader: buildCustomerCoverageGroupedHeader(),
+    errorMessage: null,
+  };
 
   constructor(
     rows: CustomerCoverageRow[] = [],
@@ -64,54 +77,63 @@ export default class CustomerCoverageTableSkinAdapter {
 
   adoptSkinData(): void {
     const sortedRows = [...this.rawRows].sort((left, right) => this.compareRows(left, right));
-    const widths = this.resolveColumnWidths(sortedRows);
+    const rowsBySource = this.groupRowsBySource(sortedRows);
+    const adoptedRows: any[] = [];
 
-    this.adoptedData = sortedRows.map((row) => {
-      const isUncovered = !!row.uncovered;
-      const placeholder = this.config.uncoveredPlaceholder;
-      const rowShading = isUncovered ? { color: 'auto', fill: this.config.uncoveredFill } : undefined;
+    rowsBySource.forEach((rows, groupIndex) => {
+      const sourceFill = SOURCE_GROUP_FILLS[groupIndex % SOURCE_GROUP_FILLS.length];
+      const coveringFill = COVERING_GROUP_FILLS[groupIndex % COVERING_GROUP_FILLS.length];
 
-      const makeField = (
-        name: string,
-        value: string | number | null | undefined,
-        width: string,
-        url?: string,
-      ) => {
-        const field: any = {
-          name,
-          value: value == null || value === '' ? placeholder : value,
-          width,
-        };
-        if (url) {
-          field.url = url;
-        }
-        if (rowShading) {
-          field.shading = rowShading;
-        }
-        return field;
-      };
+      rows.forEach((row, rowIndex) => {
+        const isFirstRow = rowIndex === 0;
 
-      return {
-        fields: [
-          makeField(this.config.sourceIdHeader, row.sourceId, widths.sourceId, row.sourceUrl),
-          makeField(this.config.sourceTitleHeader, row.sourceTitle, widths.sourceTitle),
-          makeField(
-            this.config.coveringIdHeader,
-            isUncovered ? placeholder : row.coveringId,
-            widths.coveringId,
-            row.coveringUrl,
-          ),
-          makeField(
-            this.config.coveringTitleHeader,
-            isUncovered ? placeholder : row.coveringTitle,
-            widths.coveringTitle,
-          ),
-        ],
-      };
+        adoptedRows.push({
+          fields: [
+            this.makeField(
+              this.config.sourceIdHeader,
+              isFirstRow ? row.sourceId : '',
+              SOURCE_COLUMN_WIDTH,
+              sourceFill,
+              {
+                url: isFirstRow ? row.sourceUrl : undefined,
+              },
+            ),
+            this.makeField(
+              this.config.sourceTitleHeader,
+              isFirstRow ? row.sourceTitle : '',
+              SOURCE_TITLE_WIDTH,
+              sourceFill,
+              {},
+            ),
+            this.makeField(
+              this.config.coveringIdHeader,
+              row.coveringId,
+              COVERING_COLUMN_WIDTH,
+              coveringFill,
+              {
+                url: row.coveringUrl,
+              },
+            ),
+            this.makeField(
+              this.config.coveringTitleHeader,
+              row.coveringTitle,
+              COVERING_TITLE_WIDTH,
+              coveringFill,
+              {},
+            ),
+          ],
+        });
+      });
     });
+
+    this.adoptedData = {
+      adoptedData: adoptedRows,
+      groupedHeader: buildCustomerCoverageGroupedHeader(),
+      errorMessage: null,
+    };
   }
 
-  getAdoptedData(): any[] {
+  getAdoptedData(): any {
     return this.adoptedData;
   }
 
@@ -139,26 +161,45 @@ export default class CustomerCoverageTableSkinAdapter {
     return 0;
   }
 
-  private resolveColumnWidths(rows: CustomerCoverageRow[]) {
-    const sourceId = calculateAdaptiveIdColumnWidth(
-      rows.map((row) => row.sourceId),
-      { minWidthPercent: 7, maxWidthPercent: 12, baseDigits: 5, widthPerExtraDigit: 0.6 },
-    );
-    const coveringId = calculateAdaptiveIdColumnWidth(
-      rows.map((row) => row.coveringId),
-      { minWidthPercent: 7, maxWidthPercent: 12, baseDigits: 5, widthPerExtraDigit: 0.6 },
-    );
-    const reserved = [sourceId, coveringId].reduce((sum, value) => {
-      const numeric = parseFloat(String(value).replace('%', ''));
-      return sum + (Number.isFinite(numeric) ? numeric : 0);
-    }, 0);
-    const titleWidth = Number(Math.max(18, (100 - reserved) / 2).toFixed(1));
+  private groupRowsBySource(rows: CustomerCoverageRow[]): CustomerCoverageRow[][] {
+    const groupedRows: CustomerCoverageRow[][] = [];
+    let currentSourceKey: string | null = null;
 
-    return {
-      sourceId,
-      sourceTitle: `${titleWidth}%`,
-      coveringId,
-      coveringTitle: `${titleWidth}%`,
+    for (const row of rows) {
+      const sourceKey = String(row.sourceId);
+      if (sourceKey !== currentSourceKey) {
+        groupedRows.push([]);
+        currentSourceKey = sourceKey;
+      }
+      groupedRows[groupedRows.length - 1].push(row);
+    }
+
+    return groupedRows;
+  }
+
+  private makeField(
+    name: string,
+    value: string | number | null | undefined,
+    width: string,
+    defaultFill: string,
+    options: { url?: string } = {},
+  ) {
+    const normalizedValue = value == null ? '' : value;
+
+    const field: any = {
+      name,
+      value: normalizedValue,
+      width,
+      shading: {
+        color: 'auto',
+        fill: defaultFill,
+      },
     };
+
+    if (options.url) {
+      field.url = options.url;
+    }
+
+    return field;
   }
 }
