@@ -413,18 +413,18 @@ export default class RequirementsDataFactory {
       .replace(/\s+/g, '');
     const relRef = String(relation?.rel || '').toLowerCase();
 
-    if (displayName === 'affects' || displayName === 'coveredby') {
+    if (displayName === 'affectedby' || displayName === 'coveredby') {
       return 'customer-to-system';
     }
-    if (displayName === 'affectedby' || displayName === 'covers') {
+    if (displayName === 'affects' || displayName === 'covers') {
       return 'system-to-customer';
     }
 
     if (relRef.includes('affects-forward') || relRef.includes('coveredby-forward')) {
-      return 'customer-to-system';
+      return 'system-to-customer';
     }
     if (relRef.includes('affects-reverse') || relRef.includes('coveredby-reverse')) {
-      return 'system-to-customer';
+      return 'customer-to-system';
     }
 
     return null;
@@ -482,15 +482,6 @@ export default class RequirementsDataFactory {
         });
       }
     }
-    const hasCustomerToSystemRelations = relationRecords.some(
-      (record) => record.orientation === 'customer-to-system',
-    );
-    const hasSystemToCustomerRelations = relationRecords.some(
-      (record) => record.orientation === 'system-to-customer',
-    );
-    const suppressUnlinkedSelectedAsCustomers =
-      hasSystemToCustomerRelations && !hasCustomerToSystemRelations;
-
     const hydratedTargets =
       linkedIds.size > 0 ? await ticketsDP.PopulateWorkItemsByIds([...linkedIds], this.teamProject) : [];
     const hydratedTargetsById = new Map<number, any>(selectedRequirementsById);
@@ -508,6 +499,7 @@ export default class RequirementsDataFactory {
     const coveredCustomers = new Set<number>();
     const systemSideRequirements = new Set<number>();
     const selectedIdsWithValidCoverage = new Set<number>();
+    const selectedIdsWithInvalidCustomerCoverage = new Set<number>();
 
     const addCustomerOrder = (customerId: number) => {
       if (!orderedCustomers.has(customerId)) {
@@ -548,6 +540,9 @@ export default class RequirementsDataFactory {
     for (const record of relationRecords) {
       const linkedTarget = hydratedTargetsById.get(record.targetId);
       if (!linkedTarget || !this.isRequirementWorkItem(linkedTarget)) {
+        if (record.orientation === 'customer-to-system') {
+          selectedIdsWithInvalidCustomerCoverage.add(record.selectedId);
+        }
         continue;
       }
 
@@ -559,10 +554,6 @@ export default class RequirementsDataFactory {
     }
 
     for (const selected of selectedRequirements) {
-      if (suppressUnlinkedSelectedAsCustomers) {
-        continue;
-      }
-
       const selectedId = Number(selected?.id);
       if (!Number.isFinite(selectedId)) {
         continue;
@@ -570,7 +561,8 @@ export default class RequirementsDataFactory {
       if (
         selectedIdsWithValidCoverage.has(selectedId) ||
         coveredCustomers.has(selectedId) ||
-        systemSideRequirements.has(selectedId)
+        systemSideRequirements.has(selectedId) ||
+        !selectedIdsWithInvalidCustomerCoverage.has(selectedId)
       ) {
         continue;
       }
