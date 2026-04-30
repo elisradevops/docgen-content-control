@@ -413,18 +413,18 @@ export default class RequirementsDataFactory {
       .replace(/\s+/g, '');
     const relRef = String(relation?.rel || '').toLowerCase();
 
-    if (displayName === 'affectedby' || displayName === 'coveredby') {
-      return 'customer-to-system';
-    }
-    if (displayName === 'affects' || displayName === 'covers') {
-      return 'system-to-customer';
-    }
-
     if (relRef.includes('affects-forward') || relRef.includes('coveredby-forward')) {
       return 'system-to-customer';
     }
     if (relRef.includes('affects-reverse') || relRef.includes('coveredby-reverse')) {
       return 'customer-to-system';
+    }
+
+    if (displayName === 'affectedby' || displayName === 'coveredby') {
+      return 'customer-to-system';
+    }
+    if (displayName === 'affects' || displayName === 'covers') {
+      return 'system-to-customer';
     }
 
     return null;

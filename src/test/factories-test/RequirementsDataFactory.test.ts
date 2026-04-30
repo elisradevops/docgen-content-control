@@ -640,6 +640,12 @@ describe('RequirementsDataFactory', () => {
       expect(classify({ rel: 'System.LinkTypes.Affects-Reverse' })).toBe('customer-to-system');
       expect(classify({ rel: 'Elisra.CoveredBy-Forward' })).toBe('system-to-customer');
       expect(classify({ rel: 'Elisra.CoveredBy-Reverse' })).toBe('customer-to-system');
+      expect(classify({ rel: 'Elisra.CoveredBy-Forward', attributes: { name: 'CoveredBy' } })).toBe(
+        'system-to-customer',
+      );
+      expect(classify({ rel: 'Elisra.CoveredBy-Reverse', attributes: { name: 'Covers' } })).toBe(
+        'customer-to-system',
+      );
       expect(classify({ rel: 'System.LinkTypes.Related', attributes: { name: 'Related' } })).toBeNull();
     });
 
