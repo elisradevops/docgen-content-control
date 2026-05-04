@@ -1640,7 +1640,7 @@ export default class ChangeDataFactory {
             String(targetPipelineId),
             targetBuildId,
             targetPipelineRun,
-            true
+            false
           );
         } catch (e: any) {
           throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1827,7 +1827,7 @@ export default class ChangeDataFactory {
                 String(targetResourcePipelineDefinitionId),
                 Number(targetResourcePipelineRunId),
                 targetResourcePipeline,
-                true
+                false
               );
             } catch (e: any) {
               throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
