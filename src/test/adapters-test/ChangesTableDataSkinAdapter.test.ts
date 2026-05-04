@@ -131,6 +131,71 @@ describe('ChangesTableDataSkinAdapter', () => {
     expect((adapter as any).attachmentMinioData.length).toBeGreaterThan(0);
   });
 
+  test('build work item row uses html link fallback and readable active-state date fallback', async () => {
+    const change = makeWorkItemChange({
+      workItem: {
+        id: 1,
+        _links: { html: { href: 'http://wi/fallback' } },
+        fields: {
+          'System.WorkItemType': 'Bug',
+          'System.Title': 'Active bug',
+          'System.Description': '<p>desc</p>',
+        },
+      },
+    });
+    const groups = [makeArtifactGroup([change])];
+    const adapter = new ChangesTableDataSkinAdapter(
+      groups,
+      true,
+      true,
+      'proj',
+      '/template',
+      'bucket',
+      'endpoint',
+      'access',
+      'secret',
+      'pat',
+      baseFormatting
+    );
+
+    await adapter.adoptSkinData();
+    const fields = adapter.getAdoptedData()[0].artifactChanges[0].fields;
+
+    expect(fields.find((f: any) => f.name === 'Change #').url).toBe('http://wi/fallback');
+    expect(fields.find((f: any) => f.name === 'Committed Date & Time').value).toBe(
+      "This item hasn't been Closed yet"
+    );
+  });
+
+  test('renders baseline notice in artifact header', async () => {
+    const groups = [
+      {
+        ...makeArtifactGroup([makeWorkItemChange()], 'BaselineArtifact'),
+        baselineMessage:
+          'Baseline SVD: no previous successful pipeline run was found. The listed items are associated with the current build and establish the baseline.',
+      },
+    ];
+    const adapter = new ChangesTableDataSkinAdapter(
+      groups as any,
+      true,
+      true,
+      'proj',
+      '/template',
+      'bucket',
+      'endpoint',
+      'access',
+      'secret',
+      'pat',
+      baseFormatting
+    );
+
+    await adapter.adoptSkinData();
+    const data = adapter.getAdoptedData();
+
+    expect(data[0].artifact[0].fields[0].value).toContain('Baseline SVD');
+    expect(data[0].artifact[0].fields[0].value).toContain('Artifact name: BaselineArtifact');
+  });
+
   test('expands linked items into multiple rows and empties base fields for subsequent rows', async () => {
     const linkedChange = makeWorkItemChange({
       linkedItems: [

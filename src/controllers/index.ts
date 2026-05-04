@@ -350,6 +350,10 @@ export default class DgContentControls {
             contentControlOptions.data.includeUnlinkedCommits,
             contentControlOptions.data.replaceTaskWithParent,
             contentControlOptions.data.compareMode,
+            {
+              allowBaselineSvd: contentControlOptions.data.allowBaselineSvd,
+              baselineChangeSource: contentControlOptions.data.baselineChangeSource,
+            },
           );
           break;
         case 'pr-change-description-table':
@@ -2026,6 +2030,7 @@ export default class DgContentControls {
     includeUnlinkedCommits: boolean = false,
     replaceTaskWithParent: boolean = false,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive',
+    baselineOptions: any = undefined,
   ) {
     let adoptedChangesData;
     logger.debug(`fetching data with params:
@@ -2070,6 +2075,7 @@ export default class DgContentControls {
         workItemFilterOptions,
         compareMode,
         replaceTaskWithParent,
+        baselineOptions,
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();

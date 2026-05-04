@@ -89,6 +89,19 @@ describe('ChangeDataFactory', () => {
     mockTicketsDataProvider = {
       GetQueryResultsFromWiql: jest.fn().mockResolvedValue([]),
       GetWorkitemAttachments: jest.fn().mockResolvedValue([]),
+      GetWorkItem: jest.fn().mockImplementation((_project: string, id: string) =>
+        Promise.resolve({
+          id: Number(id),
+          _links: { html: { href: `https://example.test/wi/${id}` } },
+          fields: {
+            'System.WorkItemType': 'Task',
+            'System.Title': `Work item ${id}`,
+            'System.Description': '',
+            'Microsoft.VSTS.Common.ClosedDate': '2026-01-01T00:00:00Z',
+            'Microsoft.VSTS.Common.ClosedBy': { displayName: 'Tester' },
+          },
+        })
+      ),
     };
 
     // Mock Git data provider
@@ -1812,6 +1825,183 @@ describe('ChangeDataFactory', () => {
         expect(mockPipelines.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 10);
       });
 
+      it('fetchReleaseChanges should use target release build work items as baseline when no previous release exists', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '';
+        factory.to = '20';
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          createdOn: '2026-01-02T00:00:00Z',
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+          artifacts: [
+            {
+              type: 'Build',
+              alias: 'AppBuild',
+              definitionReference: {
+                version: { id: '200', name: '200' },
+                definition: { name: 'App Build' },
+              },
+            },
+          ],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue(toRelease),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(undefined),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        } as any;
+
+        await factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider);
+
+        expect(mockPipelines.findPreviousSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123', 20);
+        expect(mockPipelines.GetBuildWorkItems).toHaveBeenCalledWith('TestProject', 200);
+        expect(factory.rawChangesArray[0].baselineMessage).toContain('Baseline SVD');
+        expect(factory.rawChangesArray[0].changes[0]).toMatchObject({
+          build: 200,
+          isBaselineChange: true,
+          releaseVersion: '2.0.0',
+          releaseRunDate: '2026-01-02T00:00:00Z',
+        });
+        expect(factory.rawChangesArray[0].changes[0].workItem.id).toBe(99);
+      });
+
+      it('fetchReleaseChanges should return a clear baseline message when target release has no Build artifacts', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '';
+        factory.to = '20';
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+          artifacts: [
+            {
+              type: 'Git',
+              alias: 'RepoArtifact',
+              definitionReference: {
+                definition: { name: 'Repo Artifact' },
+              },
+            },
+          ],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue(toRelease),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(undefined),
+          GetBuildWorkItems: jest.fn(),
+        } as any;
+
+        await factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider);
+
+        expect(mockPipelines.GetBuildWorkItems).not.toHaveBeenCalled();
+        expect(factory.rawChangesArray[0]).toMatchObject({
+          artifact: { name: 'Release baseline' },
+          changes: [],
+          nonLinkedCommits: [],
+        });
+        expect(factory.rawChangesArray[0].baselineMessage).toContain('supports Build artifacts only');
+      });
+
+      it('fetchReleaseChanges should use resolved latest release as baseline target when to is empty', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '';
+        factory.to = '';
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          createdOn: '2026-01-02T00:00:00Z',
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+          artifacts: [
+            {
+              type: 'Build',
+              alias: 'AppBuild',
+              definitionReference: {
+                version: { id: '200', name: '200' },
+                definition: { name: 'App Build' },
+              },
+            },
+          ],
+        };
+
+        const mockPipelines = {
+          findLatestSuccessfulRelease: jest.fn().mockResolvedValue(20),
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue(toRelease),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(undefined),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        } as any;
+
+        await factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider);
+
+        expect(mockPipelines.findLatestSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123');
+        expect(mockPipelines.findPreviousSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123', 20);
+        expect(mockPipelines.GetBuildWorkItems).toHaveBeenCalledWith('TestProject', 200);
+        expect(factory.rawChangesArray[0].changes[0].isBaselineChange).toBe(true);
+      });
+
+      it('fetchReleaseChanges should not use baseline mode when an explicit source release is provided', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '10';
+        factory.to = '20';
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+          artifacts: [
+            {
+              type: 'Build',
+              definitionReference: {
+                version: { id: '200', name: '200' },
+                definition: { name: 'App Build' },
+              },
+            },
+          ],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve(toRelease);
+            return Promise.resolve(undefined);
+          }),
+          findPreviousSuccessfulRelease: jest.fn(),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        } as any;
+
+        await expect(
+          factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider)
+        ).rejects.toThrow('Could not load source release #10');
+
+        expect(mockPipelines.findPreviousSuccessfulRelease).not.toHaveBeenCalled();
+        expect(mockPipelines.GetBuildWorkItems).not.toHaveBeenCalled();
+      });
+
       it('fetchReleaseChanges should throw when latest release discovery method is unavailable', async () => {
         const factory = changeDataFactory as any;
         factory.rangeType = 'release';
@@ -2897,6 +3087,218 @@ describe('ChangeDataFactory', () => {
           0
         );
         expect(pipelines.getPipelineBuildByBuildId).toHaveBeenCalledWith(defaultParams.teamProject, 150);
+      });
+
+      it('GetPipelineChanges should use current target build work items as baseline when no previous run exists', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          ''
+        );
+
+        expect(pipelines.findPreviousPipeline).toHaveBeenCalled();
+        expect(pipelines.GetBuildWorkItems).toHaveBeenCalledWith(defaultParams.teamProject, 200);
+        expect(result.artifactChanges[0]).toMatchObject({
+          build: 200,
+          isBaselineChange: true,
+        });
+        expect(result.artifactChanges[0].workItem.id).toBe(99);
+      });
+
+      it('GetPipelineChanges should include linked WI enrichment for baseline work items', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+        factory.linkedWiOptions = {
+          isEnabled: true,
+          linkedWiTypes: 'both',
+          linkedWiRelationship: 'both',
+        };
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        };
+        mockGitDataProvider.GetLinkedRelatedItemsForSVD = jest.fn().mockResolvedValue([
+          { id: 500, wiType: 'Requirement', title: 'Req 500', relationType: 'Affects' },
+        ]);
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          ''
+        );
+
+        expect(mockGitDataProvider.GetLinkedRelatedItemsForSVD).toHaveBeenCalledWith(
+          factory.linkedWiOptions,
+          expect.objectContaining({ id: 99 })
+        );
+        expect(result.artifactChanges[0].linkedItems).toEqual([
+          { id: 500, wiType: 'Requirement', title: 'Req 500', relationType: 'Affects' },
+        ]);
+      });
+
+      it('GetPipelineChanges should cap baseline work item hydration concurrency', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        let activeCalls = 0;
+        let maxActiveCalls = 0;
+        mockTicketsDataProvider.GetWorkItem = jest.fn().mockImplementation(
+          (_project: string, id: string) =>
+            new Promise((resolve) => {
+              activeCalls++;
+              maxActiveCalls = Math.max(maxActiveCalls, activeCalls);
+              setTimeout(() => {
+                activeCalls--;
+                resolve({
+                  id: Number(id),
+                  _links: { html: { href: `https://example.test/wi/${id}` } },
+                  fields: {
+                    'System.WorkItemType': 'Task',
+                    'System.Title': `Work item ${id}`,
+                    'System.Description': '',
+                  },
+                });
+              }, 5);
+            })
+        );
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          GetBuildWorkItems: jest.fn().mockResolvedValue(
+            Array.from({ length: 20 }, (_v, idx) => ({ id: String(idx + 100) }))
+          ),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          ''
+        );
+
+        expect(result.artifactChanges).toHaveLength(20);
+        expect(maxActiveCalls).toBeLessThanOrEqual(8);
+      });
+
+      it('GetPipelineChanges should ignore baseline flags when request did not come from the job template', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          ''
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect(pipelines.GetBuildWorkItems).not.toHaveBeenCalled();
+      });
+
+      it('GetPipelineChanges should not use baseline mode when an explicit source build is provided', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = true;
+        factory.allowBaselineSvd = true;
+        factory.baselineChangeSource = 'currentTargetChanges';
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          GetBuildWorkItems: jest.fn().mockResolvedValue([{ id: '99' }]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect(pipelines.GetBuildWorkItems).not.toHaveBeenCalled();
       });
 
       it('GetPipelineChanges should throw when previous run discovery fails', async () => {

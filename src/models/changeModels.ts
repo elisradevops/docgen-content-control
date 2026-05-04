@@ -60,6 +60,8 @@ export interface ChangeEntry {
   build?: number | string;
   releaseVersion?: string;
   releaseRunDate?: string | Date;
+  isBaselineChange?: boolean;
+  baselineReason?: string;
 }
 
 export interface NonLinkedCommit {
@@ -76,6 +78,7 @@ export interface ArtifactChangesGroup {
   artifact: ArtifactDescriptor;
   changes: ChangeEntry[];
   nonLinkedCommits: NonLinkedCommit[];
+  baselineMessage?: string;
 }
 
 // Services.json and release attribution models
