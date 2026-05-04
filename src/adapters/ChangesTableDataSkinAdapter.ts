@@ -95,7 +95,7 @@ export default class ChangesTableDataSkinAdapter {
    */
   private applyChangeNumber = (change: any) => {
     if (change.build) {
-      return { value: change.build, url: change.workItem.url };
+      return { value: change.build, url: change.workItem.url || change.workItem._links?.html?.href };
     }
 
     if (change.commit) {
@@ -112,10 +112,11 @@ export default class ChangesTableDataSkinAdapter {
    */
   private applyClosedDateData = (change: any) => {
     if (change.build) {
+      const closedDate = change.workItem.fields?.['Microsoft.VSTS.Common.ClosedDate'];
       return {
-        value:
-          this.convertDateToLocalTime(change.workItem.fields['Microsoft.VSTS.Common.ClosedDate']) ||
-          "This item hasn't been Closed yet",
+        value: closedDate
+          ? this.convertDateToLocalTime(closedDate)
+          : "This item hasn't been Closed yet",
       };
     }
 
@@ -195,7 +196,9 @@ export default class ChangesTableDataSkinAdapter {
                 : 'empty array'
             }`
           );
-          this.adoptedData.push(this.buildNoChangesError(artifactGroup.artifact.name));
+          this.adoptedData.push(
+            this.buildNoChangesError(artifactGroup.artifact.name, artifactGroup.baselineMessage)
+          );
           continue;
         }
 
@@ -205,7 +208,10 @@ export default class ChangesTableDataSkinAdapter {
 
         // Include artifact title only if artifact name is not empty.
         if (artifactGroup.artifact.name !== '') {
-          artifactSection.artifact = this.buildArtifactTitle(artifactGroup.artifact.name);
+          artifactSection.artifact = this.buildArtifactTitle(
+            artifactGroup.artifact.name,
+            artifactGroup.baselineMessage
+          );
         }
 
         const artifactChanges: any[] = [];
@@ -269,14 +275,15 @@ export default class ChangesTableDataSkinAdapter {
   /**
    * Builds an error block when an artifact has no changes to display.
    */
-  private buildNoChangesError(artifactName: string) {
+  private buildNoChangesError(artifactName: string, baselineMessage?: string) {
+    const prefix = baselineMessage ? `${baselineMessage}\n` : '';
     return {
       errorMessage: [
         {
           fields: [
             {
               name: 'Title',
-              value: `No changes found for the requested artifact ${artifactName}`,
+              value: `${prefix}No changes found for the requested artifact ${artifactName}`,
             },
           ],
         },
@@ -288,13 +295,16 @@ export default class ChangesTableDataSkinAdapter {
   /**
    * Builds the artifact section header row.
    */
-  private buildArtifactTitle(artifactName: string) {
+  private buildArtifactTitle(artifactName: string, baselineMessage?: string) {
+    const value = baselineMessage
+      ? `${baselineMessage}\nArtifact name: ${artifactName}`
+      : `Artifact name: ${artifactName}`;
     return [
       {
         fields: [
           {
             name: 'Description',
-            value: `Artifact name: ${artifactName}`,
+            value,
           },
         ],
       },

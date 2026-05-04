@@ -26,6 +26,14 @@ class SvdRangeResolutionError extends Error {
   }
 }
 
+const PIPELINE_BASELINE_MESSAGE =
+  'Baseline SVD: no previous successful pipeline run was found. The listed items are associated with the current build and establish the baseline.';
+const RELEASE_BASELINE_MESSAGE =
+  'Baseline SVD: no previous successful release run was found. The listed items are associated with the current release run and establish the baseline.';
+const RELEASE_BASELINE_BUILD_ONLY_MESSAGE =
+  `${RELEASE_BASELINE_MESSAGE} Release baseline currently supports Build artifacts only; no Build artifacts were found on the target release.`;
+const BASELINE_WORK_ITEM_CONCURRENCY = 8;
+
 export default class ChangeDataFactory {
   //#region properties
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -73,6 +81,8 @@ export default class ChangeDataFactory {
   private releasesSeq: any[] = [];
   private releaseIndexByName: Map<string, number> = new Map();
   private replaceTaskWithParent: boolean = false;
+  private allowBaselineSvd: boolean = false;
+  private baselineChangeSource: string = '';
   //#endregion properties
 
   //#region constructor
@@ -104,7 +114,8 @@ export default class ChangeDataFactory {
     formattingSettings: any = {},
     workItemFilterOptions: any = undefined,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive',
-    replaceTaskWithParent: boolean = false
+    replaceTaskWithParent: boolean = false,
+    baselineOptions: any = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -140,6 +151,8 @@ export default class ChangeDataFactory {
     this.pairCompareCache = new Map();
     this.compareMode = compareMode || 'consecutive';
     this.replaceTaskWithParent = !!replaceTaskWithParent;
+    this.allowBaselineSvd = !!baselineOptions?.allowBaselineSvd;
+    this.baselineChangeSource = baselineOptions?.baselineChangeSource || '';
   } //constructor
   // #endregion constructor
 
@@ -805,12 +818,159 @@ export default class ChangeDataFactory {
       artifact: { name: this.tocTitle || '' },
       changes: [...artifactChanges],
       nonLinkedCommits: [...artifactChangesNoLink],
+      baselineMessage: artifactChanges.some((change: any) => change?.isBaselineChange)
+        ? PIPELINE_BASELINE_MESSAGE
+        : undefined,
     });
 
     logger.debug(
       `After push, rawChangesArray[${this.rawChangesArray.length - 1}].changes.length = ${
         this.rawChangesArray[this.rawChangesArray.length - 1].changes.length
       }`
+    );
+  }
+
+  private hasValidExplicitFrom(value: any): boolean {
+    const numericFrom = Number(value);
+    return Number.isFinite(numericFrom) && numericFrom > 0;
+  }
+
+  private canUseBaselineSvd(originalFrom: any, targetId: number): boolean {
+    return (
+      this.requestedByBuild === true &&
+      this.allowBaselineSvd === true &&
+      this.baselineChangeSource === 'currentTargetChanges' &&
+      !this.hasValidExplicitFrom(originalFrom) &&
+      Number.isFinite(targetId) &&
+      targetId > 0
+    );
+  }
+
+  private async getTargetBuildBaselineChanges(
+    pipelinesDataProvider: PipelinesDataProvider,
+    gitDataProvider: GitDataProvider,
+    teamProject: string,
+    buildId: number,
+    baselineReason: string,
+    releaseInfo?: { version?: string; runDate?: string | Date }
+  ): Promise<any[]> {
+    try {
+      if (typeof (pipelinesDataProvider as any).GetBuildWorkItems !== 'function') {
+        throw new SvdRangeResolutionError('Baseline SVD failed: data provider does not support build work item lookup');
+      }
+
+      const workItemRefs = await (pipelinesDataProvider as any).GetBuildWorkItems(teamProject, buildId);
+      if (!Array.isArray(workItemRefs) || workItemRefs.length === 0) {
+        return [];
+      }
+
+      const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+      const changes: any[] = [];
+      const baselineWorkItemIds = new Set<number>();
+      await this.mapWithConcurrency(
+        workItemRefs,
+        BASELINE_WORK_ITEM_CONCURRENCY,
+        async (wi: any) => {
+          const workItemId = wi?.id;
+          if (workItemId === undefined || workItemId === null || workItemId === '') {
+            return;
+          }
+          const populatedWorkItem = await ticketsDataProvider.GetWorkItem(teamProject, String(workItemId));
+          if (!populatedWorkItem) {
+            return;
+          }
+          const numericWorkItemId = Number(populatedWorkItem.id ?? workItemId);
+          if (Number.isFinite(numericWorkItemId) && baselineWorkItemIds.has(numericWorkItemId)) {
+            return;
+          }
+          if (Number.isFinite(numericWorkItemId)) {
+            baselineWorkItemIds.add(numericWorkItemId);
+          }
+          const linkedItems =
+            typeof (gitDataProvider as any).GetLinkedRelatedItemsForSVD === 'function'
+              ? await (gitDataProvider as any).GetLinkedRelatedItemsForSVD(
+                  this.linkedWiOptions,
+                  populatedWorkItem
+                )
+              : [];
+          changes.push({
+            workItem: populatedWorkItem,
+            build: buildId,
+            isBaselineChange: true,
+            baselineReason,
+            releaseVersion: releaseInfo?.version,
+            releaseRunDate: releaseInfo?.runDate,
+            linkedItems,
+          });
+        }
+      );
+      return changes;
+    } catch (e: any) {
+      if (e instanceof SvdRangeResolutionError) {
+        throw e;
+      }
+      throw new SvdRangeResolutionError(`Baseline SVD failed: ${e?.message || e}`);
+    }
+  }
+
+  private async addReleaseBaselineChanges(
+    pipelinesDataProvider: PipelinesDataProvider,
+    gitDataProvider: GitDataProvider,
+    toRelease: any
+  ): Promise<void> {
+    const releaseVersion = toRelease?.name;
+    const releaseRunDate = toRelease?.createdOn || toRelease?.created || toRelease?.createdDate;
+    const buildArtifacts = (toRelease?.artifacts || []).filter(
+      (artifact: any) => String(artifact?.type || '').toLowerCase() === 'build'
+    );
+
+    if (buildArtifacts.length === 0) {
+      this.rawChangesArray.push({
+        artifact: { name: 'Release baseline' },
+        changes: [],
+        nonLinkedCommits: [],
+        baselineMessage: RELEASE_BASELINE_BUILD_ONLY_MESSAGE,
+      });
+      return;
+    }
+
+    for (const artifact of buildArtifacts) {
+      const buildId = Number(artifact?.definitionReference?.version?.id);
+      if (!Number.isFinite(buildId) || buildId <= 0) {
+        continue;
+      }
+      const artifactDisplayName = this.getArtifactDisplayName('Build', artifact);
+      const baselineChanges = await this.getTargetBuildBaselineChanges(
+        pipelinesDataProvider,
+        gitDataProvider,
+        this.teamProject,
+        buildId,
+        RELEASE_BASELINE_MESSAGE,
+        { version: releaseVersion, runDate: releaseRunDate }
+      );
+      this.rawChangesArray.push({
+        artifact: { name: artifactDisplayName },
+        changes: baselineChanges,
+        nonLinkedCommits: [],
+        baselineMessage: RELEASE_BASELINE_MESSAGE,
+      });
+    }
+  }
+
+  private async mapWithConcurrency<T>(
+    items: T[],
+    concurrency: number,
+    worker: (item: T) => Promise<void>
+  ): Promise<void> {
+    let nextIndex = 0;
+    const workerCount = Math.min(concurrency, items.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+          const currentIndex = nextIndex++;
+          await worker(items[currentIndex]);
+        }
+      })
     );
   }
 
@@ -978,6 +1138,9 @@ export default class ChangeDataFactory {
       }
       if (!previousReleaseId) {
         logger.warn(`Could not find a valid release before release #${toId}`);
+        if (this.canUseBaselineSvd(this.from, toId)) {
+          await this.addReleaseBaselineChanges(pipelinesDataProvider, gitDataProvider, toRelease);
+        }
         return;
       }
       fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
@@ -1485,7 +1648,17 @@ export default class ChangeDataFactory {
 
         if (!prevRunId) {
           logger.warn(`Could not find a valid pipeline before run #${to}`);
-          return { artifactChanges: [], artifactChangesNoLink: [] };
+          if (this.canUseBaselineSvd(from, targetBuildId)) {
+            const baselineChanges = await this.getTargetBuildBaselineChanges(
+              pipelinesDataProvider,
+              gitDataProvider,
+              teamProject,
+              targetBuildId,
+              PIPELINE_BASELINE_MESSAGE
+            );
+            artifactChanges.push(...baselineChanges);
+          }
+          return { artifactChanges, artifactChangesNoLink };
         }
 
         resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
