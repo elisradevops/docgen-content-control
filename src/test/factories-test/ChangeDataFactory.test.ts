@@ -757,7 +757,7 @@ describe('ChangeDataFactory', () => {
         await changeDataFactory.fetchSvdData();
 
         // Should have called all the necessary data fetch methods
-        expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).toHaveBeenCalled();
+        expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).not.toHaveBeenCalled(); // guarded to release rangeType only
         expect(mockTicketsDataProvider.GetQueryResultsFromWiql).toHaveBeenCalledTimes(2);
         expect(changeDataFactory.fetchChangesData).toHaveBeenCalled();
 
@@ -765,10 +765,6 @@ describe('ChangeDataFactory', () => {
         const adoptedData = changeDataFactory.getAdoptedData();
         expect(adoptedData).toEqual(
           expect.arrayContaining([
-            expect.objectContaining({
-              contentControl: 'release-components-content-control',
-              skin: 'release-components-skin',
-            }),
             expect.objectContaining({
               contentControl: 'system-overview-content-control',
               skin: 'system-overview-skin',
@@ -796,6 +792,34 @@ describe('ChangeDataFactory', () => {
 
         await expect(changeDataFactory.fetchSvdData()).rejects.toThrow('Failed to fetch changes');
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('could not fetch svd data'));
+      });
+
+      it('should continue SVD generation when optional release components lookup fails', async () => {
+        changeDataFactory.rangeType = 'release';
+        changeDataFactory.from = '14';
+        changeDataFactory.to = '16';
+        mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockRejectedValue(
+          new Error('timeout of 30000ms exceeded')
+        );
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [
+            {
+              artifact: { name: 'Repo 1' },
+              changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+              nonLinkedCommits: [],
+            },
+          ];
+        });
+
+        await expect(changeDataFactory.fetchSvdData()).resolves.toBeUndefined();
+
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('release-components lookup failed, skipping optional section')
+        );
+        expect(changeDataFactory.fetchChangesData).toHaveBeenCalled();
+        expect(
+          changeDataFactory.getAdoptedData().some((c: any) => c.contentControl === 'required-states-and-modes')
+        ).toBe(true);
       });
 
       it('should skip changes and non-associated-commits when there are no raw changes', async () => {
@@ -1647,7 +1671,8 @@ describe('ChangeDataFactory', () => {
         };
 
         const mockPipelines = {
-          GetReleaseHistory: jest.fn().mockResolvedValue(mockHistory),
+          GetAllReleaseHistory: jest.fn().mockResolvedValue(mockHistory),
+          GetReleaseHistory: jest.fn().mockResolvedValue({ value: [] }),
         } as any;
 
         const fromRelease = { id: '10' };
@@ -1655,7 +1680,8 @@ describe('ChangeDataFactory', () => {
 
         const result = await factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease);
 
-        expect(mockPipelines.GetReleaseHistory).toHaveBeenCalledWith('TestProject', '123');
+        expect(mockPipelines.GetAllReleaseHistory).toHaveBeenCalledWith('TestProject', '123', { fromId: 10, toId: 20 });
+        expect(mockPipelines.GetReleaseHistory).not.toHaveBeenCalled();
         expect(result.map((r: any) => Number(r.id))).toEqual([10, 20]);
       });
 
@@ -1669,6 +1695,226 @@ describe('ChangeDataFactory', () => {
         const result = await factory.getReleasesBetween(mockPipelines, 30, 10, null, fromRelease, toRelease);
 
         expect(result.map((r: any) => Number(r.id))).toEqual([10, 30]);
+      });
+
+      it('getReleasesBetween should throw when full history does not contain both release ids', async () => {
+        const factory = changeDataFactory as any;
+        const fromRelease = { id: '10' };
+        const toRelease = { id: '20' };
+        const mockPipelines = {
+          GetAllReleaseHistory: jest.fn().mockResolvedValue({
+            value: [
+              { id: '11', createdOn: '2024-01-02T00:00:00Z' },
+              { id: '20', createdOn: '2024-01-03T00:00:00Z' },
+            ],
+          }),
+        } as any;
+
+        await expect(
+          factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease)
+        ).rejects.toThrow('Could not locate both from (10) and to (20) in release history');
+      });
+
+      it('getReleasesBetween should throw when full release history provider is unavailable for release definition', async () => {
+        const factory = changeDataFactory as any;
+        const fromRelease = { id: '10' };
+        const toRelease = { id: '20' };
+        const mockPipelines = {
+          GetReleaseHistory: jest.fn().mockResolvedValue({
+            value: [fromRelease, toRelease],
+          }),
+        } as any;
+
+        await expect(
+          factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease)
+        ).rejects.toThrow('Release history failed');
+
+        expect(mockPipelines.GetReleaseHistory).not.toHaveBeenCalled();
+      });
+
+      it('fetchReleaseChanges should discover previous successful release before loading an invalid from release id', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.from = '';
+        factory.to = '20';
+
+        const fromRelease = { id: 10, name: '1.0.0', artifacts: [], environments: [{ status: 'succeeded' }] };
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          artifacts: [],
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve(toRelease);
+            if (id === 10) return Promise.resolve(fromRelease);
+            return Promise.resolve(undefined);
+          }),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetAllReleaseHistory: jest.fn().mockResolvedValue({
+            value: [fromRelease, toRelease],
+          }),
+        } as any;
+
+        jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined);
+        jest.spyOn(factory, 'compareConsecutiveReleases').mockResolvedValue(undefined);
+        jest.spyOn(factory, 'processServicesGaps').mockResolvedValue(undefined);
+
+        await factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider);
+
+        expect(mockPipelines.GetReleaseByReleaseId).not.toHaveBeenCalledWith('TestProject', 0);
+        expect(mockPipelines.findPreviousSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123', 20);
+        expect(mockPipelines.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 10);
+      });
+
+      it('fetchReleaseChanges should discover latest release before previous release when target release id is empty', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '';
+        factory.to = '';
+
+        const fromRelease = { id: 10, name: '1.0.0', artifacts: [], environments: [{ status: 'succeeded' }] };
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          artifacts: [],
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve(toRelease);
+            if (id === 10) return Promise.resolve(fromRelease);
+            return Promise.resolve(undefined);
+          }),
+          findLatestSuccessfulRelease: jest.fn().mockResolvedValue(20),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetAllReleaseHistory: jest.fn().mockResolvedValue({
+            value: [fromRelease, toRelease],
+          }),
+        } as any;
+
+        jest.spyOn(factory, 'handleServiceJsonFile').mockResolvedValue(undefined);
+        jest.spyOn(factory, 'compareConsecutiveReleases').mockResolvedValue(undefined);
+        jest.spyOn(factory, 'processServicesGaps').mockResolvedValue(undefined);
+
+        await factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider);
+
+        expect(mockPipelines.findLatestSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123');
+        expect(mockPipelines.findPreviousSuccessfulRelease).toHaveBeenCalledWith('TestProject', '123', 20);
+        expect(mockPipelines.GetReleaseByReleaseId).not.toHaveBeenCalledWith('TestProject', 0);
+        expect(mockPipelines.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 20);
+        expect(mockPipelines.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 10);
+      });
+
+      it('fetchReleaseChanges should throw when latest release discovery method is unavailable', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.repoId = '123';
+        factory.from = '';
+        factory.to = '';
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn(),
+          findPreviousSuccessfulRelease: jest.fn(),
+          GetAllReleaseHistory: jest.fn(),
+        } as any;
+
+        await expect(
+          factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider)
+        ).rejects.toThrow('data provider does not support latest release discovery');
+
+        expect(mockPipelines.GetReleaseByReleaseId).not.toHaveBeenCalled();
+      });
+
+      it('fetchReleaseChanges should throw when source release cannot be loaded', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.from = '';
+        factory.to = '20';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          artifacts: [],
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve(toRelease);
+            return Promise.resolve(undefined);
+          }),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetAllReleaseHistory: jest.fn().mockResolvedValue({
+            value: [{ id: 10 }, toRelease],
+          }),
+        } as any;
+
+        await expect(
+          factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider)
+        ).rejects.toThrow('Could not load source release #10');
+      });
+
+      it('fetchReleaseChanges should throw when previous release discovery fails', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.from = '';
+        factory.to = '20';
+
+        const toRelease = {
+          id: 20,
+          name: '2.0.0',
+          artifacts: [],
+          releaseDefinition: { id: 123 },
+          environments: [{ status: 'succeeded' }],
+        };
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue(toRelease),
+          findPreviousSuccessfulRelease: jest.fn().mockRejectedValue(new Error('release discovery failed')),
+        } as any;
+
+        await expect(
+          factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider)
+        ).rejects.toThrow('release discovery failed');
+      });
+
+      it('fetchReleaseChanges should throw when target release cannot be loaded', async () => {
+        const factory = changeDataFactory as any;
+        factory.rangeType = 'release';
+        factory.from = '';
+        factory.to = '20';
+
+        const mockPipelines = {
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue(undefined),
+          findPreviousSuccessfulRelease: jest.fn(),
+        } as any;
+
+        await expect(
+          factory.fetchReleaseChanges(mockPipelines, mockGitDataProvider, mockJfrogDataProvider)
+        ).rejects.toThrow('Could not load target release #20');
+
+        expect(mockPipelines.findPreviousSuccessfulRelease).not.toHaveBeenCalled();
+      });
+
+      it('getReleasesBetween should throw when full release history cannot be loaded', async () => {
+        const factory = changeDataFactory as any;
+        const fromRelease = { id: '10' };
+        const toRelease = { id: '20' };
+        const mockPipelines = {
+          GetAllReleaseHistory: jest.fn().mockRejectedValue(new Error('history failed')),
+        } as any;
+
+        await expect(
+          factory.getReleasesBetween(mockPipelines, 10, 20, 123, fromRelease, toRelease)
+        ).rejects.toThrow('history failed');
       });
 
       it('compareConsecutiveReleases should only process adjacent pairs in consecutive mode', async () => {
@@ -1796,6 +2042,52 @@ describe('ChangeDataFactory', () => {
         expect(groups[0].changes[0].releaseVersion).toBe('2.0.0');
       });
 
+      it('compareConsecutiveReleases should process release artifacts sequentially', async () => {
+        const factory = changeDataFactory as any;
+        factory.compareMode = 'consecutive';
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const gitArtifact = (alias: string, definitionId: string, version: string) => ({
+          type: 'Git',
+          alias,
+          definitionReference: {
+            definition: { id: definitionId, name: alias },
+            version: { id: version, name: version },
+          },
+        });
+
+        const releasesList = [
+          {
+            id: 10,
+            artifacts: [gitArtifact('repo1', 'repo-id-1', 'from1'), gitArtifact('repo2', 'repo-id-2', 'from2')],
+          },
+          {
+            id: 20,
+            name: '2.0.0',
+            createdOn: '2024-01-02T00:00:00Z',
+            artifacts: [gitArtifact('repo1', 'repo-id-1', 'to1'), gitArtifact('repo2', 'repo-id-2', 'to2')],
+          },
+        ];
+
+        jest.spyOn(factory, 'processGitArtifactPair').mockImplementation(async () => {
+          inFlight++;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          inFlight--;
+        });
+
+        await factory.compareConsecutiveReleases(
+          releasesList,
+          mockGitDataProvider,
+          mockJfrogDataProvider,
+          new Map(),
+          new Map()
+        );
+
+        expect(maxInFlight).toBe(1);
+        expect(factory.processGitArtifactPair).toHaveBeenCalledTimes(2);
+      });
+
       it('buildReleasesList should hydrate missing releases using pipelinesDataProvider', async () => {
         const factory = changeDataFactory as any;
 
@@ -1812,6 +2104,25 @@ describe('ChangeDataFactory', () => {
         expect(result[0]).toBe(releasesBetween[0]);
         expect(result[1]).toEqual(fullRelease);
         expect(mockPipelinesDataProvider.GetReleaseByReleaseId).toHaveBeenCalledWith('TestProject', 20);
+      });
+
+      it('buildReleasesList should hydrate missing releases sequentially', async () => {
+        const factory = changeDataFactory as any;
+        let inFlight = 0;
+        let maxInFlight = 0;
+
+        mockPipelinesDataProvider.GetReleaseByReleaseId.mockImplementation(async (_project: string, id: number) => {
+          inFlight++;
+          maxInFlight = Math.max(maxInFlight, inFlight);
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          inFlight--;
+          return { id: String(id), artifacts: [{ type: 'Git' }] };
+        });
+
+        await factory.buildReleasesList([{ id: '20' }, { id: '21' }], mockPipelinesDataProvider);
+
+        expect(maxInFlight).toBe(1);
+        expect(mockPipelinesDataProvider.GetReleaseByReleaseId).toHaveBeenCalledTimes(2);
       });
 
       it('buildArtifactPresence should track only allowed artifact types with valid build providers', () => {
@@ -2534,6 +2845,89 @@ describe('ChangeDataFactory', () => {
         expect((logger as any).error).not.toHaveBeenCalled();
       });
 
+      it('GetPipelineChanges should discover previous run before loading an invalid source build id', async () => {
+        const factory = changeDataFactory as any;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            if (id === 150) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(150),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          ''
+        );
+
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
+        expect(pipelines.findPreviousPipeline).toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          '10',
+          200,
+          expect.anything(),
+          true
+        );
+        expect(pipelines.getPipelineBuildByBuildId).not.toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          NaN
+        );
+        expect(pipelines.getPipelineBuildByBuildId).not.toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          0
+        );
+        expect(pipelines.getPipelineBuildByBuildId).toHaveBeenCalledWith(defaultParams.teamProject, 150);
+      });
+
+      it('GetPipelineChanges should throw when previous run discovery fails', async () => {
+        const factory = changeDataFactory as any;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 200) {
+              return {
+                id,
+                result: 'succeeded',
+                definition: { id: 10 },
+              };
+            }
+            return undefined;
+          }),
+          findPreviousPipeline: jest.fn().mockRejectedValue(new Error('pipeline discovery failed')),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+        };
+
+        await expect(
+          factory.GetPipelineChanges(
+            pipelines,
+            mockGitDataProvider,
+            defaultParams.teamProject,
+            200,
+            ''
+          )
+        ).rejects.toThrow('pipeline discovery failed');
+      });
+
       it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {
         const factory = changeDataFactory as any;
         factory.requestedByBuild = false;
@@ -2905,6 +3299,45 @@ describe('ChangeDataFactory', () => {
           expect.anything(),
           true
         );
+      });
+
+      it('GetPipelineChanges should throw when newly-added resource pipeline discovery fails', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: id === 300 ? 99 : 10 },
+          })),
+          findPreviousPipeline: jest.fn().mockRejectedValue(new Error('nested discovery failed')),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            .mockResolvedValueOnce([])
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '1.0.56',
+                name: 'SOME_PACKAGE',
+                provider: 'TfsGit',
+              },
+            ]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        await expect(
+          factory.GetPipelineChanges(
+            pipelines,
+            mockGitDataProvider,
+            defaultParams.teamProject,
+            200,
+            100
+          )
+        ).rejects.toThrow('Pipeline auto-discovery failed: nested discovery failed');
       });
 
       it('parseSubModules should log errors and return empty arrays when getSubmodulesData fails', async () => {

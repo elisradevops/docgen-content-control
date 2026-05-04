@@ -117,6 +117,12 @@ export default class AzureDataService {
     return pipelines.GetAllReleaseDefenitions(teamProjectId);
   }
 
+  /**
+   * Returns shallow release history for UI selectors.
+   *
+   * Full paged history is intentionally limited to SVD release-range processing so the
+   * existing release selector endpoint stays fast and backward-compatible.
+   */
   async getReleaseDefinitionHistory(teamProjectId = '', definitionId: string) {
     const pipelines = await this.dg.getPipelinesDataProvider();
     return pipelines.GetReleaseHistory(teamProjectId, String(definitionId));
