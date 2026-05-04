@@ -1,9 +1,11 @@
 const getTicketsDataProviderMock = jest.fn();
+const getPipelinesDataProviderMock = jest.fn();
 
 jest.mock('@elisra-devops/docgen-data-provider', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     getTicketsDataProvider: getTicketsDataProviderMock,
+    getPipelinesDataProvider: getPipelinesDataProviderMock,
   })),
 }));
 
@@ -16,10 +18,15 @@ describe('AzureDataService historical query methods', () => {
     GetHistoricalQueryResults: jest.fn(),
     CompareHistoricalQueryResults: jest.fn(),
   };
+  const pipelinesProvider = {
+    GetAllReleaseHistory: jest.fn(),
+    GetReleaseHistory: jest.fn(),
+  };
 
   beforeEach(() => {
     jest.clearAllMocks();
     getTicketsDataProviderMock.mockResolvedValue(ticketsProvider);
+    getPipelinesDataProviderMock.mockResolvedValue(pipelinesProvider);
   });
 
   it('getHistoricalQueries delegates to tickets data provider', async () => {
@@ -91,5 +98,16 @@ describe('AzureDataService historical query methods', () => {
       '2025-12-28T08:57:00.000Z',
     );
     expect(result).toEqual({ rows: [] });
+  });
+
+  it('getReleaseDefinitionHistory delegates to shallow release history', async () => {
+    pipelinesProvider.GetReleaseHistory.mockResolvedValueOnce({ value: [{ id: 1 }] });
+    const svc = new AzureDataService('https://org/', 'pat');
+
+    const result = await svc.getReleaseDefinitionHistory('tp', '123');
+
+    expect(pipelinesProvider.GetReleaseHistory).toHaveBeenCalledWith('tp', '123');
+    expect(pipelinesProvider.GetAllReleaseHistory).not.toHaveBeenCalled();
+    expect(result).toEqual({ value: [{ id: 1 }] });
   });
 });

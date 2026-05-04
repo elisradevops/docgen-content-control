@@ -19,6 +19,13 @@ import SystemOverviewDataSkinAdapter from '../adapters/SystemOverviewDataSkinAda
 import BugsTableSkinAdapter from '../adapters/BugsTableSkinAdpater';
 import NonAssociatedCommitsDataSkinAdapter from '../adapters/NonAssociatedCommitsDataSkinAdapter';
 
+class SvdRangeResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SvdRangeResolutionError';
+  }
+}
+
 export default class ChangeDataFactory {
   //#region properties
   dgDataProviderAzureDevOps: DgDataProviderAzureDevOps;
@@ -161,9 +168,19 @@ export default class ChangeDataFactory {
       );
       // 1) Get release component adoptedData for release-components content control
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
-      let recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
-        this.teamProject
-      );
+      let recentReleaseArtifactInfo: any[] = [];
+      if (this.rangeType === 'release') {
+        try {
+          recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
+            this.teamProject
+          );
+        } catch (error: any) {
+          logger.warn(
+            `fetchSvdData: release-components lookup failed, skipping optional section: ${error?.message || error}`
+          );
+          recentReleaseArtifactInfo = [];
+        }
+      }
       const releaseComponentsCount = recentReleaseArtifactInfo?.length || 0;
       logger.info(
         `[SVD ${svdId}] release-components: items=${releaseComponentsCount}${
@@ -801,7 +818,7 @@ export default class ChangeDataFactory {
    * Resolves the ordered list of releases between two release IDs for a given definition.
    *
    * If full history is available, this returns all releases from `fromId` to `toId` (inclusive), sorted by time.
-   * If not, it falls back to using only the provided `fromRelease` and `toRelease`.
+   * Missing range endpoints inside a successfully loaded full history are treated as invalid SVD input.
    *
    * @param pipelinesDataProvider Pipelines data provider used to query release history.
    * @param fromId                ID of the starting release.
@@ -821,35 +838,46 @@ export default class ChangeDataFactory {
     let releasesBetween: any[] = [];
     if (releaseDefinitionId) {
       try {
-        const history =
-          typeof (pipelinesDataProvider as any).GetAllReleaseHistory === 'function'
-            ? await (pipelinesDataProvider as any).GetAllReleaseHistory(
-                this.teamProject,
-                String(releaseDefinitionId)
-              )
-            : await pipelinesDataProvider.GetReleaseHistory(this.teamProject, String(releaseDefinitionId));
+        if (typeof (pipelinesDataProvider as any).GetAllReleaseHistory !== 'function') {
+          throw new SvdRangeResolutionError('Release history failed: full release history provider is unavailable');
+        }
+        const history = await (pipelinesDataProvider as any).GetAllReleaseHistory(
+          this.teamProject,
+          String(releaseDefinitionId),
+          { fromId, toId }
+        );
         const list: any[] = ((history as any)?.value ?? []).sort((a: any, b: any) => {
           const ad = new Date(a.createdOn || a.createdDate || a.created || 0).getTime();
           const bd = new Date(b.createdOn || b.createdDate || b.created || 0).getTime();
           return ad - bd;
         });
-        const fromIdx = list.findIndex((r: any) => Number(r.id) === fromId);
-        const toIdx = list.findIndex((r: any) => Number(r.id) === toId);
+        let fromIdx = -1;
+        let toIdx = -1;
+        for (let i = 0; i < list.length; i++) {
+          const id = Number(list[i].id);
+          if (id === fromId) fromIdx = i;
+          if (id === toId) toIdx = i;
+          if (fromIdx !== -1 && toIdx !== -1) break;
+        }
         if (fromIdx !== -1 && toIdx !== -1) {
           const start = Math.min(fromIdx, toIdx);
           const end = Math.max(fromIdx, toIdx);
           releasesBetween = list.slice(start, end + 1);
         } else {
-          logger.warn(
-            `Could not locate both from (${fromId}) and to (${toId}) in release history; falling back to direct compare`
+          throw new SvdRangeResolutionError(
+            `Could not locate both from (${fromId}) and to (${toId}) in release history`
           );
         }
       } catch (e: any) {
-        logger.warn(`GetReleaseHistory failed: ${e.message}. Will compare only provided from/to releases.`);
+        if (e instanceof SvdRangeResolutionError) {
+          throw e;
+        }
+        logger.warn(`GetReleaseHistory failed: ${e.message}`);
+        throw new SvdRangeResolutionError(`Release history failed: ${e.message}`);
       }
     }
 
-    // Fallback if history is unavailable or empty
+    // Fallback only when no release definition id was available.
     if (releasesBetween.length === 0) {
       releasesBetween = [fromRelease, toRelease].sort((a: any, b: any) => Number(a.id) - Number(b.id));
     }
@@ -874,26 +902,90 @@ export default class ChangeDataFactory {
     gitDataProvider: GitDataProvider,
     jfrogDataProvider: any
   ): Promise<void> {
-    const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(
-      this.teamProject,
-      Number(this.from)
-    );
-    const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, Number(this.to));
+    let toId = Number(this.to);
+    const requestedReleaseDefinitionId = this.repoId;
+    let releaseDefinitionId: any = undefined;
+    const shouldDiscoverToRelease = !Number.isFinite(toId) || toId <= 0;
 
-    logger.info(`retrieved release artifacts for releases: ${this.from} - ${this.to}`);
+    if (shouldDiscoverToRelease) {
+      if (!requestedReleaseDefinitionId) {
+        throw new SvdRangeResolutionError('Could not auto-discover latest release: missing release definition id');
+      }
 
-    // Determine release definition and fetch history
-    const releaseDefinitionId =
-      toRelease?.releaseDefinition?.id ?? toRelease?.releaseDefinitionId ?? toRelease?.definitionId;
+      let latestReleaseId;
+      try {
+        if (typeof (pipelinesDataProvider as any).findLatestSuccessfulRelease !== 'function') {
+          throw new SvdRangeResolutionError(
+            'Release auto-discovery failed: data provider does not support latest release discovery'
+          );
+        }
+        latestReleaseId = await (pipelinesDataProvider as any).findLatestSuccessfulRelease(
+          this.teamProject,
+          String(requestedReleaseDefinitionId)
+        );
+      } catch (e: any) {
+        if (e instanceof SvdRangeResolutionError) {
+          throw e;
+        }
+        throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+      }
+
+      if (!latestReleaseId) {
+        logger.warn(`Could not find a valid latest release for definition #${requestedReleaseDefinitionId}`);
+        return;
+      }
+      toId = Number(typeof latestReleaseId === 'object' ? latestReleaseId.id : latestReleaseId);
+    }
+
+    const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, toId);
+    if (!toRelease) {
+      throw new SvdRangeResolutionError(`Could not load target release #${shouldDiscoverToRelease ? toId : this.to}`);
+    }
+
+    logger.info(`retrieved release artifacts for releases: ${this.from} - ${toId}`);
+
+    // Resolve the definition from the target release so missing fromRelease can be auto-discovered.
+    releaseDefinitionId =
+      toRelease?.releaseDefinition?.id ??
+      toRelease?.releaseDefinitionId ??
+      toRelease?.definitionId ??
+      (shouldDiscoverToRelease ? requestedReleaseDefinitionId : undefined);
     if (!releaseDefinitionId) {
       logger.warn(
         'Could not determine release definition id from target release, falling back to direct compare'
       );
     }
 
-    // Build the ordered list of releases between from and to (inclusive), then create consecutive pairs
-    const fromId = Number(this.from);
-    const toId = Number(this.to);
+    let fromId = Number(this.from);
+    const shouldDiscoverFromRelease = !Number.isFinite(fromId) || fromId <= 0;
+    if (shouldDiscoverFromRelease && !releaseDefinitionId) {
+      throw new SvdRangeResolutionError(`Could not auto-discover previous release before release #${toId}: missing definition id`);
+    }
+    if (shouldDiscoverFromRelease) {
+      // Empty, zero, or invalid fromRelease means "discover the previous successful release".
+      let previousReleaseId;
+      try {
+        previousReleaseId =
+          typeof (pipelinesDataProvider as any).findPreviousSuccessfulRelease === 'function'
+            ? await (pipelinesDataProvider as any).findPreviousSuccessfulRelease(
+                this.teamProject,
+                String(releaseDefinitionId),
+                toId
+              )
+            : undefined;
+      } catch (e: any) {
+        throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+      }
+      if (!previousReleaseId) {
+        logger.warn(`Could not find a valid release before release #${toId}`);
+        return;
+      }
+      fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
+    }
+    const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, fromId);
+    if (!fromRelease) {
+      throw new SvdRangeResolutionError(`Could not load source release #${fromId}`);
+    }
     const releasesBetween = await this.getReleasesBetween(
       pipelinesDataProvider,
       fromId,
@@ -1244,7 +1336,7 @@ export default class ChangeDataFactory {
               );
               logger.debug(`Error stack: ${error.stack}`);
             }
-          } // end for each artifact
+          } // end per-artifact loop
         } catch (e: any) {
           logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
           logger.debug(`Pair error stack: ${e.stack}`);
@@ -1304,6 +1396,9 @@ export default class ChangeDataFactory {
       //Clear the set after finishing
     } catch (error: any) {
       if (error.message?.includes('The number of changes is too large')) {
+        throw error;
+      }
+      if (error instanceof SvdRangeResolutionError) {
         throw error;
       }
       logger.error(error.message);
@@ -1367,23 +1462,33 @@ export default class ChangeDataFactory {
         targetBuildId
       );
 
-      let sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
+      const shouldDiscoverSourceBuild =
+        !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
+      let sourceBuild = shouldDiscoverSourceBuild
+        ? undefined
+        : await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
 
-      if (!sourceBuild) {
-        const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
-          teamProject,
-          String(targetPipelineId),
-          targetBuildId,
-          targetPipelineRun,
-          true
-        );
+      if (shouldDiscoverSourceBuild || !sourceBuild) {
+        // Empty, zero, invalid, or unloadable fromBuild means "discover the previous successful run".
+        let prevRunId;
+        try {
+          prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+            teamProject,
+            String(targetPipelineId),
+            targetBuildId,
+            targetPipelineRun,
+            true
+          );
+        } catch (e: any) {
+          throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
+        }
 
         if (!prevRunId) {
           logger.warn(`Could not find a valid pipeline before run #${to}`);
           return { artifactChanges: [], artifactChangesNoLink: [] };
         }
 
-        resolvedFromRunId = Number(prevRunId);
+        resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
         sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
         if (!sourceBuild) {
           logger.warn(`Could not load previous build details for run #${resolvedFromRunId}`);
@@ -1542,13 +1647,18 @@ export default class ChangeDataFactory {
             `resource pipeline ${targetResourcePipelineName} (${targetResourcePipelineTeamProject}/${targetResourcePipelineDefinitionId}) is new in target run, resolving previous run`
           );
           try {
-            const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
-              targetResourcePipelineTeamProject,
-              String(targetResourcePipelineDefinitionId),
-              Number(targetResourcePipelineRunId),
-              targetResourcePipeline,
-              true
-            );
+            let prevRunId;
+            try {
+              prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+                targetResourcePipelineTeamProject,
+                String(targetResourcePipelineDefinitionId),
+                Number(targetResourcePipelineRunId),
+                targetResourcePipeline,
+                true
+              );
+            } catch (e: any) {
+              throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
+            }
             if (!prevRunId) {
               logger.warn(
                 `Could not find previous run for newly-added resource pipeline ${targetResourcePipelineName} (${targetResourcePipelineTeamProject}/${targetResourcePipelineDefinitionId}) before run ${targetResourcePipelineRunId}`
@@ -1578,6 +1688,9 @@ export default class ChangeDataFactory {
                 e?.message || e
               }`
             );
+            if (e instanceof SvdRangeResolutionError) {
+              throw e;
+            }
           }
           continue;
         }
@@ -1660,6 +1773,9 @@ export default class ChangeDataFactory {
       }
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
+      if (error instanceof SvdRangeResolutionError) {
+        throw error;
+      }
     }
 
     logger.info(
@@ -3160,15 +3276,18 @@ export default class ChangeDataFactory {
    * Build a hydrated list of releases for the provided history items.
    */
   private async buildReleasesList(releasesBetween: any[], pipelinesDataProvider: any): Promise<any[]> {
-    const out: any[] = [];
+    const results: any[] = [];
     for (const r of releasesBetween) {
-      if (r?.artifacts) out.push(r);
-      else {
-        const full = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, Number(r.id));
-        if (full) out.push(full);
+      if (r?.artifacts) {
+        results.push(r);
+        continue;
+      }
+      const release = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, Number(r.id));
+      if (release) {
+        results.push(release);
       }
     }
-    return out;
+    return results;
   }
 
   /**
