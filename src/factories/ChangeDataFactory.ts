@@ -152,7 +152,7 @@ export default class ChangeDataFactory {
     this.compareMode = compareMode || 'consecutive';
     this.replaceTaskWithParent = !!replaceTaskWithParent;
     this.allowBaselineSvd = !!baselineOptions?.allowBaselineSvd;
-    this.baselineChangeSource = baselineOptions?.baselineChangeSource || '';
+    this.baselineChangeSource = baselineOptions?.baselineChangeSource || (this.allowBaselineSvd ? 'currentTargetChanges' : '');
   } //constructor
   // #endregion constructor
 
