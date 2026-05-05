@@ -1627,7 +1627,7 @@ export default class ChangeDataFactory {
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
-      logger.info(
+      logger.debug(
         `GetPipelineChanges: target run #${targetBuildId} (pipelineId=${targetPipelineId}), ` +
         `from input='${from ?? ''}', shouldDiscover=${shouldDiscoverSourceBuild}`
       );
@@ -1643,8 +1643,7 @@ export default class ChangeDataFactory {
             teamProject,
             String(targetPipelineId),
             targetBuildId,
-            targetPipelineRun,
-            false
+            targetPipelineRun
           );
         } catch (e: any) {
           throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1833,8 +1832,7 @@ export default class ChangeDataFactory {
                 targetResourcePipelineTeamProject,
                 String(targetResourcePipelineDefinitionId),
                 Number(targetResourcePipelineRunId),
-                targetResourcePipeline,
-                false
+                targetResourcePipeline
               );
             } catch (e: any) {
               throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
