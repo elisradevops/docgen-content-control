@@ -1718,6 +1718,14 @@ export default class ChangeDataFactory {
         resolvedFromRunId
       );
 
+      logger.info(
+        `GetPipelineChanges run resources: target pipelines=${Object.keys(
+          targetPipelineRun?.resources?.pipelines || {}
+        ).length}, target repos=${Object.keys(targetPipelineRun?.resources?.repositories || {}).length}, ` +
+          `source pipelines=${Object.keys(sourcePipelineRun?.resources?.pipelines || {}).length}, ` +
+          `source repos=${Object.keys(sourcePipelineRun?.resources?.repositories || {}).length}`
+      );
+
       const sourcePipelineResourcePipelines =
         await pipelinesDataProvider.getPipelineResourcePipelinesFromObject(sourcePipelineRun);
       const targetPipelineResourcePipelines =
