@@ -3075,8 +3075,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '10',
           200,
-          expect.anything(),
-          false
+          expect.anything()
         );
         expect(pipelines.getPipelineBuildByBuildId).not.toHaveBeenCalledWith(
           defaultParams.teamProject,
@@ -3698,8 +3697,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '99',
           300,
-          expect.anything(),
-          false
+          expect.anything()
         );
       });
 
@@ -3781,8 +3779,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '99',
           300,
-          expect.anything(),
-          false
+          expect.anything()
         );
       });
 
