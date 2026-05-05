@@ -800,12 +800,53 @@ export default class ChangeDataFactory {
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider
   ): Promise<void> {
+    let resolvedFrom: string | number = this.from;
+    let preResolvedTarget:
+      | { targetBuild: any; targetPipelineRun: any }
+      | undefined;
+    if (!this.hasValidExplicitFrom(resolvedFrom)) {
+      const targetBuildId = Number(this.to);
+      if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
+        try {
+          const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, targetBuildId);
+          const targetPipelineId = targetBuild?.definition?.id;
+          if (targetPipelineId) {
+            const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+              this.teamProject,
+              targetPipelineId,
+              targetBuildId
+            );
+            preResolvedTarget = { targetBuild, targetPipelineRun };
+            const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+              this.teamProject,
+              String(targetPipelineId),
+              targetBuildId,
+              targetPipelineRun
+            );
+            if (prevRunId) {
+              const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
+              if (Number.isFinite(numericPrev) && numericPrev > 0) {
+                resolvedFrom = numericPrev;
+                logger.info(
+                  `fetchPipelineChanges prep: resolved previous run #${numericPrev} for target #${targetBuildId}; using explicit-from path`
+                );
+              }
+            }
+          }
+        } catch (e: any) {
+          logger.warn(`fetchPipelineChanges prep: previous run resolution failed: ${e?.message || e}`);
+        }
+      }
+    }
+
     const { artifactChanges, artifactChangesNoLink } = await this.GetPipelineChanges(
       pipelinesDataProvider,
       gitDataProvider,
       this.teamProject,
       this.to,
-      this.from
+      resolvedFrom,
+      undefined,
+      preResolvedTarget
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -1600,7 +1641,8 @@ export default class ChangeDataFactory {
     teamProject: string,
     to: string | number,
     from: string | number,
-    visitedTargetRuns: Set<string> = new Set()
+    visitedTargetRuns: Set<string> = new Set(),
+    preResolvedTarget?: { targetBuild: any; targetPipelineRun: any }
   ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
     const artifactChangesNoLink = [];
@@ -1608,7 +1650,9 @@ export default class ChangeDataFactory {
       const targetBuildId = Number(to);
       let resolvedFromRunId = Number(from);
 
-      let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
+      let targetBuild =
+        preResolvedTarget?.targetBuild ||
+        await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
 
       const targetPipelineId = targetBuild.definition.id;
 
@@ -1619,11 +1663,13 @@ export default class ChangeDataFactory {
       }
       visitedTargetRuns.add(targetRunKey);
 
-      const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
-        teamProject,
-        targetPipelineId,
-        targetBuildId
-      );
+      const targetPipelineRun =
+        preResolvedTarget?.targetPipelineRun ||
+        await pipelinesDataProvider.getPipelineRunDetails(
+          teamProject,
+          targetPipelineId,
+          targetBuildId
+        );
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
