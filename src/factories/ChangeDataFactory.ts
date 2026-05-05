@@ -801,9 +801,6 @@ export default class ChangeDataFactory {
     gitDataProvider: GitDataProvider
   ): Promise<void> {
     let resolvedFrom: string | number = this.from;
-    let preResolvedTarget:
-      | { targetBuild: any; targetPipelineRun: any }
-      | undefined;
     if (!this.hasValidExplicitFrom(resolvedFrom)) {
       const targetBuildId = Number(this.to);
       if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
@@ -816,7 +813,6 @@ export default class ChangeDataFactory {
               targetPipelineId,
               targetBuildId
             );
-            preResolvedTarget = { targetBuild, targetPipelineRun };
             const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
               this.teamProject,
               String(targetPipelineId),
@@ -844,9 +840,7 @@ export default class ChangeDataFactory {
       gitDataProvider,
       this.teamProject,
       this.to,
-      resolvedFrom,
-      undefined,
-      preResolvedTarget
+      resolvedFrom
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -1641,8 +1635,7 @@ export default class ChangeDataFactory {
     teamProject: string,
     to: string | number,
     from: string | number,
-    visitedTargetRuns: Set<string> = new Set(),
-    preResolvedTarget?: { targetBuild: any; targetPipelineRun: any }
+    visitedTargetRuns: Set<string> = new Set()
   ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
     const artifactChangesNoLink = [];
@@ -1650,9 +1643,7 @@ export default class ChangeDataFactory {
       const targetBuildId = Number(to);
       let resolvedFromRunId = Number(from);
 
-      let targetBuild =
-        preResolvedTarget?.targetBuild ||
-        await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
+      let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
 
       const targetPipelineId = targetBuild.definition.id;
 
@@ -1663,13 +1654,11 @@ export default class ChangeDataFactory {
       }
       visitedTargetRuns.add(targetRunKey);
 
-      const targetPipelineRun =
-        preResolvedTarget?.targetPipelineRun ||
-        await pipelinesDataProvider.getPipelineRunDetails(
-          teamProject,
-          targetPipelineId,
-          targetBuildId
-        );
+      const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+        teamProject,
+        targetPipelineId,
+        targetBuildId
+      );
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
