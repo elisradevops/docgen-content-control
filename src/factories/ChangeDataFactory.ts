@@ -1627,6 +1627,10 @@ export default class ChangeDataFactory {
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
+      logger.info(
+        `GetPipelineChanges: target run #${targetBuildId} (pipelineId=${targetPipelineId}), ` +
+        `from input='${from ?? ''}', shouldDiscover=${shouldDiscoverSourceBuild}`
+      );
       let sourceBuild = shouldDiscoverSourceBuild
         ? undefined
         : await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
@@ -1662,6 +1666,9 @@ export default class ChangeDataFactory {
         }
 
         resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
+        logger.info(
+          `GetPipelineChanges: discovery resolved previous run #${resolvedFromRunId} for target run #${targetBuildId}`
+        );
         sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
         if (!sourceBuild) {
           logger.warn(`Could not load previous build details for run #${resolvedFromRunId}`);
