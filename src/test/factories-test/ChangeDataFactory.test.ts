@@ -3076,7 +3076,7 @@ describe('ChangeDataFactory', () => {
           '10',
           200,
           expect.anything(),
-          true
+          false
         );
         expect(pipelines.getPipelineBuildByBuildId).not.toHaveBeenCalledWith(
           defaultParams.teamProject,
@@ -3699,7 +3699,90 @@ describe('ChangeDataFactory', () => {
           '99',
           300,
           expect.anything(),
-          true
+          false
+        );
+      });
+
+      it('GetPipelineChanges — newly-added resource pipeline: discovered prev run changes bubble up to parent', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        mockGitDataProvider.GetCommitBatch.mockResolvedValue([{ commitId: 'sub-c1' }]);
+        mockGitDataProvider.getItemsForPipelineRange.mockResolvedValue({
+          commitChangesArray: [
+            {
+              commit: { commitId: 'sub-c1' },
+              workItem: { id: 77, fields: {}, _links: {} },
+            },
+          ],
+          commitsWithNoRelations: [],
+        });
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: id === 250 || id === 300 ? 99 : 10 },
+          })),
+          findPreviousPipeline: jest.fn().mockResolvedValue(250),
+          getPipelineRunDetails: jest.fn().mockImplementation((_tp: string, _pid: number, rid: number) => ({
+            id: rid,
+            resources: {},
+          })),
+          getPipelineResourcePipelinesFromObject: jest
+            .fn()
+            .mockResolvedValueOnce([]) // top-level source (100): no resource pipelines
+            .mockResolvedValueOnce([
+              {
+                buildId: 300,
+                definitionId: 99,
+                teamProject: defaultParams.teamProject,
+                buildNumber: '1.0.99',
+                name: 'SubPipeline',
+                provider: 'TfsGit',
+              },
+            ]) // top-level target (200): one newly-added resource pipeline
+            .mockResolvedValueOnce([]) // recursive source (250): no further nesting
+            .mockResolvedValueOnce([]), // recursive target (300): no further nesting
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockImplementation((run: any) => {
+            if (run?.id === 250) {
+              return [
+                {
+                  repoName: 'SubRepo',
+                  repoSha1: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                  url: 'https://dev.azure.com/org/project/_git/SubRepo',
+                },
+              ];
+            }
+            if (run?.id === 300) {
+              return [
+                {
+                  repoName: 'SubRepo',
+                  repoSha1: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                  url: 'https://dev.azure.com/org/project/_git/SubRepo',
+                },
+              ];
+            }
+            return [];
+          }),
+        };
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          100
+        );
+
+        expect(result.artifactChanges.length).toBe(1);
+        expect(result.artifactChanges[0].workItem.id).toBe(77);
+        expect(pipelines.findPreviousPipeline).toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          '99',
+          300,
+          expect.anything(),
+          false
         );
       });
 
