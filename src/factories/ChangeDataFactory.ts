@@ -800,12 +800,47 @@ export default class ChangeDataFactory {
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider
   ): Promise<void> {
+    let resolvedFrom: string | number = this.from;
+    if (!this.hasValidExplicitFrom(resolvedFrom)) {
+      const targetBuildId = Number(this.to);
+      if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
+        try {
+          const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, targetBuildId);
+          const targetPipelineId = targetBuild?.definition?.id;
+          if (targetPipelineId) {
+            const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+              this.teamProject,
+              targetPipelineId,
+              targetBuildId
+            );
+            const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+              this.teamProject,
+              String(targetPipelineId),
+              targetBuildId,
+              targetPipelineRun
+            );
+            if (prevRunId) {
+              const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
+              if (Number.isFinite(numericPrev) && numericPrev > 0) {
+                resolvedFrom = numericPrev;
+                logger.info(
+                  `fetchPipelineChanges prep: resolved previous run #${numericPrev} for target #${targetBuildId}; using explicit-from path`
+                );
+              }
+            }
+          }
+        } catch (e: any) {
+          logger.warn(`fetchPipelineChanges prep: previous run resolution failed: ${e?.message || e}`);
+        }
+      }
+    }
+
     const { artifactChanges, artifactChangesNoLink } = await this.GetPipelineChanges(
       pipelinesDataProvider,
       gitDataProvider,
       this.teamProject,
       this.to,
-      this.from
+      resolvedFrom
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -1627,6 +1662,10 @@ export default class ChangeDataFactory {
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
+      logger.debug(
+        `GetPipelineChanges: target run #${targetBuildId} (pipelineId=${targetPipelineId}), ` +
+        `from input='${from ?? ''}', shouldDiscover=${shouldDiscoverSourceBuild}`
+      );
       let sourceBuild = shouldDiscoverSourceBuild
         ? undefined
         : await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
@@ -1639,8 +1678,7 @@ export default class ChangeDataFactory {
             teamProject,
             String(targetPipelineId),
             targetBuildId,
-            targetPipelineRun,
-            false
+            targetPipelineRun
           );
         } catch (e: any) {
           throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1662,6 +1700,9 @@ export default class ChangeDataFactory {
         }
 
         resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
+        logger.info(
+          `GetPipelineChanges: discovery resolved previous run #${resolvedFromRunId} for target run #${targetBuildId}`
+        );
         sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
         if (!sourceBuild) {
           logger.warn(`Could not load previous build details for run #${resolvedFromRunId}`);
@@ -1675,6 +1716,14 @@ export default class ChangeDataFactory {
         teamProject,
         sourcePipelineId,
         resolvedFromRunId
+      );
+
+      logger.info(
+        `GetPipelineChanges run resources: target pipelines=${Object.keys(
+          targetPipelineRun?.resources?.pipelines || {}
+        ).length}, target repos=${Object.keys(targetPipelineRun?.resources?.repositories || {}).length}, ` +
+          `source pipelines=${Object.keys(sourcePipelineRun?.resources?.pipelines || {}).length}, ` +
+          `source repos=${Object.keys(sourcePipelineRun?.resources?.repositories || {}).length}`
       );
 
       const sourcePipelineResourcePipelines =
@@ -1826,8 +1875,7 @@ export default class ChangeDataFactory {
                 targetResourcePipelineTeamProject,
                 String(targetResourcePipelineDefinitionId),
                 Number(targetResourcePipelineRunId),
-                targetResourcePipeline,
-                false
+                targetResourcePipeline
               );
             } catch (e: any) {
               throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
