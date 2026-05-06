@@ -595,7 +595,7 @@ describe('ChangeDataFactory', () => {
       );
     });
 
-    it('should call GetPipelineChanges with empty from directly when from is empty (no prep phase)', async () => {
+    it('should resolve previous pipeline run before calling GetPipelineChanges when from is empty', async () => {
       const pipelineFactory = new ChangeDataFactory(
         defaultParams.teamProject,
         defaultParams.repoId,
@@ -620,21 +620,29 @@ describe('ChangeDataFactory', () => {
         artifactChanges: [],
         artifactChangesNoLink: [],
       });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockResolvedValueOnce({
+        id: 100784,
+        result: 'succeeded',
+        definition: { id: 456 },
+      });
+      mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100782);
 
       await pipelineFactory.fetchChangesData();
 
-      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).not.toHaveBeenCalled();
-      expect(mockPipelinesDataProvider.findPreviousPipeline).not.toHaveBeenCalled();
+      expect(mockPipelinesDataProvider.findPreviousPipeline).toHaveBeenCalledTimes(1);
       expect(getPipelineChangesSpy).toHaveBeenCalledWith(
         mockPipelinesDataProvider,
         mockGitDataProvider,
         defaultParams.teamProject,
         '100784',
-        ''
+        100782
+      );
+      expect(mockPipelinesDataProvider.findPreviousPipeline.mock.invocationCallOrder[0]).toBeLessThan(
+        getPipelineChangesSpy.mock.invocationCallOrder[0]
       );
     });
 
-    it('should load target and source pipeline data inside GetPipelineChanges when from is empty', async () => {
+    it('should load target and source pipeline data via prep then GetPipelineChanges when from is empty', async () => {
       const pipelineFactory = new ChangeDataFactory(
         defaultParams.teamProject,
         defaultParams.repoId,
@@ -672,8 +680,8 @@ describe('ChangeDataFactory', () => {
 
       await pipelineFactory.fetchChangesData();
 
-      // No prep: GetPipelineChanges loads target + source itself (2 calls each, not 3)
-      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledTimes(2);
+      // Prep: 100784 build+run. GetPipelineChanges (explicit-from path): 100784 build+run again, then 100782 build+run.
+      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledTimes(3);
       expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledWith(
         defaultParams.teamProject,
         100784
@@ -682,7 +690,7 @@ describe('ChangeDataFactory', () => {
         defaultParams.teamProject,
         100782
       );
-      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(2);
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(3);
       expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledWith(
         defaultParams.teamProject,
         456,
@@ -695,7 +703,7 @@ describe('ChangeDataFactory', () => {
       );
     });
 
-    it('should surface work items from commits using target and source run repo details loaded in GetPipelineChanges', async () => {
+    it('should surface work items from commits via explicit-from path after prep resolves previous run', async () => {
       const pipelineFactory = new ChangeDataFactory(
         defaultParams.teamProject,
         defaultParams.repoId,
@@ -725,11 +733,13 @@ describe('ChangeDataFactory', () => {
           })
       );
 
-      // No prep: GetPipelineChanges loads target (call 1) then source (call 2)
-      const targetRun = { id: 100793, resources: { repositories: { self: {} } } };
+      // Prep: call 1 → prepTargetRun. GetPipelineChanges (explicit-from): call 2 → fullTargetRun, call 3 → sourceRun.
+      const prepTargetRun = { id: 100793, resources: { repositories: {} } };
+      const fullTargetRun = { id: 100793, resources: { repositories: { self: {} } } };
       const sourceRun = { id: 100784, resources: { repositories: { self: {} } } };
       mockPipelinesDataProvider.getPipelineRunDetails
-        .mockResolvedValueOnce(targetRun)
+        .mockResolvedValueOnce(prepTargetRun)
+        .mockResolvedValueOnce(fullTargetRun)
         .mockResolvedValueOnce(sourceRun);
       mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100784);
       mockPipelinesDataProvider.getPipelineResourcePipelinesFromObject.mockResolvedValue([]);
@@ -743,7 +753,7 @@ describe('ChangeDataFactory', () => {
             },
           ];
         }
-        if (run === targetRun) {
+        if (run === fullTargetRun) {
           return [
             {
               repoName: 'eden1',
@@ -770,12 +780,17 @@ describe('ChangeDataFactory', () => {
       const rawData = pipelineFactory.getRawData();
       expect(rawData[0].changes).toHaveLength(1);
       expect(rawData[0].changes[0].workItem.id).toBe(285961);
+      // GetPipelineChanges uses fullTargetRun (loaded inside it), not prepTargetRun
       expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
-        targetRun,
+        fullTargetRun,
         mockGitDataProvider
       );
       expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
         sourceRun,
+        mockGitDataProvider
+      );
+      expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).not.toHaveBeenCalledWith(
+        prepTargetRun,
         mockGitDataProvider
       );
     });
@@ -805,6 +820,11 @@ describe('ChangeDataFactory', () => {
         artifactChanges: [],
         artifactChangesNoLink: [],
       });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockResolvedValueOnce({
+        id: 100784,
+        result: 'succeeded',
+        definition: { id: 456 },
+      });
       mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(undefined);
 
       await pipelineFactory.fetchChangesData();
@@ -818,7 +838,7 @@ describe('ChangeDataFactory', () => {
       );
     });
 
-    it('should pass empty from to GetPipelineChanges without any prep discovery', async () => {
+    it('should warn and pass original from to GetPipelineChanges when prep discovery throws', async () => {
       const pipelineFactory = new ChangeDataFactory(
         defaultParams.teamProject,
         defaultParams.repoId,
@@ -843,10 +863,13 @@ describe('ChangeDataFactory', () => {
         artifactChanges: [],
         artifactChangesNoLink: [],
       });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockRejectedValueOnce(new Error('pipeline load failed'));
 
       await expect(pipelineFactory.fetchChangesData()).resolves.toBeUndefined();
 
-      expect(mockPipelinesDataProvider.findPreviousPipeline).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('fetchPipelineChanges: previous run resolution failed')
+      );
       expect(getPipelineChangesSpy).toHaveBeenCalledWith(
         mockPipelinesDataProvider,
         mockGitDataProvider,

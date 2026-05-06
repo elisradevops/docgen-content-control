@@ -800,12 +800,44 @@ export default class ChangeDataFactory {
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider
   ): Promise<void> {
+    let resolvedFrom: string | number = this.from;
+    if (!this.hasValidExplicitFrom(resolvedFrom)) {
+      const targetBuildId = Number(this.to);
+      if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
+        try {
+          const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, targetBuildId);
+          const targetPipelineId = targetBuild?.definition?.id;
+          if (targetPipelineId) {
+            const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+              this.teamProject,
+              targetPipelineId,
+              targetBuildId
+            );
+            const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+              this.teamProject,
+              String(targetPipelineId),
+              targetBuildId,
+              targetPipelineRun
+            );
+            if (prevRunId) {
+              const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
+              if (Number.isFinite(numericPrev) && numericPrev > 0) {
+                resolvedFrom = numericPrev;
+              }
+            }
+          }
+        } catch (e: any) {
+          logger.warn(`fetchPipelineChanges: previous run resolution failed: ${e?.message || e}`);
+        }
+      }
+    }
+
     const { artifactChanges, artifactChangesNoLink } = await this.GetPipelineChanges(
       pipelinesDataProvider,
       gitDataProvider,
       this.teamProject,
       this.to,
-      this.from
+      resolvedFrom
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
