@@ -1669,6 +1669,10 @@ export default class ChangeDataFactory {
         `GetPipelineChanges: target run #${targetBuildId} (pipelineId=${targetPipelineId}), ` +
         `from input='${from ?? ''}', shouldDiscover=${shouldDiscoverSourceBuild}`
       );
+      logger.debug(
+        `GetPipelineChanges: targetBuild sourceVersion=${targetBuild?.sourceVersion}, ` +
+        `sourceBranch=${targetBuild?.sourceBranch}, preloadedTargetRun=${!!preloadedTargetRun}`
+      );
       let sourceBuild = shouldDiscoverSourceBuild
         ? undefined
         : await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
@@ -1721,12 +1725,30 @@ export default class ChangeDataFactory {
         resolvedFromRunId
       );
 
+      logger.debug(
+        `GetPipelineChanges: sourceBuild #${resolvedFromRunId} sourceVersion=${sourceBuild?.sourceVersion}, ` +
+        `sourceBranch=${sourceBuild?.sourceBranch}`
+      );
       logger.info(
         `GetPipelineChanges run resources: target pipelines=${Object.keys(
           targetPipelineRun?.resources?.pipelines || {}
         ).length}, target repos=${Object.keys(targetPipelineRun?.resources?.repositories || {}).length}, ` +
           `source pipelines=${Object.keys(sourcePipelineRun?.resources?.pipelines || {}).length}, ` +
           `source repos=${Object.keys(sourcePipelineRun?.resources?.repositories || {}).length}`
+      );
+      logger.debug(
+        `GetPipelineChanges: targetPipelineRun repos=${JSON.stringify(
+          Object.entries(targetPipelineRun?.resources?.repositories || {}).map(([k, v]: [string, any]) => ({
+            key: k, repoId: v?.repository?.id, version: v?.version?.substring(0, 7), refName: v?.refName
+          }))
+        )}`
+      );
+      logger.debug(
+        `GetPipelineChanges: sourcePipelineRun repos=${JSON.stringify(
+          Object.entries(sourcePipelineRun?.resources?.repositories || {}).map(([k, v]: [string, any]) => ({
+            key: k, repoId: v?.repository?.id, version: v?.version?.substring(0, 7), refName: v?.refName
+          }))
+        )}`
       );
 
       const sourcePipelineResourcePipelines =
@@ -1994,6 +2016,31 @@ export default class ChangeDataFactory {
             artifactChangesNoLink.push(...reportPartsForRepoNoLink);
           }
         }
+      }
+      // Build Work Items API returns ALL WIs associated with the build range — including WIs linked
+      // from the WI development section (bidirectional) that commitsbatch misses on TFS on-prem.
+      // Enrich artifactChanges with any WI IDs not already captured by the commit-based walk.
+      try {
+        const buildWiItems = await gitDataProvider.GetItemsForPipelinesRange(
+          teamProject,
+          resolvedFromRunId,
+          targetBuildId
+        );
+        const buildWiIds = buildWiItems.map((item: any) => item?.workItem?.id);
+        logger.debug(
+          `GetPipelineChanges build-WI enrichment: API returned ${buildWiItems.length} WIs=[${buildWiIds.join(',')}], ` +
+          `already tracked=${[...this.includedWorkItemByIdSet].join(',') || 'none'}`
+        );
+        for (const { workItem } of buildWiItems) {
+          if (!workItem?.id || this.includedWorkItemByIdSet.has(workItem.id)) continue;
+          this.includedWorkItemByIdSet.add(workItem.id);
+          artifactChanges.push({ workItem, commit: null, targetRepo: null, linkedItems: [] });
+        }
+        logger.debug(
+          `GetPipelineChanges build-WI enrichment: ${artifactChanges.length} total changes after merge`
+        );
+      } catch (enrichErr: any) {
+        logger.warn(`GetPipelineChanges build-WI enrichment failed: ${enrichErr?.message}`);
       }
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
