@@ -801,6 +801,7 @@ export default class ChangeDataFactory {
     gitDataProvider: GitDataProvider
   ): Promise<void> {
     let resolvedFrom: string | number = this.from;
+    let preloadedTargetRun: any = undefined;
     if (!this.hasValidExplicitFrom(resolvedFrom)) {
       const targetBuildId = Number(this.to);
       if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
@@ -813,6 +814,7 @@ export default class ChangeDataFactory {
               targetPipelineId,
               targetBuildId
             );
+            preloadedTargetRun = targetPipelineRun;
             const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
               this.teamProject,
               String(targetPipelineId),
@@ -837,7 +839,9 @@ export default class ChangeDataFactory {
       gitDataProvider,
       this.teamProject,
       this.to,
-      resolvedFrom
+      resolvedFrom,
+      new Set(),
+      preloadedTargetRun
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -1632,7 +1636,8 @@ export default class ChangeDataFactory {
     teamProject: string,
     to: string | number,
     from: string | number,
-    visitedTargetRuns: Set<string> = new Set()
+    visitedTargetRuns: Set<string> = new Set(),
+    preloadedTargetRun?: any
   ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
     const artifactChangesNoLink = [];
@@ -1651,7 +1656,7 @@ export default class ChangeDataFactory {
       }
       visitedTargetRuns.add(targetRunKey);
 
-      const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+      const targetPipelineRun = preloadedTargetRun ?? await pipelinesDataProvider.getPipelineRunDetails(
         teamProject,
         targetPipelineId,
         targetBuildId

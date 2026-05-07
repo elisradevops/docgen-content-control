@@ -635,7 +635,9 @@ describe('ChangeDataFactory', () => {
         mockGitDataProvider,
         defaultParams.teamProject,
         '100784',
-        100782
+        100782,
+        expect.any(Set),
+        expect.anything()
       );
       expect(mockPipelinesDataProvider.findPreviousPipeline.mock.invocationCallOrder[0]).toBeLessThan(
         getPipelineChangesSpy.mock.invocationCallOrder[0]
@@ -680,7 +682,7 @@ describe('ChangeDataFactory', () => {
 
       await pipelineFactory.fetchChangesData();
 
-      // Prep: 100784 build+run. GetPipelineChanges (explicit-from path): 100784 build+run again, then 100782 build+run.
+      // Prep: 100784 build+run. GetPipelineChanges (explicit-from path): 100784 build (reuses preloaded run), then 100782 build+run.
       expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledTimes(3);
       expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledWith(
         defaultParams.teamProject,
@@ -690,7 +692,8 @@ describe('ChangeDataFactory', () => {
         defaultParams.teamProject,
         100782
       );
-      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(3);
+      // Target run fetched once in prep and reused; only source run fetched inside GetPipelineChanges.
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(2);
       expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledWith(
         defaultParams.teamProject,
         456,
@@ -733,13 +736,11 @@ describe('ChangeDataFactory', () => {
           })
       );
 
-      // Prep: call 1 → prepTargetRun. GetPipelineChanges (explicit-from): call 2 → fullTargetRun, call 3 → sourceRun.
-      const prepTargetRun = { id: 100793, resources: { repositories: {} } };
-      const fullTargetRun = { id: 100793, resources: { repositories: { self: {} } } };
+      // Prep: call 1 → targetRun (preloaded into GetPipelineChanges). GetPipelineChanges: call 2 → sourceRun.
+      const targetRun = { id: 100793, resources: { repositories: { self: {} } } };
       const sourceRun = { id: 100784, resources: { repositories: { self: {} } } };
       mockPipelinesDataProvider.getPipelineRunDetails
-        .mockResolvedValueOnce(prepTargetRun)
-        .mockResolvedValueOnce(fullTargetRun)
+        .mockResolvedValueOnce(targetRun)
         .mockResolvedValueOnce(sourceRun);
       mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100784);
       mockPipelinesDataProvider.getPipelineResourcePipelinesFromObject.mockResolvedValue([]);
@@ -753,7 +754,7 @@ describe('ChangeDataFactory', () => {
             },
           ];
         }
-        if (run === fullTargetRun) {
+        if (run === targetRun) {
           return [
             {
               repoName: 'eden1',
@@ -780,17 +781,14 @@ describe('ChangeDataFactory', () => {
       const rawData = pipelineFactory.getRawData();
       expect(rawData[0].changes).toHaveLength(1);
       expect(rawData[0].changes[0].workItem.id).toBe(285961);
-      // GetPipelineChanges uses fullTargetRun (loaded inside it), not prepTargetRun
+      // GetPipelineChanges reuses preloaded targetRun; only 2 getPipelineRunDetails calls total.
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(2);
       expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
-        fullTargetRun,
+        targetRun,
         mockGitDataProvider
       );
       expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
         sourceRun,
-        mockGitDataProvider
-      );
-      expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).not.toHaveBeenCalledWith(
-        prepTargetRun,
         mockGitDataProvider
       );
     });
@@ -834,7 +832,9 @@ describe('ChangeDataFactory', () => {
         mockGitDataProvider,
         defaultParams.teamProject,
         '100784',
-        ''
+        '',
+        expect.any(Set),
+        expect.anything()
       );
     });
 
@@ -875,7 +875,9 @@ describe('ChangeDataFactory', () => {
         mockGitDataProvider,
         defaultParams.teamProject,
         '100784',
-        ''
+        '',
+        expect.any(Set),
+        undefined
       );
     });
 
@@ -913,7 +915,9 @@ describe('ChangeDataFactory', () => {
         mockGitDataProvider,
         defaultParams.teamProject,
         '100784',
-        100782
+        100782,
+        expect.any(Set),
+        undefined
       );
     });
 
