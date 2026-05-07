@@ -838,7 +838,7 @@ describe('ChangeDataFactory', () => {
       );
     });
 
-    it('should warn and pass original from to GetPipelineChanges when prep discovery throws', async () => {
+    it('should warn and not call GetPipelineChanges when prep discovery throws', async () => {
       const pipelineFactory = new ChangeDataFactory(
         defaultParams.teamProject,
         defaultParams.repoId,
@@ -870,15 +870,7 @@ describe('ChangeDataFactory', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('fetchPipelineChanges: previous run resolution failed')
       );
-      expect(getPipelineChangesSpy).toHaveBeenCalledWith(
-        mockPipelinesDataProvider,
-        mockGitDataProvider,
-        defaultParams.teamProject,
-        '100784',
-        '',
-        expect.any(Set),
-        undefined
-      );
+      expect(getPipelineChangesSpy).not.toHaveBeenCalled();
     });
 
     it('should skip previous pipeline run prep when from is explicit', async () => {

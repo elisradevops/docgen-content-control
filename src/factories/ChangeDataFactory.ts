@@ -830,6 +830,7 @@ export default class ChangeDataFactory {
           }
         } catch (e: any) {
           logger.warn(`fetchPipelineChanges: previous run resolution failed: ${e?.message || e}`);
+          throw e;
         }
       }
     }
