@@ -117,6 +117,7 @@ describe('ChangeDataFactory', () => {
       GetPullRequestsInCommitRangeWithoutLinkedItems: jest.fn().mockResolvedValue([]),
       GetCommitBatch: jest.fn().mockResolvedValue([]),
       getItemsForPipelineRange: jest.fn().mockResolvedValue([]),
+      GetItemsForPipelinesRange: jest.fn().mockResolvedValue([]),
       getSubmodulesData: jest.fn().mockResolvedValue([]),
       GetFileFromGitRepo: jest.fn().mockResolvedValue('{"services":[]}'),
       CheckIfItemExist: jest.fn().mockResolvedValue(true),
@@ -3645,6 +3646,106 @@ describe('ChangeDataFactory', () => {
             ''
           )
         ).rejects.toThrow('pipeline discovery failed');
+      });
+
+      it('GetPipelineChanges should add WIs from build-level API missed by commit walk', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const newWi = { id: 77, fields: { 'System.Title': 'WI from build API' } };
+        mockGitDataProvider.GetItemsForPipelinesRange.mockResolvedValue([{ workItem: newWi }]);
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(mockGitDataProvider.GetItemsForPipelinesRange).toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          150,
+          200
+        );
+        expect(result.artifactChanges).toHaveLength(1);
+        expect(result.artifactChanges[0].workItem.id).toBe(77);
+        expect(result.artifactChanges[0].commit).toBeNull();
+        expect(result.artifactChanges[0].targetRepo).toBeNull();
+      });
+
+      it('GetPipelineChanges should skip build-level WIs already captured by commit walk', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+        factory.includedWorkItemByIdSet = new Set([77]);
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        mockGitDataProvider.GetItemsForPipelinesRange.mockResolvedValue([
+          { workItem: { id: 77, fields: {} } },
+        ]);
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(result.artifactChanges).toHaveLength(0);
+      });
+
+      it('GetPipelineChanges should warn and continue when build-level WI enrichment throws', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        mockGitDataProvider.GetItemsForPipelinesRange.mockRejectedValue(new Error('API unavailable'));
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('build-WI enrichment failed'));
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
       });
 
       it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {

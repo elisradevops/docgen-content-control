@@ -1665,14 +1665,6 @@ export default class ChangeDataFactory {
 
       const shouldDiscoverSourceBuild =
         !Number.isFinite(resolvedFromRunId) || resolvedFromRunId <= 0;
-      logger.debug(
-        `GetPipelineChanges: target run #${targetBuildId} (pipelineId=${targetPipelineId}), ` +
-        `from input='${from ?? ''}', shouldDiscover=${shouldDiscoverSourceBuild}`
-      );
-      logger.debug(
-        `GetPipelineChanges: targetBuild sourceVersion=${targetBuild?.sourceVersion}, ` +
-        `sourceBranch=${targetBuild?.sourceBranch}, preloadedTargetRun=${!!preloadedTargetRun}`
-      );
       let sourceBuild = shouldDiscoverSourceBuild
         ? undefined
         : await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
@@ -1707,9 +1699,6 @@ export default class ChangeDataFactory {
         }
 
         resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
-        logger.info(
-          `GetPipelineChanges: discovery resolved previous run #${resolvedFromRunId} for target run #${targetBuildId}`
-        );
         sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
         if (!sourceBuild) {
           logger.warn(`Could not load previous build details for run #${resolvedFromRunId}`);
@@ -1723,32 +1712,6 @@ export default class ChangeDataFactory {
         teamProject,
         sourcePipelineId,
         resolvedFromRunId
-      );
-
-      logger.debug(
-        `GetPipelineChanges: sourceBuild #${resolvedFromRunId} sourceVersion=${sourceBuild?.sourceVersion}, ` +
-        `sourceBranch=${sourceBuild?.sourceBranch}`
-      );
-      logger.info(
-        `GetPipelineChanges run resources: target pipelines=${Object.keys(
-          targetPipelineRun?.resources?.pipelines || {}
-        ).length}, target repos=${Object.keys(targetPipelineRun?.resources?.repositories || {}).length}, ` +
-          `source pipelines=${Object.keys(sourcePipelineRun?.resources?.pipelines || {}).length}, ` +
-          `source repos=${Object.keys(sourcePipelineRun?.resources?.repositories || {}).length}`
-      );
-      logger.debug(
-        `GetPipelineChanges: targetPipelineRun repos=${JSON.stringify(
-          Object.entries(targetPipelineRun?.resources?.repositories || {}).map(([k, v]: [string, any]) => ({
-            key: k, repoId: v?.repository?.id, version: v?.version?.substring(0, 7), refName: v?.refName
-          }))
-        )}`
-      );
-      logger.debug(
-        `GetPipelineChanges: sourcePipelineRun repos=${JSON.stringify(
-          Object.entries(sourcePipelineRun?.resources?.repositories || {}).map(([k, v]: [string, any]) => ({
-            key: k, repoId: v?.repository?.id, version: v?.version?.substring(0, 7), refName: v?.refName
-          }))
-        )}`
       );
 
       const sourcePipelineResourcePipelines =
@@ -2026,19 +1989,11 @@ export default class ChangeDataFactory {
           resolvedFromRunId,
           targetBuildId
         );
-        const buildWiIds = buildWiItems.map((item: any) => item?.workItem?.id);
-        logger.debug(
-          `GetPipelineChanges build-WI enrichment: API returned ${buildWiItems.length} WIs=[${buildWiIds.join(',')}], ` +
-          `already tracked=${[...this.includedWorkItemByIdSet].join(',') || 'none'}`
-        );
         for (const { workItem } of buildWiItems) {
           if (!workItem?.id || this.includedWorkItemByIdSet.has(workItem.id)) continue;
           this.includedWorkItemByIdSet.add(workItem.id);
           artifactChanges.push({ workItem, commit: null, targetRepo: null, linkedItems: [] });
         }
-        logger.debug(
-          `GetPipelineChanges build-WI enrichment: ${artifactChanges.length} total changes after merge`
-        );
       } catch (enrichErr: any) {
         logger.warn(`GetPipelineChanges build-WI enrichment failed: ${enrichErr?.message}`);
       }
@@ -2047,15 +2002,6 @@ export default class ChangeDataFactory {
       if (error instanceof SvdRangeResolutionError) {
         throw error;
       }
-    }
-
-    logger.info(
-      `GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
-    );
-    if (artifactChanges.length > 0) {
-      logger.debug(
-        `First change has workItem: ${!!artifactChanges[0].workItem}, commit: ${!!artifactChanges[0].commit}`
-      );
     }
 
     return { artifactChanges, artifactChangesNoLink };
