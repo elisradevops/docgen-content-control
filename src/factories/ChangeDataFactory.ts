@@ -800,12 +800,49 @@ export default class ChangeDataFactory {
     pipelinesDataProvider: PipelinesDataProvider,
     gitDataProvider: GitDataProvider
   ): Promise<void> {
+    let resolvedFrom: string | number = this.from;
+    let preloadedTargetRun: any = undefined;
+    if (!this.hasValidExplicitFrom(resolvedFrom)) {
+      const targetBuildId = Number(this.to);
+      if (Number.isFinite(targetBuildId) && targetBuildId > 0) {
+        try {
+          const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, targetBuildId);
+          const targetPipelineId = targetBuild?.definition?.id;
+          if (targetPipelineId) {
+            const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+              this.teamProject,
+              targetPipelineId,
+              targetBuildId
+            );
+            preloadedTargetRun = targetPipelineRun;
+            const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+              this.teamProject,
+              String(targetPipelineId),
+              targetBuildId,
+              targetPipelineRun
+            );
+            if (prevRunId) {
+              const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
+              if (Number.isFinite(numericPrev) && numericPrev > 0) {
+                resolvedFrom = numericPrev;
+              }
+            }
+          }
+        } catch (e: any) {
+          logger.warn(`fetchPipelineChanges: previous run resolution failed: ${e?.message || e}`);
+          throw e;
+        }
+      }
+    }
+
     const { artifactChanges, artifactChangesNoLink } = await this.GetPipelineChanges(
       pipelinesDataProvider,
       gitDataProvider,
       this.teamProject,
       this.to,
-      this.from
+      resolvedFrom,
+      new Set(),
+      preloadedTargetRun
     );
 
     this.isChangesReachedMaxSize(this.rangeType, artifactChanges?.length);
@@ -1600,7 +1637,8 @@ export default class ChangeDataFactory {
     teamProject: string,
     to: string | number,
     from: string | number,
-    visitedTargetRuns: Set<string> = new Set()
+    visitedTargetRuns: Set<string> = new Set(),
+    preloadedTargetRun?: any
   ): Promise<{ artifactChanges: any[]; artifactChangesNoLink: any[] }> {
     const artifactChanges = [];
     const artifactChangesNoLink = [];
@@ -1619,7 +1657,7 @@ export default class ChangeDataFactory {
       }
       visitedTargetRuns.add(targetRunKey);
 
-      const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+      const targetPipelineRun = preloadedTargetRun ?? await pipelinesDataProvider.getPipelineRunDetails(
         teamProject,
         targetPipelineId,
         targetBuildId
@@ -1639,8 +1677,7 @@ export default class ChangeDataFactory {
             teamProject,
             String(targetPipelineId),
             targetBuildId,
-            targetPipelineRun,
-            false
+            targetPipelineRun
           );
         } catch (e: any) {
           throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1826,8 +1863,7 @@ export default class ChangeDataFactory {
                 targetResourcePipelineTeamProject,
                 String(targetResourcePipelineDefinitionId),
                 Number(targetResourcePipelineRunId),
-                targetResourcePipeline,
-                false
+                targetResourcePipeline
               );
             } catch (e: any) {
               throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1944,20 +1980,28 @@ export default class ChangeDataFactory {
           }
         }
       }
+      // Build Work Items API returns ALL WIs associated with the build range — including WIs linked
+      // from the WI development section (bidirectional) that commitsbatch misses on TFS on-prem.
+      // Enrich artifactChanges with any WI IDs not already captured by the commit-based walk.
+      try {
+        const buildWiItems = await gitDataProvider.GetItemsForPipelinesRange(
+          teamProject,
+          resolvedFromRunId,
+          targetBuildId
+        );
+        for (const { workItem } of buildWiItems) {
+          if (!workItem?.id || this.includedWorkItemByIdSet.has(workItem.id)) continue;
+          this.includedWorkItemByIdSet.add(workItem.id);
+          artifactChanges.push({ workItem, commit: null, targetRepo: null, linkedItems: [] });
+        }
+      } catch (enrichErr: any) {
+        logger.warn(`GetPipelineChanges build-WI enrichment failed: ${enrichErr?.message}`);
+      }
     } catch (error: any) {
       logger.error(`could not handle pipeline ${error.message}`);
       if (error instanceof SvdRangeResolutionError) {
         throw error;
       }
-    }
-
-    logger.info(
-      `GetPipelineChanges returning: ${artifactChanges.length} changes, ${artifactChangesNoLink.length} unlinked`
-    );
-    if (artifactChanges.length > 0) {
-      logger.debug(
-        `First change has workItem: ${!!artifactChanges[0].workItem}, commit: ${!!artifactChanges[0].commit}`
-      );
     }
 
     return { artifactChanges, artifactChangesNoLink };

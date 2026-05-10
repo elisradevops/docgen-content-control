@@ -117,6 +117,7 @@ describe('ChangeDataFactory', () => {
       GetPullRequestsInCommitRangeWithoutLinkedItems: jest.fn().mockResolvedValue([]),
       GetCommitBatch: jest.fn().mockResolvedValue([]),
       getItemsForPipelineRange: jest.fn().mockResolvedValue([]),
+      GetItemsForPipelinesRange: jest.fn().mockResolvedValue([]),
       getSubmodulesData: jest.fn().mockResolvedValue([]),
       GetFileFromGitRepo: jest.fn().mockResolvedValue('{"services":[]}'),
       CheckIfItemExist: jest.fn().mockResolvedValue(true),
@@ -592,6 +593,324 @@ describe('ChangeDataFactory', () => {
       expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledWith(
         defaultParams.teamProject,
         100 // from build ID
+      );
+    });
+
+    it('should resolve previous pipeline run before calling GetPipelineChanges when from is empty', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        '',
+        '100784',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      const getPipelineChangesSpy = jest.spyOn(pipelineFactory as any, 'GetPipelineChanges').mockResolvedValue({
+        artifactChanges: [],
+        artifactChangesNoLink: [],
+      });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockResolvedValueOnce({
+        id: 100784,
+        result: 'succeeded',
+        definition: { id: 456 },
+      });
+      mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100782);
+
+      await pipelineFactory.fetchChangesData();
+
+      expect(mockPipelinesDataProvider.findPreviousPipeline).toHaveBeenCalledTimes(1);
+      expect(getPipelineChangesSpy).toHaveBeenCalledWith(
+        mockPipelinesDataProvider,
+        mockGitDataProvider,
+        defaultParams.teamProject,
+        '100784',
+        100782,
+        expect.any(Set),
+        expect.anything()
+      );
+      expect(mockPipelinesDataProvider.findPreviousPipeline.mock.invocationCallOrder[0]).toBeLessThan(
+        getPipelineChangesSpy.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('should load target and source pipeline data via prep then GetPipelineChanges when from is empty', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        '',
+        '100784',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockImplementation(
+        (_project: string, buildId: number) =>
+          Promise.resolve({
+            id: buildId,
+            result: 'succeeded',
+            definition: { id: 456 },
+          })
+      );
+      mockPipelinesDataProvider.getPipelineRunDetails.mockImplementation(
+        (_project: string, _pipelineId: number, buildId: number) => Promise.resolve({ id: buildId })
+      );
+      mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100782);
+      mockPipelinesDataProvider.getPipelineResourcePipelinesFromObject.mockResolvedValue([]);
+      mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject.mockResolvedValue([]);
+
+      await pipelineFactory.fetchChangesData();
+
+      // Prep: 100784 build+run. GetPipelineChanges (explicit-from path): 100784 build (reuses preloaded run), then 100782 build+run.
+      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledTimes(3);
+      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledWith(
+        defaultParams.teamProject,
+        100784
+      );
+      expect(mockPipelinesDataProvider.getPipelineBuildByBuildId).toHaveBeenCalledWith(
+        defaultParams.teamProject,
+        100782
+      );
+      // Target run fetched once in prep and reused; only source run fetched inside GetPipelineChanges.
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(2);
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledWith(
+        defaultParams.teamProject,
+        456,
+        100784
+      );
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledWith(
+        defaultParams.teamProject,
+        456,
+        100782
+      );
+    });
+
+    it('should surface work items from commits via explicit-from path after prep resolves previous run', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        '',
+        '100793',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockImplementation(
+        (_project: string, buildId: number) =>
+          Promise.resolve({
+            id: buildId,
+            result: 'succeeded',
+            definition: { id: 846 },
+          })
+      );
+
+      // Prep: call 1 → targetRun (preloaded into GetPipelineChanges). GetPipelineChanges: call 2 → sourceRun.
+      const targetRun = { id: 100793, resources: { repositories: { self: {} } } };
+      const sourceRun = { id: 100784, resources: { repositories: { self: {} } } };
+      mockPipelinesDataProvider.getPipelineRunDetails
+        .mockResolvedValueOnce(targetRun)
+        .mockResolvedValueOnce(sourceRun);
+      mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(100784);
+      mockPipelinesDataProvider.getPipelineResourcePipelinesFromObject.mockResolvedValue([]);
+      mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject.mockImplementation((run: any) => {
+        if (run === sourceRun) {
+          return [
+            {
+              repoName: 'eden1',
+              repoSha1: '13d6b22992f09c515d413cf87b774b212c2550b4',
+              url: 'http://elis-tfs:8080/tfs/ElisraCollection/TestProject-CMMI/_apis/git/repositories/b671b0fa-3a99-4386-bc66-236f3dc58ed8',
+            },
+          ];
+        }
+        if (run === targetRun) {
+          return [
+            {
+              repoName: 'eden1',
+              repoSha1: '0ba4ed48c6565d63365a367e135d23d5140fae11',
+              url: 'http://elis-tfs:8080/tfs/ElisraCollection/TestProject-CMMI/_apis/git/repositories/b671b0fa-3a99-4386-bc66-236f3dc58ed8',
+            },
+          ];
+        }
+        return [];
+      });
+      mockGitDataProvider.GetCommitBatch.mockResolvedValue([{ commit: { commitId: '0ba4ed4', workItems: [{ id: 285961 }] } }]);
+      mockGitDataProvider.getItemsForPipelineRange.mockResolvedValue({
+        commitChangesArray: [
+          {
+            commit: { commitId: '0ba4ed4' },
+            workItem: { id: 285961, fields: {}, _links: {} },
+          },
+        ],
+        commitsWithNoRelations: [],
+      });
+
+      await pipelineFactory.fetchChangesData();
+
+      const rawData = pipelineFactory.getRawData();
+      expect(rawData[0].changes).toHaveLength(1);
+      expect(rawData[0].changes[0].workItem.id).toBe(285961);
+      // GetPipelineChanges reuses preloaded targetRun; only 2 getPipelineRunDetails calls total.
+      expect(mockPipelinesDataProvider.getPipelineRunDetails).toHaveBeenCalledTimes(2);
+      expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
+        targetRun,
+        mockGitDataProvider
+      );
+      expect(mockPipelinesDataProvider.getPipelineResourceRepositoriesFromObject).toHaveBeenCalledWith(
+        sourceRun,
+        mockGitDataProvider
+      );
+    });
+
+    it('should keep original from when previous pipeline run is not found in prep', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        '',
+        '100784',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      const getPipelineChangesSpy = jest.spyOn(pipelineFactory as any, 'GetPipelineChanges').mockResolvedValue({
+        artifactChanges: [],
+        artifactChangesNoLink: [],
+      });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockResolvedValueOnce({
+        id: 100784,
+        result: 'succeeded',
+        definition: { id: 456 },
+      });
+      mockPipelinesDataProvider.findPreviousPipeline.mockResolvedValueOnce(undefined);
+
+      await pipelineFactory.fetchChangesData();
+
+      expect(getPipelineChangesSpy).toHaveBeenCalledWith(
+        mockPipelinesDataProvider,
+        mockGitDataProvider,
+        defaultParams.teamProject,
+        '100784',
+        '',
+        expect.any(Set),
+        expect.anything()
+      );
+    });
+
+    it('should warn and not call GetPipelineChanges when prep discovery throws', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        '',
+        '100784',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      const getPipelineChangesSpy = jest.spyOn(pipelineFactory as any, 'GetPipelineChanges').mockResolvedValue({
+        artifactChanges: [],
+        artifactChangesNoLink: [],
+      });
+      mockPipelinesDataProvider.getPipelineBuildByBuildId.mockRejectedValueOnce(new Error('pipeline load failed'));
+
+      await expect(pipelineFactory.fetchChangesData()).resolves.toBeUndefined();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('fetchPipelineChanges: previous run resolution failed')
+      );
+      expect(getPipelineChangesSpy).not.toHaveBeenCalled();
+    });
+
+    it('should skip previous pipeline run prep when from is explicit', async () => {
+      const pipelineFactory = new ChangeDataFactory(
+        defaultParams.teamProject,
+        defaultParams.repoId,
+        100782,
+        '100784',
+        'pipeline',
+        defaultParams.linkTypeFilterArray,
+        defaultParams.branchName,
+        defaultParams.includePullRequests,
+        defaultParams.includePullRequestWorkItems,
+        defaultParams.attachmentWikiUrl,
+        defaultParams.includeChangeDescription,
+        defaultParams.includeCommittedBy,
+        mockDgDataProvider,
+        defaultParams.attachmentsBucketName,
+        defaultParams.minioEndPoint,
+        defaultParams.minioAccessKey,
+        defaultParams.minioSecretKey,
+        defaultParams.PAT
+      );
+      const getPipelineChangesSpy = jest.spyOn(pipelineFactory as any, 'GetPipelineChanges').mockResolvedValue({
+        artifactChanges: [],
+        artifactChangesNoLink: [],
+      });
+
+      await pipelineFactory.fetchChangesData();
+
+      expect(mockPipelinesDataProvider.findPreviousPipeline).not.toHaveBeenCalled();
+      expect(getPipelineChangesSpy).toHaveBeenCalledWith(
+        mockPipelinesDataProvider,
+        mockGitDataProvider,
+        defaultParams.teamProject,
+        '100784',
+        100782,
+        expect.any(Set),
+        undefined
       );
     });
 
@@ -3075,8 +3394,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '10',
           200,
-          expect.anything(),
-          false
+          expect.anything()
         );
         expect(pipelines.getPipelineBuildByBuildId).not.toHaveBeenCalledWith(
           defaultParams.teamProject,
@@ -3328,6 +3646,106 @@ describe('ChangeDataFactory', () => {
             ''
           )
         ).rejects.toThrow('pipeline discovery failed');
+      });
+
+      it('GetPipelineChanges should add WIs from build-level API missed by commit walk', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        const newWi = { id: 77, fields: { 'System.Title': 'WI from build API' } };
+        mockGitDataProvider.GetItemsForPipelinesRange.mockResolvedValue([{ workItem: newWi }]);
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(mockGitDataProvider.GetItemsForPipelinesRange).toHaveBeenCalledWith(
+          defaultParams.teamProject,
+          150,
+          200
+        );
+        expect(result.artifactChanges).toHaveLength(1);
+        expect(result.artifactChanges[0].workItem.id).toBe(77);
+        expect(result.artifactChanges[0].commit).toBeNull();
+        expect(result.artifactChanges[0].targetRepo).toBeNull();
+      });
+
+      it('GetPipelineChanges should skip build-level WIs already captured by commit walk', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+        factory.includedWorkItemByIdSet = new Set([77]);
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        mockGitDataProvider.GetItemsForPipelinesRange.mockResolvedValue([
+          { workItem: { id: 77, fields: {} } },
+        ]);
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(result.artifactChanges).toHaveLength(0);
+      });
+
+      it('GetPipelineChanges should warn and continue when build-level WI enrichment throws', async () => {
+        const factory = changeDataFactory as any;
+        factory.requestedByBuild = false;
+
+        const pipelines: any = {
+          getPipelineBuildByBuildId: jest.fn().mockImplementation((_tp: string, id: number) => ({
+            id,
+            result: 'succeeded',
+            definition: { id: 10 },
+          })),
+          findPreviousPipeline: jest.fn(),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({}),
+          getPipelineResourcePipelinesFromObject: jest.fn().mockResolvedValue([]),
+          getPipelineResourceRepositoriesFromObject: jest.fn().mockResolvedValue([]),
+        };
+
+        mockGitDataProvider.GetItemsForPipelinesRange.mockRejectedValue(new Error('API unavailable'));
+
+        const result = await factory.GetPipelineChanges(
+          pipelines,
+          mockGitDataProvider,
+          defaultParams.teamProject,
+          200,
+          150
+        );
+
+        expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('build-WI enrichment failed'));
+        expect(result).toEqual({ artifactChanges: [], artifactChangesNoLink: [] });
       });
 
       it('GetPipelineChanges should recurse for matching TfsGit resource pipelines and then terminate', async () => {
@@ -3698,8 +4116,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '99',
           300,
-          expect.anything(),
-          false
+          expect.anything()
         );
       });
 
@@ -3781,8 +4198,7 @@ describe('ChangeDataFactory', () => {
           defaultParams.teamProject,
           '99',
           300,
-          expect.anything(),
-          false
+          expect.anything()
         );
       });
 
