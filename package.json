@@ -1,6 +1,6 @@
 {
   "name": "dg-content-control",
-  "version": "1.128.0",
+  "version": "1.127.4",
   "description": "TODO: Give a short introduction of your project. Let this section explain the objectives or the motivation behind this project.",
   "main": "./bin/index.js",
   "types": "./bin/index.d.ts",
@@ -18,7 +18,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@elisra-devops/docgen-data-provider": "^1.127.0",
+    "@elisra-devops/docgen-data-provider": "^1.128.0",
     "@elisra-devops/docgen-skins": "^0.24.0",
     "@types/html-minifier-terser": "^7.0.2",
     "axios": "^1.7.2",

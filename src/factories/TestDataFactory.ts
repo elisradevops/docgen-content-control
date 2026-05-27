@@ -634,7 +634,7 @@ export default class TestDataFactory {
 
                             let testStepAttachments = testCase.attachmentsData.filter((attachment) => {
                               return (
-                                attachment.attachmentStepNo === `${testStep.stepPosition}` ||
+                                attachment.attachmentStepNo === `${testStep.originalStepPosition ?? testStep.stepPosition}` ||
                                 attachment.attachmentComment.includes(`[TestStep=${testStep.stepId || ''}]`)
                               );
                             });
