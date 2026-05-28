@@ -1424,14 +1424,6 @@ describe('TestDataFactory', () => {
 
     describe('extractStepStatus and extractStepComment', () => {
       describe('extractStepStatus', () => {
-        test('should return empty string for shared step title', () => {
-          const result = testDataFactory['extractStepStatus'].call(testDataFactory, {
-            isSharedStepTitle: true,
-          });
-
-          expect(result).toBe('');
-        });
-
         test('should return step status when available', () => {
           const result = testDataFactory['extractStepStatus'].call(testDataFactory, { stepStatus: 'Passed' });
 
@@ -1446,14 +1438,6 @@ describe('TestDataFactory', () => {
       });
 
       describe('extractStepComment', () => {
-        test('should return empty string for shared step title with no comments', () => {
-          const result = testDataFactory['extractStepComment'].call(testDataFactory, {
-            isSharedStepTitle: true,
-          });
-
-          expect(result).toBe('');
-        });
-
         test('should return step comments when available', () => {
           const result = testDataFactory['extractStepComment'].call(testDataFactory, {
             stepComments: 'Some comment',

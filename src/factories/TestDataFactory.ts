@@ -1,4 +1,3 @@
-// #291467 Shared Steps - flat sequential step numbering
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
 import RichTextDataFactory from './RichTextDataFactory';
 import AttachmentsDataFactory from './AttachmentsDataFactory';
@@ -1121,17 +1120,10 @@ export default class TestDataFactory {
   }
 
   private extractStepStatus(testStep: any) {
-    if (testStep?.isSharedStepTitle) {
-      return '';
-    }
-
     return testStep?.stepStatus || 'Not Run';
   }
 
   private extractStepComment(testStep: any) {
-    if (testStep?.isSharedStepTitle && !testStep?.stepComments) {
-      return '';
-    }
     if (testStep?.stepComments) {
       return testStep?.stepComments;
     }
