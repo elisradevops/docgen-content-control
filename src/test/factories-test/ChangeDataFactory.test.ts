@@ -43,7 +43,10 @@ jest.mock('../../adapters/NonAssociatedCommitsDataSkinAdapter', () => {
   }));
 });
 
+jest.mock('axios');
+
 // Now it's safe to import the modules
+import axios from 'axios';
 import ChangeDataFactory from '../../factories/ChangeDataFactory';
 import logger from '../../services/logger';
 import { TagCommitMeta } from '../../models/changeModels';
@@ -4936,6 +4939,277 @@ describe('ChangeDataFactory', () => {
         expect(() => factory.isChangesReachedMaxSize('commitSha', 501)).toThrow(
           'The number of changes is too large (501)'
         );
+      });
+    });
+
+    describe('Auto-Discovery & Repository Lookup Fixes', () => {
+      beforeEach(() => {
+        jest.clearAllMocks();
+      });
+
+      it('resolveReleaseIds Scenario 1: from is explicit, to is empty', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '1',
+          '',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const pipelines = {
+          GetReleaseHistory: jest.fn().mockResolvedValue({
+            value: [{ id: 20 }]
+          }),
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            return Promise.resolve(undefined);
+          }),
+        } as any;
+
+        await factory.resolveReleaseIds(pipelines);
+
+        expect(factory.from).toBe('1');
+        expect(factory.to).toBe(20);
+        expect(pipelines.GetReleaseHistory).toHaveBeenCalledWith(defaultParams.teamProject, defaultParams.repoId);
+      });
+
+      it('resolveReleaseIds Scenario 2: from is empty, to is explicit', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '',
+          '20',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const pipelines = {
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            return Promise.resolve(undefined);
+          }),
+        } as any;
+
+        await factory.resolveReleaseIds(pipelines);
+
+        expect(factory.from).toBe(10);
+        expect(factory.to).toBe('20');
+      });
+
+      it('resolveReleaseIds Scenario 3: both from and to are empty', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '',
+          '',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const pipelines = {
+          GetReleaseHistory: jest.fn().mockResolvedValue({
+            value: [{ id: 20 }]
+          }),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            return Promise.resolve(undefined);
+          }),
+        } as any;
+
+        await factory.resolveReleaseIds(pipelines);
+
+        expect(factory.from).toBe(10);
+        expect(factory.to).toBe(20);
+      });
+
+      it('resolvePipelineIds Scenario 1: from is explicit, to is empty', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '1',
+          '',
+          'pipeline',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        (axios.get as jest.Mock).mockResolvedValue({
+          data: {
+            value: [{ id: 100 }]
+          }
+        });
+
+        const pipelines = {} as any;
+
+        await factory.resolvePipelineIds(pipelines);
+
+        expect(factory.from).toBe('1');
+        expect(factory.to).toBe(100);
+      });
+
+      it('resolvePipelineIds Scenario 2: from is empty, to is explicit', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '',
+          '100',
+          'pipeline',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const pipelines = {
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5 } }),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(99)
+        } as any;
+
+        await factory.resolvePipelineIds(pipelines);
+
+        expect(factory.from).toBe(99);
+        expect(factory.to).toBe('100');
+      });
+
+      it('resolvePipelineIds Scenario 3: both from and to are empty', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '',
+          '',
+          'pipeline',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        (axios.get as jest.Mock).mockResolvedValue({
+          data: {
+            value: [{ id: 100 }]
+          }
+        });
+
+        const pipelines = {
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5 } }),
+          getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
+          findPreviousPipeline: jest.fn().mockResolvedValue(99)
+        } as any;
+
+        await factory.resolvePipelineIds(pipelines);
+
+        expect(factory.from).toBe(99);
+        expect(factory.to).toBe(100);
+      });
+
+      it('fetchChangesData should not fetch Git repository details when rangeType is release', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '10',
+          '20',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const mockGitDataProvider = {
+          GetGitRepoFromRepoId: jest.fn(),
+        } as any;
+
+        const pipelines = {
+          GetReleaseByReleaseId: jest.fn().mockResolvedValue({ id: 20, name: '2.0.0' }),
+        } as any;
+
+        jest.spyOn(factory, 'fetchReleaseChanges').mockResolvedValue(undefined as any);
+        
+        mockDgDataProvider.getGitDataProvider.mockResolvedValue(mockGitDataProvider);
+        mockDgDataProvider.getPipelinesDataProvider.mockResolvedValue(pipelines);
+
+        await factory.fetchChangesData();
+
+        expect(mockGitDataProvider.GetGitRepoFromRepoId).not.toHaveBeenCalled();
+        expect(factory.fetchReleaseChanges).toHaveBeenCalled();
       });
     });
   });
