@@ -1,4 +1,5 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import axios from 'axios';
 import logger from '../services/logger';
 import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
 import GitDataProvider from '@elisra-devops/docgen-data-provider/bin/modules/GitDataProvider';
@@ -83,6 +84,7 @@ export default class ChangeDataFactory {
   private replaceTaskWithParent: boolean = false;
   private allowBaselineSvd: boolean = false;
   private baselineChangeSource: string = '';
+  private resolvedContextName: string = '';
   //#endregion properties
 
   //#region constructor
@@ -181,6 +183,11 @@ export default class ChangeDataFactory {
       );
       // 1) Get release component adoptedData for release-components content control
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+      if (this.rangeType === 'release') {
+        await this.resolveReleaseIds(pipelinesDataProvider);
+      } else if (this.rangeType === 'pipeline') {
+        await this.resolvePipelineIds(pipelinesDataProvider);
+      }
       let recentReleaseArtifactInfo: any[] = [];
       if (this.rangeType === 'release') {
         try {
@@ -611,6 +618,10 @@ export default class ChangeDataFactory {
 
   public getAttachmentMinioData(): any[] {
     return this.attachmentMinioData;
+  }
+
+  public getResolvedContextName(): string {
+    return this.resolvedContextName;
   }
 
   //#endregion public methods
@@ -1284,6 +1295,206 @@ export default class ChangeDataFactory {
     );
   }
 
+  /**
+   * Resolves omitted from/to release IDs early in the SVD lifecycle,
+   * mutating `this.from` and `this.to` with correct numeric IDs.
+   */
+  private async resolveReleaseIds(pipelinesDataProvider: PipelinesDataProvider): Promise<void> {
+    if (this.rangeType !== 'release') return;
+
+    let toId = Number(this.to);
+    const requestedReleaseDefinitionId = this.repoId;
+    const shouldDiscoverToRelease = !Number.isFinite(toId) || toId <= 0;
+
+    if (shouldDiscoverToRelease) {
+      if (!requestedReleaseDefinitionId) {
+        throw new SvdRangeResolutionError('Could not auto-discover latest release: missing release definition id');
+      }
+
+      let latestReleaseId;
+      try {
+        if (typeof pipelinesDataProvider.GetReleaseHistory === 'function') {
+          const history = await pipelinesDataProvider.GetReleaseHistory(
+            this.teamProject,
+            String(requestedReleaseDefinitionId)
+          );
+          const releases = history?.value || [];
+          if (releases.length > 0) {
+            latestReleaseId = releases[0].id;
+          }
+        }
+      } catch (e: any) {
+        logger.warn(`GetReleaseHistory failed during release auto-discovery: ${e.message}. Falling back to findLatestSuccessfulRelease.`);
+      }
+
+      if (!latestReleaseId) {
+        try {
+          if (typeof (pipelinesDataProvider as any).findLatestSuccessfulRelease === 'function') {
+            latestReleaseId = await (pipelinesDataProvider as any).findLatestSuccessfulRelease(
+              this.teamProject,
+              String(requestedReleaseDefinitionId)
+            );
+          }
+        } catch (e: any) {
+          if (e instanceof SvdRangeResolutionError) throw e;
+          throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+        }
+      }
+
+      if (!latestReleaseId) {
+        logger.warn(`Could not find a valid latest release for definition #${requestedReleaseDefinitionId}`);
+        return;
+      }
+      toId = Number(typeof latestReleaseId === 'object' ? latestReleaseId.id : latestReleaseId);
+      this.to = toId;
+    }
+
+    const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, toId);
+    if (!toRelease) {
+      throw new SvdRangeResolutionError(`Could not load target release #${shouldDiscoverToRelease ? toId : this.to}`);
+    }
+
+    const releaseDefinitionId =
+      toRelease?.releaseDefinition?.id ??
+      toRelease?.releaseDefinitionId ??
+      toRelease?.definitionId ??
+      (shouldDiscoverToRelease ? requestedReleaseDefinitionId : undefined);
+
+    const sanitizeCtx = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
+    let rawDefName: string = toRelease?.releaseDefinition?.name || '';
+    if (!rawDefName && releaseDefinitionId) {
+      try {
+        let defUrl = `${pipelinesDataProvider.orgUrl}${this.teamProject}/_apis/release/definitions/${releaseDefinitionId}?api-version=6.0`;
+        if (defUrl.startsWith('https://dev.azure.com')) {
+          defUrl = defUrl.replace('https://dev.azure.com', 'https://vsrm.dev.azure.com');
+        }
+        const defResponse = await axios.get(defUrl, {
+          headers: { Authorization: 'Basic ' + Buffer.from(':' + pipelinesDataProvider.token).toString('base64') },
+        });
+        rawDefName = defResponse.data?.name || '';
+      } catch (e: any) {
+        logger.warn(`resolveReleaseIds: could not fetch release definition name for id ${releaseDefinitionId}: ${e?.message}`);
+      }
+    }
+    const relDefName = sanitizeCtx(rawDefName || String(releaseDefinitionId || this.repoId));
+    const relRunName = toRelease?.name ? sanitizeCtx(toRelease.name) : '';
+    this.resolvedContextName = relRunName ? `release-${relDefName}-${relRunName}` : `release-${relDefName}`;
+
+    let fromId = Number(this.from);
+    const shouldDiscoverFromRelease = !Number.isFinite(fromId) || fromId <= 0;
+    if (shouldDiscoverFromRelease) {
+      if (!releaseDefinitionId) {
+        throw new SvdRangeResolutionError(`Could not auto-discover previous release before release #${toId}: missing definition id`);
+      }
+      let previousReleaseId;
+      try {
+        previousReleaseId =
+          typeof (pipelinesDataProvider as any).findPreviousSuccessfulRelease === 'function'
+            ? await (pipelinesDataProvider as any).findPreviousSuccessfulRelease(
+                this.teamProject,
+                String(releaseDefinitionId),
+                toId
+              )
+            : undefined;
+      } catch (e: any) {
+        throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+      }
+      if (!previousReleaseId) {
+        logger.warn(`Could not find a valid release before release #${toId}`);
+        return;
+      }
+      fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
+      this.from = fromId;
+    }
+  }
+
+  /**
+   * Resolves omitted target/source pipeline build IDs early in the SVD lifecycle,
+   * mutating `this.to` and `this.from` with the resolved build IDs.
+   */
+  private async resolvePipelineIds(pipelinesDataProvider: PipelinesDataProvider): Promise<void> {
+    if (this.rangeType !== 'pipeline') return;
+
+    let toId = Number(this.to);
+    const shouldDiscoverToBuild = !Number.isFinite(toId) || toId <= 0;
+
+    if (shouldDiscoverToBuild) {
+      if (!this.repoId) {
+        throw new SvdRangeResolutionError('Could not auto-discover latest pipeline build: missing pipeline definition id');
+      }
+
+      let latestBuildId;
+      try {
+        const authHeader = 'Basic ' + Buffer.from(':' + pipelinesDataProvider.token).toString('base64');
+        const url = `${pipelinesDataProvider.orgUrl}${this.teamProject}/_apis/pipelines/${this.repoId}/runs?api-version=6.0-preview.1`;
+        const response = await axios.get(url, {
+          headers: {
+            Authorization: authHeader,
+          },
+        });
+        const runs = response.data?.value || [];
+        if (runs.length > 0) {
+          latestBuildId = runs[0].id;
+        }
+      } catch (e: any) {
+        logger.warn(`Direct runs API call failed during pipeline auto-discovery: ${e.message}. Falling back to GetPipelineRunHistory.`);
+      }
+
+      if (!latestBuildId) {
+        try {
+          const history = await pipelinesDataProvider.GetPipelineRunHistory(this.teamProject, String(this.repoId));
+          const runs = history?.value || [];
+          if (runs.length > 0) {
+            latestBuildId = runs[0].id;
+          }
+        } catch (e: any) {
+          throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
+        }
+      }
+
+      if (!latestBuildId) {
+        throw new SvdRangeResolutionError(`Could not find a valid latest successful build for pipeline definition #${this.repoId}`);
+      }
+      toId = Number(latestBuildId);
+      this.to = toId;
+    }
+
+    let fromId = Number(this.from);
+    const shouldDiscoverFromBuild = !Number.isFinite(fromId) || fromId <= 0;
+
+    try {
+      const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, toId);
+      if (targetBuild?.definition?.name) {
+        const sanitizeCtxP = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
+        this.resolvedContextName = `pipeline-${sanitizeCtxP(targetBuild.definition.name)}`;
+      }
+      if (shouldDiscoverFromBuild) {
+        const targetPipelineId = targetBuild?.definition?.id;
+        if (targetPipelineId) {
+          const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
+            this.teamProject,
+            targetPipelineId,
+            toId
+          );
+          const prevRunId = await pipelinesDataProvider.findPreviousPipeline(
+            this.teamProject,
+            String(targetPipelineId),
+            toId,
+            targetPipelineRun
+          );
+          if (prevRunId) {
+            const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
+            if (Number.isFinite(numericPrev) && numericPrev > 0) {
+              this.from = numericPrev;
+            }
+          }
+        }
+      }
+    } catch (e: any) {
+      logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
+    }
+  }
+
   private async compareConsecutiveReleases(
     releasesList: any[],
     gitDataProvider: GitDataProvider,
@@ -1569,7 +1780,8 @@ export default class ChangeDataFactory {
       let jfrogDataProvider = await this.dgDataProviderAzureDevOps.getJfrogDataProvider();
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
 
-      if (this.repoId) {
+      const isGitRange = this.rangeType === 'commitSha' || this.rangeType === 'range';
+      if (this.repoId && isGitRange) {
         focusedArtifact = await gitDataProvider.GetGitRepoFromRepoId(this.repoId);
       }
       switch (this.rangeType) {
@@ -1647,6 +1859,9 @@ export default class ChangeDataFactory {
       let resolvedFromRunId = Number(from);
 
       let targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, targetBuildId);
+      if (!targetBuild || !targetBuild.definition) {
+        throw new SvdRangeResolutionError(`Could not load target build details for build #${targetBuildId || to}`);
+      }
 
       const targetPipelineId = targetBuild.definition.id;
 
