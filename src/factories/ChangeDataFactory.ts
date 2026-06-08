@@ -84,6 +84,8 @@ export default class ChangeDataFactory {
   private replaceTaskWithParent: boolean = false;
   private allowBaselineSvd: boolean = false;
   private baselineChangeSource: string = '';
+  public resolvedFromName?: string;
+  public resolvedToName?: string;
   //#endregion properties
 
   //#region constructor
@@ -1348,6 +1350,7 @@ export default class ChangeDataFactory {
     if (!toRelease) {
       throw new SvdRangeResolutionError(`Could not load target release #${shouldDiscoverToRelease ? toId : this.to}`);
     }
+    this.resolvedToName = toRelease?.name;
 
     const releaseDefinitionId =
       toRelease?.releaseDefinition?.id ??
@@ -1380,6 +1383,15 @@ export default class ChangeDataFactory {
       }
       fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
       this.from = fromId;
+    }
+
+    try {
+      if (Number.isFinite(fromId) && fromId > 0) {
+        const fromRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, fromId);
+        this.resolvedFromName = fromRelease?.name;
+      }
+    } catch (e: any) {
+      logger.warn(`Could not fetch source release details for ID #${fromId}: ${e.message}`);
     }
   }
 
@@ -1462,6 +1474,23 @@ export default class ChangeDataFactory {
       } catch (e: any) {
         logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
       }
+    }
+
+    try {
+      const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, toId);
+      this.resolvedToName = targetBuild?.buildNumber;
+    } catch (e: any) {
+      logger.warn(`resolvePipelineIds: failed to fetch target build details: ${e.message}`);
+    }
+
+    try {
+      const finalFromId = Number(this.from);
+      if (Number.isFinite(finalFromId) && finalFromId > 0) {
+        const sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, finalFromId);
+        this.resolvedFromName = sourceBuild?.buildNumber;
+      }
+    } catch (e: any) {
+      logger.warn(`resolvePipelineIds: failed to fetch source build details: ${e.message}`);
     }
   }
 

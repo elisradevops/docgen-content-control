@@ -2033,6 +2033,7 @@ export default class DgContentControls {
     baselineOptions: any = undefined,
   ) {
     let adoptedChangesData;
+    let changeDataFactory;
     logger.debug(`fetching data with params:
       repoId:${repoId}
       from:${JSON.stringify(from)}
@@ -2046,7 +2047,7 @@ export default class DgContentControls {
       attachmentsWikiUrl:${attachmentWikiUrl}
       linkedWiOptions:${JSON.stringify(linkedWiOptions)}`);
     try {
-      let changeDataFactory = new ChangeDataFactory(
+      changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
         repoId,
         from,
@@ -2201,6 +2202,20 @@ export default class DgContentControls {
           ...(await this.addReleaseFileContentControl(releaseFileControlTitle, releaseZipFileName)),
         );
       }
+
+      contentControls.push({
+        title: 'resolved-range-metadata',
+        wordObjects: [
+          {
+            name: 'resolvedFrom',
+            value: changeDataFactory.resolvedFromName || String(changeDataFactory.from || ''),
+          },
+          {
+            name: 'resolvedTo',
+            value: changeDataFactory.resolvedToName || String(changeDataFactory.to || ''),
+          }
+        ]
+      });
 
       return contentControls;
     } catch (error) {
