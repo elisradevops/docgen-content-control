@@ -4974,7 +4974,7 @@ describe('ChangeDataFactory', () => {
             value: [{ id: 20 }]
           }),
           GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
-            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1, name: 'MyRelease' } });
             return Promise.resolve(undefined);
           }),
         } as any;
@@ -4983,6 +4983,7 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.from).toBe('1');
         expect(factory.to).toBe(20);
+        expect(factory.getResolvedContextName()).toBe('release-MyRelease-2-0-0');
         expect(pipelines.GetReleaseHistory).toHaveBeenCalledWith(defaultParams.teamProject, defaultParams.repoId);
       });
 
@@ -5011,7 +5012,7 @@ describe('ChangeDataFactory', () => {
         const pipelines = {
           findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
           GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
-            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1, name: 'MyRelease' } });
             return Promise.resolve(undefined);
           }),
         } as any;
@@ -5020,6 +5021,7 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.from).toBe(10);
         expect(factory.to).toBe('20');
+        expect(factory.getResolvedContextName()).toBe('release-MyRelease-2-0-0');
       });
 
       it('resolveReleaseIds Scenario 3: both from and to are empty', async () => {
@@ -5050,7 +5052,7 @@ describe('ChangeDataFactory', () => {
           }),
           findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
           GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
-            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1 } });
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1, name: 'MyRelease' } });
             return Promise.resolve(undefined);
           }),
         } as any;
@@ -5059,6 +5061,7 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.from).toBe(10);
         expect(factory.to).toBe(20);
+        expect(factory.getResolvedContextName()).toBe('release-MyRelease-2-0-0');
       });
 
       it('resolvePipelineIds Scenario 1: from is explicit, to is empty', async () => {
@@ -5089,12 +5092,15 @@ describe('ChangeDataFactory', () => {
           }
         });
 
-        const pipelines = {} as any;
+        const pipelines = {
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
+        } as any;
 
         await factory.resolvePipelineIds(pipelines);
 
         expect(factory.from).toBe('1');
         expect(factory.to).toBe(100);
+        expect(factory.getResolvedContextName()).toBe('pipeline-MyPipeline');
       });
 
       it('resolvePipelineIds Scenario 2: from is empty, to is explicit', async () => {
@@ -5120,7 +5126,7 @@ describe('ChangeDataFactory', () => {
         ) as any;
 
         const pipelines = {
-          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5 } }),
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
           getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
           findPreviousPipeline: jest.fn().mockResolvedValue(99)
         } as any;
@@ -5129,6 +5135,7 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.from).toBe(99);
         expect(factory.to).toBe('100');
+        expect(factory.getResolvedContextName()).toBe('pipeline-MyPipeline');
       });
 
       it('resolvePipelineIds Scenario 3: both from and to are empty', async () => {
@@ -5160,7 +5167,7 @@ describe('ChangeDataFactory', () => {
         });
 
         const pipelines = {
-          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5 } }),
+          getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
           getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
           findPreviousPipeline: jest.fn().mockResolvedValue(99)
         } as any;
@@ -5169,6 +5176,7 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.from).toBe(99);
         expect(factory.to).toBe(100);
+        expect(factory.getResolvedContextName()).toBe('pipeline-MyPipeline');
       });
 
       it('fetchChangesData should not fetch Git repository details when rangeType is release', async () => {

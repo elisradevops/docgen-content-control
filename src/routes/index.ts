@@ -322,6 +322,7 @@ export class Routes {
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateContentControl(body.contentControlOptions);
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
+        resJson.resolvedContextName = dgContentControls.resolvedContextName || '';
         const isExcelSpreadsheet = body.contentControlOptions.isExcelSpreadsheet;
         resJson.isExcelSpreadsheet = isExcelSpreadsheet;
         res.status(StatusCodes.OK).json(resJson);

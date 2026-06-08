@@ -190,6 +190,7 @@ export default class DgContentControls {
   minioAccessKey: string;
   minioSecretKey: string;
   minioAttachmentData: any[];
+  resolvedContextName: string;
   attachmentsBucketName: string;
   jsonFileBucketName: string;
   formattingSettings: any;
@@ -217,6 +218,7 @@ export default class DgContentControls {
     this.minioAccessKey = minioAccessKey;
     this.minioSecretKey = minioSecretKey;
     this.minioAttachmentData = [];
+    this.resolvedContextName = '';
     this.jsonFileBucketName = 'content-controls';
     this.jfrogToken = jfrogToken;
     this.formattingSettings = formattingSettings;
@@ -2079,6 +2081,8 @@ export default class DgContentControls {
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
+      const resolvedCtx = changeDataFactory.getResolvedContextName();
+      if (resolvedCtx) this.resolvedContextName = resolvedCtx;
       this.minioAttachmentData.push(...changeDataFactory.getAttachmentMinioData());
     } catch (error) {
       logger.error(`Error initializing change table factory: ${error}`);

@@ -84,6 +84,7 @@ export default class ChangeDataFactory {
   private replaceTaskWithParent: boolean = false;
   private allowBaselineSvd: boolean = false;
   private baselineChangeSource: string = '';
+  private resolvedContextName: string = '';
   //#endregion properties
 
   //#region constructor
@@ -617,6 +618,10 @@ export default class ChangeDataFactory {
 
   public getAttachmentMinioData(): any[] {
     return this.attachmentMinioData;
+  }
+
+  public getResolvedContextName(): string {
+    return this.resolvedContextName;
   }
 
   //#endregion public methods
@@ -1355,6 +1360,11 @@ export default class ChangeDataFactory {
       toRelease?.definitionId ??
       (shouldDiscoverToRelease ? requestedReleaseDefinitionId : undefined);
 
+    const sanitizeCtx = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
+    const relDefName = sanitizeCtx(toRelease?.releaseDefinition?.name || String(releaseDefinitionId || this.repoId));
+    const relRunName = toRelease?.name ? sanitizeCtx(toRelease.name) : '';
+    this.resolvedContextName = relRunName ? `release-${relDefName}-${relRunName}` : `release-${relDefName}`;
+
     let fromId = Number(this.from);
     const shouldDiscoverFromRelease = !Number.isFinite(fromId) || fromId <= 0;
     if (shouldDiscoverFromRelease) {
@@ -1436,9 +1446,14 @@ export default class ChangeDataFactory {
 
     let fromId = Number(this.from);
     const shouldDiscoverFromBuild = !Number.isFinite(fromId) || fromId <= 0;
-    if (shouldDiscoverFromBuild) {
-      try {
-        const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, toId);
+
+    try {
+      const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, toId);
+      if (targetBuild?.definition?.name) {
+        const sanitizeCtxP = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
+        this.resolvedContextName = `pipeline-${sanitizeCtxP(targetBuild.definition.name)}`;
+      }
+      if (shouldDiscoverFromBuild) {
         const targetPipelineId = targetBuild?.definition?.id;
         if (targetPipelineId) {
           const targetPipelineRun = await pipelinesDataProvider.getPipelineRunDetails(
@@ -1459,9 +1474,9 @@ export default class ChangeDataFactory {
             }
           }
         }
-      } catch (e: any) {
-        logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
       }
+    } catch (e: any) {
+      logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
     }
   }
 
