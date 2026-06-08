@@ -1361,7 +1361,22 @@ export default class ChangeDataFactory {
       (shouldDiscoverToRelease ? requestedReleaseDefinitionId : undefined);
 
     const sanitizeCtx = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
-    const relDefName = sanitizeCtx(toRelease?.releaseDefinition?.name || String(releaseDefinitionId || this.repoId));
+    let rawDefName: string = toRelease?.releaseDefinition?.name || '';
+    if (!rawDefName && releaseDefinitionId) {
+      try {
+        let defUrl = `${pipelinesDataProvider.orgUrl}${this.teamProject}/_apis/release/definitions/${releaseDefinitionId}?api-version=6.0`;
+        if (defUrl.startsWith('https://dev.azure.com')) {
+          defUrl = defUrl.replace('https://dev.azure.com', 'https://vsrm.dev.azure.com');
+        }
+        const defResponse = await axios.get(defUrl, {
+          headers: { Authorization: 'Basic ' + Buffer.from(':' + pipelinesDataProvider.token).toString('base64') },
+        });
+        rawDefName = defResponse.data?.name || '';
+      } catch (e: any) {
+        logger.warn(`resolveReleaseIds: could not fetch release definition name for id ${releaseDefinitionId}: ${e?.message}`);
+      }
+    }
+    const relDefName = sanitizeCtx(rawDefName || String(releaseDefinitionId || this.repoId));
     const relRunName = toRelease?.name ? sanitizeCtx(toRelease.name) : '';
     this.resolvedContextName = relRunName ? `release-${relDefName}-${relRunName}` : `release-${relDefName}`;
 
