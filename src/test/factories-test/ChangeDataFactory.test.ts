@@ -105,6 +105,11 @@ describe('ChangeDataFactory', () => {
           },
         })
       ),
+      // Default: project has Bug, Requirement, Change Request / Closed, Resolved, Active, New
+      GetWorkItemTypeStates: jest.fn().mockResolvedValue({
+        types: ['Bug', 'Requirement', 'Change Request', 'Task', 'User Story'],
+        states: ['New', 'Active', 'Resolved', 'Closed'],
+      }),
     };
 
     // Mock Git data provider
@@ -1181,6 +1186,49 @@ describe('ChangeDataFactory', () => {
         expect(hasChangesControl).toBe(false);
         expect(hasNonAssociated).toBe(false);
       });
+
+      it('should reject invalid workItemType values with a descriptive error (fail-fast validation)', async () => {
+        changeDataFactory['workItemFilterOptions'] = {
+          isEnabled: true,
+          workItemTypes: ['Bugg', 'Requirement'],
+          workItemStates: ['Closed'],
+        };
+
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockResolvedValue(undefined as any);
+
+        await expect(changeDataFactory.fetchSvdData()).rejects.toThrow(
+          /SVD work-item filter validation failed.*Bugg/
+        );
+      });
+
+      it('should reject invalid workItemState values with a descriptive error (fail-fast validation)', async () => {
+        changeDataFactory['workItemFilterOptions'] = {
+          isEnabled: true,
+          workItemTypes: ['Bug'],
+          workItemStates: ['Klozed'],
+        };
+
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockResolvedValue(undefined as any);
+
+        await expect(changeDataFactory.fetchSvdData()).rejects.toThrow(
+          /SVD work-item filter validation failed.*Klozed/
+        );
+      });
+
+      it('should accept capitalized-but-valid filter values without error (regression: PowerShell task case)', async () => {
+        changeDataFactory['workItemFilterOptions'] = {
+          isEnabled: true,
+          workItemTypes: ['Bug', 'Change Request'],
+          workItemStates: ['Closed', 'Resolved'],
+        };
+
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [];
+        });
+
+        // Should not throw — capitalized values match the project metadata case-insensitively
+        await expect(changeDataFactory.fetchSvdData()).resolves.toBeUndefined();
+      });
     });
 
     describe('services.json helpers', () => {
@@ -1488,6 +1536,51 @@ describe('ChangeDataFactory', () => {
         expect(replacementSpy).toHaveBeenCalled();
         // Adapter is mocked, so we only assert that it returned whatever the mock provides
         expect(result).toBeDefined();
+      });
+
+      it('filterChangesByWorkItemOptions should match capitalized filter values (regression: zero results from PowerShell task)', () => {
+        const factory = changeDataFactory as any;
+        // PowerShell tasks typically send display-case strings like "Bug", "Closed"
+        factory.workItemFilterOptions = {
+          isEnabled: true,
+          workItemTypes: ['Bug', 'Change Request'],
+          workItemStates: ['Closed', 'Resolved'],
+        };
+
+        const changes = [
+          { workItem: { fields: { 'System.WorkItemType': 'Bug', 'System.State': 'Closed' } } },
+          { workItem: { fields: { 'System.WorkItemType': 'Change Request', 'System.State': 'Resolved' } } },
+          { workItem: { fields: { 'System.WorkItemType': 'Task', 'System.State': 'Active' } } },
+        ];
+
+        const result = factory.filterChangesByWorkItemOptions(changes);
+
+        // Bug/Closed and Change Request/Resolved must survive; Task/Active must be dropped
+        expect(result).toHaveLength(2);
+        expect(result[0].workItem.fields['System.WorkItemType']).toBe('Bug');
+        expect(result[1].workItem.fields['System.WorkItemType']).toBe('Change Request');
+      });
+
+      it('filterChangesByWorkItemOptions should drop changes whose type or state is not in the filter', () => {
+        const factory = changeDataFactory as any;
+        factory.workItemFilterOptions = {
+          isEnabled: true,
+          workItemTypes: ['requirement'],
+          workItemStates: ['closed'],
+        };
+
+        const changes = [
+          { workItem: { fields: { 'System.WorkItemType': 'Requirement', 'System.State': 'Closed' } } },
+          { workItem: { fields: { 'System.WorkItemType': 'Bug', 'System.State': 'Closed' } } },
+          { workItem: { fields: { 'System.WorkItemType': 'Requirement', 'System.State': 'Active' } } },
+        ];
+
+        const result = factory.filterChangesByWorkItemOptions(changes);
+
+        // Only Requirement+Closed survives
+        expect(result).toHaveLength(1);
+        expect(result[0].workItem.fields['System.WorkItemType']).toBe('Requirement');
+        expect(result[0].workItem.fields['System.State']).toBe('Closed');
       });
 
       it('changes adapter should keep only the latest commit per work item', async () => {
