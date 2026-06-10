@@ -181,6 +181,13 @@ export default class ChangeDataFactory {
       logger.info(
         `[SVD ${svdId}] start teamProject=${this.teamProject}, rangeType=${this.rangeType}, from=${this.from}, to=${this.to}, compareMode=${this.compareMode}, includeUnlinkedCommits=${this.includeUnlinkedCommits}`
       );
+      // 0) Validate work-item filter options against the project's real ADO metadata early,
+      //    before any expensive release/change gathering. Throws with a clear message if any
+      //    workItemType or workItemState value is not known to this project.
+      if (this.workItemFilterOptions?.isEnabled) {
+        await this.validateWorkItemFilterOptions();
+      }
+
       // 1) Get release component adoptedData for release-components content control
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
       if (this.rangeType === 'release') {
@@ -2746,10 +2753,55 @@ export default class ChangeDataFactory {
     return { groups: dedupedGroups, removedChanges };
   }
 
+  /**
+   * Validates the enabled work-item filter options against the project's ADO metadata.
+   * Throws a descriptive error if any workItemType or workItemState value is not recognised
+   * by the project, so callers (e.g. PowerShell release tasks) get immediate feedback
+   * instead of a silent zero-result document.
+   */
+  private async validateWorkItemFilterOptions(): Promise<void> {
+    const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+    const { types, states } = await ticketsDataProvider.GetWorkItemTypeStates(this.teamProject);
+
+    const validTypes = new Set(types.map((t: string) => t.toLowerCase()));
+    const validStates = new Set(states.map((s: string) => s.toLowerCase()));
+
+    const badTypes = (this.workItemFilterOptions.workItemTypes ?? []).filter(
+      (t: string) => !validTypes.has(String(t).toLowerCase())
+    );
+    const badStates = (this.workItemFilterOptions.workItemStates ?? []).filter(
+      (s: string) => !validStates.has(String(s).toLowerCase())
+    );
+
+    if (badTypes.length || badStates.length) {
+      const parts: string[] = [];
+      if (badTypes.length) {
+        parts.push(
+          `invalid work item type(s): [${badTypes.join(', ')}]. Valid: [${types.join(', ')}]`
+        );
+      }
+      if (badStates.length) {
+        parts.push(
+          `invalid work item state(s): [${badStates.join(', ')}]. Valid: [${states.join(', ')}]`
+        );
+      }
+      throw new Error(`SVD work-item filter validation failed — ${parts.join('; ')}`);
+    }
+  }
+
   private filterChangesByWorkItemOptions(changes: any[] = []): any[] {
     if (!this.workItemFilterOptions?.isEnabled) {
       return changes;
     }
+
+    // Normalize filter arrays once — callers may send display-case strings (e.g. "Bug", "Closed")
+    // while ADO field values are lowercased during comparison, so normalize both sides.
+    const allowedTypes = (this.workItemFilterOptions.workItemTypes ?? []).map((t: string) =>
+      String(t).toLowerCase()
+    );
+    const allowedStates = (this.workItemFilterOptions.workItemStates ?? []).map((s: string) =>
+      String(s).toLowerCase()
+    );
 
     const filteredChanges = changes.filter((change) => {
       const workItem = change?.workItem;
@@ -2761,12 +2813,8 @@ export default class ChangeDataFactory {
       const workItemState = String(workItem.fields?.['System.State'] ?? '').toLowerCase();
 
       // if no filters are set, return all changes
-      const isValidType =
-        this.workItemFilterOptions.workItemTypes.length === 0 ||
-        this.workItemFilterOptions.workItemTypes.includes(workItemType);
-      const isValidState =
-        this.workItemFilterOptions.workItemStates.length === 0 ||
-        this.workItemFilterOptions.workItemStates.includes(workItemState);
+      const isValidType = allowedTypes.length === 0 || allowedTypes.includes(workItemType);
+      const isValidState = allowedStates.length === 0 || allowedStates.includes(workItemState);
 
       return isValidType && isValidState;
     });
