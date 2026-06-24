@@ -137,7 +137,8 @@ export default class ResultDataFactory {
     enableRunStepStatusFilter: boolean,
     linkedQueryRequest: any,
     errorFilterMode: string,
-    includeAllHistory: boolean = false
+    includeAllHistory: boolean = false,
+    useLatestTestCaseProperties: boolean = false
   ) {
     try {
       const resultDataProvider = await this.dgDataProvider.getResultDataProvider();
@@ -152,8 +153,9 @@ export default class ResultDataFactory {
         linkedQueryRequest,
         errorFilterMode,
       ];
-      // Backward-compatible: older provider versions ignore the 10th argument.
+      // Backward-compatible: older provider versions ignore trailing arguments.
       testReporterArgs.push(includeAllHistory);
+      testReporterArgs.push(useLatestTestCaseProperties);
       const testResultsItems = await (resultDataProvider as any).getTestReporterResults(...testReporterArgs);
 
       if (testResultsItems.length === 0) {

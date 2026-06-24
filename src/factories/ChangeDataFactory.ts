@@ -1,4 +1,5 @@
 import DgDataProviderAzureDevOps from '@elisra-devops/docgen-data-provider';
+import { TFSServices } from '@elisra-devops/docgen-data-provider/bin/helpers/tfs';
 import axios from 'axios';
 import logger from '../services/logger';
 import ChangesTableDataSkinAdapter from '../adapters/ChangesTableDataSkinAdapter';
@@ -74,6 +75,7 @@ export default class ChangeDataFactory {
   private pathExistenceCache: Map<string, boolean> = new Map();
   private branchExistenceCache: Map<string, boolean> = new Map();
   private jfrogCiUrlCache: Map<string, string> = new Map();
+  private serviceConnectionUrlCache: Map<string, string> = new Map();
   private pairCompareCache: Map<string, PairCompareCacheEntry> = new Map();
   private compareMode: 'consecutive' | 'allPairs';
   private serviceGroupsByKey: Map<string, ArtifactChangesGroup> = new Map();
@@ -190,11 +192,13 @@ export default class ChangeDataFactory {
 
       // 1) Get release component adoptedData for release-components content control
       let pipelinesDataProvider = await this.dgDataProviderAzureDevOps.getPipelinesDataProvider();
+      const resolveStart = Date.now();
       if (this.rangeType === 'release') {
         await this.resolveReleaseIds(pipelinesDataProvider);
       } else if (this.rangeType === 'pipeline') {
         await this.resolvePipelineIds(pipelinesDataProvider);
       }
+      logger.info(`[SVD ${svdId}] phase=resolveIds ${Date.now() - resolveStart}ms (from=${this.from}, to=${this.to})`);
       let recentReleaseArtifactInfo: any[] = [];
       if (this.rangeType === 'release') {
         try {
@@ -247,7 +251,9 @@ export default class ChangeDataFactory {
       }
 
       // 3) Gather change data for the selected range (core of SVD)
+      const fetchChangesStart = Date.now();
       await this.fetchChangesData();
+      logger.info(`[SVD ${svdId}] phase=fetchChangesData ${Date.now() - fetchChangesStart}ms`);
       this.serviceGroupsByKey.clear();
       this.includedWorkItemByIdSet.clear();
       const artifactsCount = this.rawChangesArray.length;
@@ -1353,6 +1359,9 @@ export default class ChangeDataFactory {
         return;
       }
       toId = Number(typeof latestReleaseId === 'object' ? latestReleaseId.id : latestReleaseId);
+      if (!Number.isFinite(toId) || toId <= 0) {
+        throw new SvdRangeResolutionError(`Auto-discovered latest release has invalid id: ${String(latestReleaseId)}`);
+      }
       this.to = toId;
     }
 
@@ -1375,10 +1384,8 @@ export default class ChangeDataFactory {
         if (defUrl.startsWith('https://dev.azure.com')) {
           defUrl = defUrl.replace('https://dev.azure.com', 'https://vsrm.dev.azure.com');
         }
-        const defResponse = await axios.get(defUrl, {
-          headers: { Authorization: 'Basic ' + Buffer.from(':' + pipelinesDataProvider.token).toString('base64') },
-        });
-        rawDefName = defResponse.data?.name || '';
+        const defData = await TFSServices.getItemContent(defUrl, pipelinesDataProvider.token);
+        rawDefName = defData?.name || '';
       } catch (e: any) {
         logger.warn(`resolveReleaseIds: could not fetch release definition name for id ${releaseDefinitionId}: ${e?.message}`);
       }
@@ -1394,25 +1401,51 @@ export default class ChangeDataFactory {
         throw new SvdRangeResolutionError(`Could not auto-discover previous release before release #${toId}: missing definition id`);
       }
       let previousReleaseId;
+      // Primary: use GetReleaseHistory (same data the UI dropdown shows) to pick the
+      // immediately-preceding release by ID order — matches what a manual user sees.
       try {
-        previousReleaseId =
-          typeof (pipelinesDataProvider as any).findPreviousSuccessfulRelease === 'function'
-            ? await (pipelinesDataProvider as any).findPreviousSuccessfulRelease(
-                this.teamProject,
-                String(releaseDefinitionId),
-                toId
-              )
-            : undefined;
+        if (typeof pipelinesDataProvider.GetReleaseHistory === 'function') {
+          const history = await pipelinesDataProvider.GetReleaseHistory(
+            this.teamProject,
+            String(releaseDefinitionId)
+          );
+          const releases = history?.value || [];
+          const preceding = releases.find((r: any) => Number(r.id) < toId && r.status !== 'abandoned');
+          if (preceding?.id) {
+            previousReleaseId = preceding.id;
+          }
+        }
       } catch (e: any) {
-        throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+        logger.warn(`GetReleaseHistory failed during from-release discovery: ${e.message}. Falling back to findPreviousSuccessfulRelease.`);
+      }
+      // Fallback: findPreviousSuccessfulRelease (heavier, filters by success status)
+      if (!previousReleaseId) {
+        try {
+          previousReleaseId =
+            typeof (pipelinesDataProvider as any).findPreviousSuccessfulRelease === 'function'
+              ? await (pipelinesDataProvider as any).findPreviousSuccessfulRelease(
+                  this.teamProject,
+                  String(releaseDefinitionId),
+                  toId
+                )
+              : undefined;
+        } catch (e: any) {
+          throw new SvdRangeResolutionError(`Release auto-discovery failed: ${e.message}`);
+        }
       }
       if (!previousReleaseId) {
         logger.warn(`Could not find a valid release before release #${toId}`);
         return;
       }
       fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
+      if (!Number.isFinite(fromId) || fromId <= 0) {
+        throw new SvdRangeResolutionError(`Auto-discovered previous release has invalid id: ${String(previousReleaseId)}`);
+      }
       this.from = fromId;
     }
+    logger.info(
+      `[SVD resolveReleaseIds] resolved: to=${toId}(${shouldDiscoverToRelease ? 'auto' : 'explicit'}) toName=${toRelease?.name || ''}, from=${fromId}(${shouldDiscoverFromRelease ? 'auto-preceding' : 'explicit'}), definition=${relDefName}`
+    );
   }
 
   /**
@@ -1612,7 +1645,8 @@ export default class ChangeDataFactory {
                 logger.debug(
                   `Release compare [Artifactory ${artifactAlias}]: includeUnlinkedCommits=${this.includeUnlinkedCommits}`
                 );
-                let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
+                let jFrogUrl = await this.getCachedServiceConnectionUrl(
+                  jfrogDataProvider,
                   this.teamProject,
                   fromRelArt.definitionReference.connection.id
                 );
@@ -1635,6 +1669,9 @@ export default class ChangeDataFactory {
                     continue;
                   }
                 } catch (e: any) {
+                  logger.warn(
+                    `[SVD] JFrog artifact dropped (toCiUrl): alias=${artifactAlias}, build=${toBuildName}@${toBuildVersion}, jFrogUrl=${jFrogUrl || 'undefined'}, reason=${e?.message}`
+                  );
                   continue;
                 }
                 try {
@@ -1648,6 +1685,9 @@ export default class ChangeDataFactory {
                     continue;
                   }
                 } catch (e: any) {
+                  logger.warn(
+                    `[SVD] JFrog artifact dropped (fromCiUrl): alias=${artifactAlias}, build=${fromBuildName}@${fromBuildVersion}, jFrogUrl=${jFrogUrl || 'undefined'}, reason=${e?.message}`
+                  );
                   continue;
                 }
 
@@ -3728,6 +3768,17 @@ export default class ChangeDataFactory {
     return url || '';
   }
 
+  private async getCachedServiceConnectionUrl(
+    provider: any,
+    teamProject: string,
+    connectionId: string
+  ): Promise<string> {
+    if (this.serviceConnectionUrlCache.has(connectionId)) return this.serviceConnectionUrlCache.get(connectionId)!;
+    const url = await provider.getServiceConnectionUrlByConnectionId(teamProject, connectionId);
+    this.serviceConnectionUrlCache.set(connectionId, url || '');
+    return url || '';
+  }
+
   private async fetchAndParseServicesJson(
     provider: any,
     projectId: string,
@@ -4080,7 +4131,8 @@ export default class ChangeDataFactory {
     jfrogDataProvider: any,
     artifactGroupsByKey: Map<string, any>
   ): Promise<void> {
-    let jFrogUrl = await jfrogDataProvider.getServiceConnectionUrlByConnectionId(
+    let jFrogUrl = await this.getCachedServiceConnectionUrl(
+      jfrogDataProvider,
       this.teamProject,
       fromRelArt.definitionReference.connection.id
     );
