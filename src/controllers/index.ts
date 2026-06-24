@@ -306,6 +306,7 @@ export default class DgContentControls {
             contentControlOptions.data.linkedQueryRequest,
             contentControlOptions.data.errorFilterMode,
             contentControlOptions.data.includeAllHistory,
+            contentControlOptions.data.useLatestTestCaseProperties,
             contentControlOptions.data.includeMewpL2Coverage,
             contentControlOptions.data.includeInternalValidationReport,
           );
@@ -1465,6 +1466,7 @@ export default class DgContentControls {
     linkedQueryRequest?: any,
     errorFilterMode?: string,
     includeAllHistory?: boolean,
+    useLatestTestCaseProperties?: boolean,
     includeMewpL2Coverage?: boolean,
     includeInternalValidationReport?: boolean,
   ) {
@@ -1520,6 +1522,7 @@ export default class DgContentControls {
         linkedQueryRequest,
         errorFilterMode,
         includeAllHistory,
+        useLatestTestCaseProperties,
       );
     } catch (error) {
       logger.error(`Error initializing result data factory: ${error.message}`);
