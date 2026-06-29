@@ -6,6 +6,9 @@ import {
   calculateAdaptiveIdColumnWidth,
 } from '../utils/tablePresentation';
 
+// Columns that are always rendered — visibility toggle has no effect on them.
+const ALWAYS_VISIBLE_REFS = new Set(['System.Id', 'System.Title']);
+
 export default class TraceQueryResultsSkinAdapter {
   rawQueryMapping: any;
   queryMode: string;
@@ -15,12 +18,18 @@ export default class TraceQueryResultsSkinAdapter {
   private includeCommonColumnsMode: string;
   private traceIdColumnWidth = '8.5%';
   private adoptedData: any[] = [];
+  private fieldDisplayMapping: Record<string, Record<string, string>>;
+  private fieldVisibility: Record<string, Record<string, boolean>>;
+  private fieldOrder: Record<string, string[]>;
 
   constructor(
     rawResults,
     queryMode = 'none',
     includeCustomerId = false,
-    includeCommonColumns: string = 'both'
+    includeCommonColumns: string = 'both',
+    fieldDisplayMapping: Record<string, Record<string, string>> = {},
+    fieldVisibility: Record<string, Record<string, boolean>> = {},
+    fieldOrder: Record<string, string[]> = {}
   ) {
     const { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap } = rawResults;
     this.rawQueryMapping = sourceTargetsMap;
@@ -29,6 +38,21 @@ export default class TraceQueryResultsSkinAdapter {
     this.queryMode = queryMode;
     this.includeCustomerId = includeCustomerId;
     this.includeCommonColumnsMode = includeCommonColumns;
+    this.fieldDisplayMapping = fieldDisplayMapping || {};
+    this.fieldVisibility = fieldVisibility || {};
+    this.fieldOrder = fieldOrder || {};
+  }
+
+  private resolveDisplayName(defaultName: string, referenceName: string, type: string): string {
+    const typeKey = type === 'Req' ? 'Requirement' : type;
+    const override = this.fieldDisplayMapping[typeKey]?.[referenceName];
+    return typeof override === 'string' && override.trim() ? override.trim() : defaultName;
+  }
+
+  private isHidden(referenceName: string, type: string): boolean {
+    if (ALWAYS_VISIBLE_REFS.has(referenceName)) return false;
+    const typeKey = type === 'Req' ? 'Requirement' : type;
+    return this.fieldVisibility[typeKey]?.[referenceName] === false;
   }
 
   adoptSkinData() {
@@ -76,26 +100,40 @@ export default class TraceQueryResultsSkinAdapter {
     const mapToUse: Map<string, string> = !isSource
       ? this.sortingTargetsColumnsMap
       : this.sortingSourceColumnsMap;
-    // Process 'Title' field first if it exists
-    const titleReferenceName = Array.from(mapToUse.entries()).find(
-      ([_, fieldName]) => fieldName === 'Title'
-    )?.[0];
+
+    // Detect Title by stable referenceName (value may be 'Title' or 'System.Title' depending on
+    // whether System.Title was an explicitly selected query column or only force-included).
+    const TITLE_REF = 'System.Title';
+    const titleReferenceName = mapToUse.has(TITLE_REF) ? TITLE_REF : undefined;
 
     if (item && titleReferenceName && item.fields[titleReferenceName] !== undefined) {
       adaptedFields.push({
-        name: `${type} Title`,
+        name: this.resolveDisplayName(`${type} Title`, titleReferenceName, type),
         value: item.fields[titleReferenceName],
         color: color,
       });
     }
 
-    // Process other fields
-    for (const [referenceName, fieldName] of mapToUse.entries()) {
+    // Process other fields — sorted by user-defined column order when present
+    const typeKey = type === 'Req' ? 'Requirement' : type;
+    const orderList = this.fieldOrder?.[typeKey] || [];
+    const allEntries = [...mapToUse.entries()].filter(([ref, fn]) => {
+      const dn = normalizeFieldName(fn);
+      return ref !== TITLE_REF && dn !== 'Work Item Type' && dn !== 'ID';
+    });
+    if (orderList.length > 0) {
+      allEntries.sort(([refA], [refB]) => {
+        const ia = orderList.indexOf(refA);
+        const ib = orderList.indexOf(refB);
+        if (ia === -1 && ib === -1) return 0;
+        if (ia === -1) return 1;
+        if (ib === -1) return -1;
+        return ia - ib;
+      });
+    }
+
+    for (const [referenceName, fieldName] of allEntries) {
       const displayName = normalizeFieldName(fieldName);
-      // Skip 'Title' and 'Work Item Type'; never include ID as a regular column
-      if (displayName === 'Title' || displayName === 'Work Item Type' || displayName === 'ID') {
-        continue;
-      }
       // Skip common columns if only one instance is allowed
       if (
         excludeCommonColumnInstance &&
@@ -105,11 +143,18 @@ export default class TraceQueryResultsSkinAdapter {
       ) {
         continue;
       }
+      // Skip user-hidden columns
+      if (this.isHidden(referenceName, type)) {
+        continue;
+      }
+
+      // Compute the final header: use user override if set, else the default display name
+      const resolvedName = (defaultName: string) => this.resolveDisplayName(defaultName, referenceName, type);
 
       switch (displayName) {
         case 'Priority': {
           adaptedFields.push({
-            name: displayName,
+            name: resolvedName(displayName),
             value: item?.fields[referenceName] || '',
             width: '6.5%',
             color: color,
@@ -118,14 +163,14 @@ export default class TraceQueryResultsSkinAdapter {
         }
         case 'Assigned To':
           adaptedFields.push({
-            name: displayName,
+            name: resolvedName(displayName),
             value: item?.fields[referenceName]?.displayName || '',
             color: color,
           });
           break;
         case 'Customer ID':
           adaptedFields.push({
-            name: displayName,
+            name: resolvedName(displayName),
             value: item?.fields[referenceName] || '',
             color: color,
             width: '9.7%',
@@ -134,7 +179,7 @@ export default class TraceQueryResultsSkinAdapter {
           break;
         case 'Area Path':
           adaptedFields.push({
-            name: 'Node Name',
+            name: resolvedName('Node Name'),
             value: this.convertAreaPathToNodeName(item?.fields[referenceName] || ''),
             color: color,
             width: '18%',
@@ -142,7 +187,7 @@ export default class TraceQueryResultsSkinAdapter {
           break;
         default:
           adaptedFields.push({
-            name: displayName,
+            name: resolvedName(displayName),
             value:
               typeof item?.fields[referenceName] === 'object'
                 ? item?.fields[referenceName]?.displayName || ''
@@ -168,7 +213,7 @@ export default class TraceQueryResultsSkinAdapter {
     const adaptedSourceFields: any[] = this.adaptFields(
       source,
       currentReqColor,
-      false,
+      true,
       'Req',
       this.includeCommonColumnsMode === 'testOnly'
     );
@@ -185,8 +230,8 @@ export default class TraceQueryResultsSkinAdapter {
         items: [
           { name: 'Req ID', value: source.id, width: this.traceIdColumnWidth, color: currentReqColor },
           ...adaptedSourceFields,
-          { name: 'Test Case ID', value: '', width: this.traceIdColumnWidth, color: currentTestColor },
-          { name: 'Test Case Title', value: '', color: currentTestColor },
+          { name: 'Test Case ID', value: '', width: this.traceIdColumnWidth, color: currentTestColor, sectionRefId: undefined, url: undefined },
+          { name: this.resolveDisplayName('Test Case Title', 'System.Title', 'Test Case'), value: '', color: currentTestColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -205,7 +250,7 @@ export default class TraceQueryResultsSkinAdapter {
           items: [
             { name: 'Req ID', value: source.id, width: this.traceIdColumnWidth, color: currentReqColor },
             ...adaptedSourceFields,
-            { name: 'Test Case ID', value: target.id, width: this.traceIdColumnWidth, color: currentTestColor },
+            { name: 'Test Case ID', value: target.id, width: this.traceIdColumnWidth, color: currentTestColor, sectionRefId: String(target.id) },
             ...adaptedTargetFields,
           ],
           baseShading,
@@ -239,10 +284,10 @@ export default class TraceQueryResultsSkinAdapter {
       );
       const fields = this.buildFields({
         items: [
-          { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor },
+          { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor, sectionRefId: String(source.id) },
           ...adaptedSourceFields,
           { name: 'Req ID', value: '', width: this.traceIdColumnWidth, color: currentReqColor },
-          { name: 'Req Title', value: '', color: currentReqColor },
+          { name: this.resolveDisplayName('Req Title', 'System.Title', 'Req'), value: '', color: currentReqColor },
           ...adaptedTargetFields,
         ],
         baseShading,
@@ -259,7 +304,7 @@ export default class TraceQueryResultsSkinAdapter {
         );
         const fields = this.buildFields({
           items: [
-            { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor },
+            { name: 'Test Case ID', value: source.id, width: this.traceIdColumnWidth, color: currentTestColor, sectionRefId: String(source.id) },
             ...adaptedSourceFields,
             { name: 'Req ID', value: target.id, width: this.traceIdColumnWidth, color: currentReqColor },
             ...adaptedTargetFields,

@@ -44,6 +44,15 @@ export default class AzureDataService {
     return tickets.GetQueryResultById(queryId, teamProjectId);
   }
 
+  async getTraceColumns(reqTestQuery: any, testReqQuery: any, teamProject: string) {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.GetTraceColumnsByType(
+      reqTestQuery?.wiql?.href,
+      testReqQuery?.wiql?.href,
+      teamProject,
+    );
+  }
+
   async getHistoricalQueries(teamProjectId = '', path = 'shared') {
     const tickets = await this.dg.getTicketsDataProvider();
     return tickets.GetHistoricalQueries(teamProjectId, path);

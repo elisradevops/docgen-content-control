@@ -11,10 +11,29 @@ export default class TraceByLinkedRequirementAdapter {
   includeCustomerId: boolean;
   private traceIdColumnWidth = '8.5%';
   private adoptedData: any[] = [];
+  private fieldDisplayMapping: Record<string, Record<string, string>>;
+  private fieldVisibility: Record<string, Record<string, boolean>>;
 
-  constructor(rawResults, queryMode = 'none') {
+  constructor(
+    rawResults,
+    queryMode = 'none',
+    fieldDisplayMapping: Record<string, Record<string, string>> = {},
+    fieldVisibility: Record<string, Record<string, boolean>> = {}
+  ) {
     this.rawMapping = rawResults;
     this.queryMode = queryMode;
+    this.fieldDisplayMapping = fieldDisplayMapping || {};
+    this.fieldVisibility = fieldVisibility || {};
+  }
+
+  private resolveDisplayName(defaultName: string, type: 'Requirement' | 'Test Case'): string {
+    // Linked mode has no referenceName — match by default display name as pseudo-key
+    const override = this.fieldDisplayMapping[type]?.[defaultName];
+    return typeof override === 'string' && override.trim() ? override.trim() : defaultName;
+  }
+
+  private isHidden(pseudoKey: string, type: 'Requirement' | 'Test Case'): boolean {
+    return this.fieldVisibility[type]?.[pseudoKey] === false;
   }
 
   adoptSkinData() {
@@ -58,6 +77,7 @@ export default class TraceByLinkedRequirementAdapter {
   ) {
     const requirementSource = JSON.parse(source);
     const hasCustomerId = requirementSource.customerId !== undefined;
+    const customerIdHidden = this.isHidden('Customer ID', 'Requirement');
 
     targets?.forEach((target) => {
       const tcTarget = JSON.parse(target);
@@ -69,9 +89,9 @@ export default class TraceByLinkedRequirementAdapter {
             width: this.traceIdColumnWidth,
             color: currentReqColor,
           },
-          { name: 'Title', value: requirementSource.title, color: currentReqColor },
-          hasCustomerId && {
-            name: 'Customer ID',
+          { name: this.resolveDisplayName('Title', 'Requirement'), value: requirementSource.title, color: currentReqColor },
+          hasCustomerId && !customerIdHidden && {
+            name: this.resolveDisplayName('Customer ID', 'Requirement'),
             value: requirementSource.customerId,
             color: currentReqColor,
           },
@@ -80,8 +100,9 @@ export default class TraceByLinkedRequirementAdapter {
             value: tcTarget.id,
             width: this.traceIdColumnWidth,
             color: currentTestColor,
+            sectionRefId: String(tcTarget.id),
           },
-          { name: 'Title', value: tcTarget.title, color: currentTestColor },
+          { name: this.resolveDisplayName('Title', 'Test Case'), value: tcTarget.title, color: currentTestColor },
         ],
         baseShading,
       });
@@ -102,6 +123,7 @@ export default class TraceByLinkedRequirementAdapter {
       const targetObj = JSON.parse(target);
       return targetObj.customerId !== undefined;
     });
+    const customerIdHidden = this.isHidden('Customer ID', 'Requirement');
     targets?.forEach((target) => {
       const reqTarget = JSON.parse(target);
       const fields = this.buildFields({
@@ -111,11 +133,12 @@ export default class TraceByLinkedRequirementAdapter {
             value: tcSource.id,
             width: this.traceIdColumnWidth,
             color: currentTestColor,
+            sectionRefId: String(tcSource.id),
           },
-          { name: 'Title', value: tcSource.title, color: currentTestColor },
+          { name: this.resolveDisplayName('Title', 'Test Case'), value: tcSource.title, color: currentTestColor },
           { name: 'Req ID', value: reqTarget.id, width: this.traceIdColumnWidth, color: currentReqColor },
-          { name: 'Title', value: reqTarget.title, color: currentReqColor },
-          hasCustomerId && { name: 'Customer ID', value: reqTarget.customerId, color: currentReqColor },
+          { name: this.resolveDisplayName('Title', 'Requirement'), value: reqTarget.title, color: currentReqColor },
+          hasCustomerId && !customerIdHidden && { name: this.resolveDisplayName('Customer ID', 'Requirement'), value: reqTarget.customerId, color: currentReqColor },
         ],
         baseShading,
       });

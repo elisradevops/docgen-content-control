@@ -653,6 +653,20 @@ export class Routes {
       }
     });
 
+    app.route('/azure/trace/columns').post(async (req: Request, res: Response) => {
+      try {
+        const { body } = req;
+        const { reqTestQuery, testReqQuery, teamProject = '' } = body || {};
+        const svc = getAzureService(body);
+        const data = await svc.getTraceColumns(reqTestQuery, testReqQuery, teamProject);
+        res.status(StatusCodes.OK).json(data);
+      } catch (error) {
+        const msg = error?.message ?? String(error);
+        logger.error(`azure/trace/columns error: ${msg}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: msg });
+      }
+    });
+
     app.route('/azure/queries/:queryId/historical-results').post(async (req: Request, res: Response) => {
       try {
         const { body, params } = req;
