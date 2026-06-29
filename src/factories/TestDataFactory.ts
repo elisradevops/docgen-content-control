@@ -412,7 +412,7 @@ export default class TestDataFactory {
           for (const { mapData, type, adoptedDataKey } of linkedRequirementConfigs) {
             const title = this.buildTraceTitle(type);
             if (mapData) {
-              const linkedRequirementTraceSkinAdapter = new TraceByLinkedRequirementAdapter(mapData, type);
+              const linkedRequirementTraceSkinAdapter = new TraceByLinkedRequirementAdapter(mapData, type, this.traceAnalysisRequest?.fieldDisplayMapping, this.traceAnalysisRequest?.fieldVisibility);
 
               linkedRequirementTraceSkinAdapter.adoptSkinData();
               const adoptedData = linkedRequirementTraceSkinAdapter.getAdoptedData();
@@ -446,7 +446,10 @@ export default class TestDataFactory {
                 queryResults,
                 type,
                 this.includeCustomerId,
-                includeCommonColumnsMode
+                includeCommonColumnsMode,
+                this.traceAnalysisRequest?.fieldDisplayMapping,
+                this.traceAnalysisRequest?.fieldVisibility,
+                this.traceAnalysisRequest?.fieldOrder
               );
 
               queryResultSkinAdapter.adoptSkinData();
@@ -790,6 +793,7 @@ export default class TestDataFactory {
                       })
                     );
                     let adoptedTestCaseData = {
+                      id: testCase.id,
                       testCaseHeaderSkinData,
                       testCaseStepsSkinData,
                       testCaseAttachments,

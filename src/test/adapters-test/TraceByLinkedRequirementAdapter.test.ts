@@ -81,6 +81,75 @@ describe('TraceByLinkedRequirementAdapter', () => {
     expect((logger as any).error).toHaveBeenCalled();
   });
 
+  describe('fieldDisplayMapping overrides', () => {
+    test('overrides Requirement Title in req-test mode', () => {
+      const req = makeReqJson({ customerId: 'C-1' });
+      const tc = makeTcJson();
+      const map = new Map<string, string[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        Requirement: { Title: 'Req Name' },
+      };
+
+      const adapter = new TraceByLinkedRequirementAdapter(map, 'req-test', fieldDisplayMapping);
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      expect(fields.find((f: any) => f.name === 'Req Name')).toBeDefined();
+      expect(fields.find((f: any) => f.name === 'Req Name').value).toBe('Req 1');
+    });
+
+    test('overrides Customer ID for Requirement side', () => {
+      const req = makeReqJson({ customerId: 'C-1' });
+      const tc = makeTcJson();
+      const map = new Map<string, string[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        Requirement: { 'Customer ID': 'System ID' },
+      };
+
+      const adapter = new TraceByLinkedRequirementAdapter(map, 'req-test', fieldDisplayMapping);
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      const systemIdField = fields.find((f: any) => f.name === 'System ID');
+      expect(systemIdField).toBeDefined();
+      expect(systemIdField.value).toBe('C-1');
+      expect(fields.find((f: any) => f.name === 'Customer ID')).toBeUndefined();
+    });
+
+    test('overrides Test Case Title in test-req mode', () => {
+      const tc = makeTcJson();
+      const req = makeReqJson({ id: 2, customerId: undefined });
+      const map = new Map<string, string[]>([[tc, [req]]]);
+
+      const fieldDisplayMapping = {
+        'Test Case': { Title: 'TC Description' },
+      };
+
+      const adapter = new TraceByLinkedRequirementAdapter(map, 'test-req', fieldDisplayMapping);
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      expect(fields.find((f: any) => f.name === 'TC Description')).toBeDefined();
+      expect(fields.find((f: any) => f.name === 'TC Description').value).toBe('TC 10');
+    });
+
+    test('no mapping defaults to original names', () => {
+      const req = makeReqJson();
+      const tc = makeTcJson();
+      const map = new Map<string, string[]>([[req, [tc]]]);
+
+      const adapter = new TraceByLinkedRequirementAdapter(map, 'req-test');
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      // Title fields should exist with default names
+      const titleFields = fields.filter((f: any) => f.name === 'Title');
+      expect(titleFields.length).toBe(2); // one for Req, one for TC
+    });
+  });
+
   test('adapts Req/Test Case ID column widths when IDs are long', () => {
     const req = makeReqJson({ id: 123456789012 });
     const tc = makeTcJson({ id: 987654321098 });

@@ -220,6 +220,147 @@ describe('TraceQueryResultsSkinAdapter', () => {
     expect((logger as any).error).toHaveBeenCalled();
   });
 
+  describe('fieldDisplayMapping overrides', () => {
+    test('overrides column header by referenceName for Requirement side', () => {
+      const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+      const req = makeItem(1, {
+        'System.Title': 'Req 1',
+        'Custom.CustomerId': 'C1',
+      });
+      const tc = makeItem(2, { 'System.Title': 'TC 1' });
+      const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        Requirement: { 'Custom.CustomerId': 'System ID' },
+      };
+
+      const adapter = new TraceQueryResultsSkinAdapter(
+        { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+        'req-test',
+        true,
+        'both',
+        fieldDisplayMapping
+      );
+
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      const systemIdField = fields.find((f: any) => f.name === 'System ID');
+      expect(systemIdField).toBeDefined();
+      expect(systemIdField.value).toBe('C1');
+    });
+
+    test('overrides Area Path→Node Name with user mapping', () => {
+      const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+      const req = makeItem(1, {
+        'System.Title': 'Req 1',
+        'System.AreaPath': 'Root\\Sub',
+      });
+      const tc = makeItem(2, { 'System.Title': 'TC 1' });
+      const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        Requirement: { 'System.AreaPath': 'Department' },
+      };
+
+      const adapter = new TraceQueryResultsSkinAdapter(
+        { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+        'req-test',
+        false,
+        'both',
+        fieldDisplayMapping
+      );
+
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      const deptField = fields.find((f: any) => f.name === 'Department');
+      expect(deptField).toBeDefined();
+      expect(deptField.value).toBe('Sub');
+    });
+
+    test('empty override value leaves default name', () => {
+      const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+      const req = makeItem(1, {
+        'System.Title': 'Req 1',
+        'Custom.CustomerId': 'C1',
+      });
+      const tc = makeItem(2, { 'System.Title': 'TC 1' });
+      const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        Requirement: { 'Custom.CustomerId': '   ' },
+      };
+
+      const adapter = new TraceQueryResultsSkinAdapter(
+        { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+        'req-test',
+        true,
+        'both',
+        fieldDisplayMapping
+      );
+
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      expect(fields.find((f: any) => f.name === 'Customer ID')).toBeDefined();
+    });
+
+    test('no mapping (undefined) works same as no override', () => {
+      const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+      const req = makeItem(1, { 'System.Title': 'Req 1' });
+      const tc = makeItem(2, { 'System.Title': 'TC 1' });
+      const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+      const adapter = new TraceQueryResultsSkinAdapter(
+        { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+        'req-test',
+        false,
+        'both'
+      );
+
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+      expect(fields.find((f: any) => f.name === 'Req Title')).toBeDefined();
+    });
+
+    test('Test Case side override is independent of Requirement side', () => {
+      const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
+      const req = makeItem(1, {
+        'System.Title': 'Req 1',
+        'Microsoft.VSTS.Common.Priority': 1,
+      });
+      const tc = makeItem(2, {
+        'System.Title': 'TC 1',
+        'Microsoft.VSTS.Common.Priority': 2,
+      });
+      const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
+
+      const fieldDisplayMapping = {
+        'Test Case': { 'Microsoft.VSTS.Common.Priority': 'Urgency' },
+      };
+
+      const adapter = new TraceQueryResultsSkinAdapter(
+        { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap },
+        'req-test',
+        false,
+        'both',
+        fieldDisplayMapping
+      );
+
+      adapter.adoptSkinData();
+      const fields = adapter.getAdoptedData()[0].fields;
+
+      // Req side: Priority stays as-is
+      const reqPriority = fields.find((f: any) => f.name === 'Priority');
+      expect(reqPriority).toBeDefined();
+      // TC side: Priority overridden to Urgency
+      const tcUrgency = fields.find((f: any) => f.name === 'Urgency');
+      expect(tcUrgency).toBeDefined();
+      expect(tcUrgency.value).toBe(2);
+    });
+  });
+
   test('adapts Req/Test Case ID column widths when IDs are long', () => {
     const { sortingSourceColumnsMap, sortingTargetsColumnsMap } = makeMaps();
     const req = makeItem(123456789012, { 'System.Title': 'Req long' });

@@ -111,3 +111,51 @@ describe('AzureDataService historical query methods', () => {
     expect(result).toEqual({ value: [{ id: 1 }] });
   });
 });
+
+describe('AzureDataService.getTraceColumns', () => {
+  const ticketsProvider = {
+    GetTraceColumnsByType: jest.fn(),
+  };
+
+  const getTicketsDataProviderMock = jest.fn();
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getTicketsDataProviderMock.mockResolvedValue(ticketsProvider);
+  });
+
+  it('delegates to GetTraceColumnsByType with correct wiql hrefs', async () => {
+    const expected = { Requirement: [{ referenceName: 'Custom.Foo', name: 'Foo' }], 'Test Case': [] };
+    ticketsProvider.GetTraceColumnsByType.mockResolvedValueOnce(expected);
+
+    const svc = new AzureDataService('https://org/', 'pat');
+    // Inject mock provider
+    (svc as any).dg = { getTicketsDataProvider: getTicketsDataProviderMock };
+
+    const reqTestQuery = { wiql: { href: 'https://ado/wiql/rt' } };
+    const testReqQuery = { wiql: { href: 'https://ado/wiql/tr' } };
+    const result = await svc.getTraceColumns(reqTestQuery, testReqQuery, 'my-project');
+
+    expect(ticketsProvider.GetTraceColumnsByType).toHaveBeenCalledWith(
+      'https://ado/wiql/rt',
+      'https://ado/wiql/tr',
+      'my-project',
+    );
+    expect(result).toEqual(expected);
+  });
+
+  it('passes undefined hrefs when queries are null', async () => {
+    ticketsProvider.GetTraceColumnsByType.mockResolvedValueOnce({ Requirement: [], 'Test Case': [] });
+
+    const svc = new AzureDataService('https://org/', 'pat');
+    (svc as any).dg = { getTicketsDataProvider: getTicketsDataProviderMock };
+
+    await svc.getTraceColumns(null, null, 'my-project');
+
+    expect(ticketsProvider.GetTraceColumnsByType).toHaveBeenCalledWith(
+      undefined,
+      undefined,
+      'my-project',
+    );
+  });
+});
