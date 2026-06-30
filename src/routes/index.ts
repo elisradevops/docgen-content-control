@@ -653,6 +653,20 @@ export class Routes {
       }
     });
 
+    app.route('/azure/queries/:queryId/definition').post(async (req: Request, res: Response) => {
+      try {
+        const { body, params } = req;
+        const { teamProjectId = '' } = body || {};
+        const queryId = params.queryId;
+        const svc = getAzureService(body);
+        const data = await svc.getQueryDefinition(queryId, teamProjectId);
+        res.status(StatusCodes.OK).json(data);
+      } catch (error) {
+        logger.error(`azure/queries/:queryId/definition error: ${error.message}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      }
+    });
+
     app.route('/azure/trace/columns').post(async (req: Request, res: Response) => {
       try {
         const { body } = req;

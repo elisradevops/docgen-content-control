@@ -44,6 +44,11 @@ export default class AzureDataService {
     return tickets.GetQueryResultById(queryId, teamProjectId);
   }
 
+  async getQueryDefinition(queryId: string, teamProjectId = '') {
+    const tickets = await this.dg.getTicketsDataProvider();
+    return tickets.GetQueryDefinitionById(queryId, teamProjectId);
+  }
+
   async getTraceColumns(reqTestQuery: any, testReqQuery: any, teamProject: string) {
     const tickets = await this.dg.getTicketsDataProvider();
     return tickets.GetTraceColumnsByType(

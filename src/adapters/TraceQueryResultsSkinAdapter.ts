@@ -18,18 +18,18 @@ export default class TraceQueryResultsSkinAdapter {
   private includeCommonColumnsMode: string;
   private traceIdColumnWidth = '8.5%';
   private adoptedData: any[] = [];
-  private fieldDisplayMapping: Record<string, Record<string, string>>;
-  private fieldVisibility: Record<string, Record<string, boolean>>;
-  private fieldOrder: Record<string, string[]>;
+  private fieldDisplayMapping: Record<string, Record<string, Record<string, string>>>;
+  private fieldVisibility: Record<string, Record<string, Record<string, boolean>>>;
+  private fieldOrder: Record<string, Record<string, string[]>>;
 
   constructor(
     rawResults,
     queryMode = 'none',
     includeCustomerId = false,
     includeCommonColumns: string = 'both',
-    fieldDisplayMapping: Record<string, Record<string, string>> = {},
-    fieldVisibility: Record<string, Record<string, boolean>> = {},
-    fieldOrder: Record<string, string[]> = {}
+    fieldDisplayMapping: Record<string, Record<string, Record<string, string>>> = {},
+    fieldVisibility: Record<string, Record<string, Record<string, boolean>>> = {},
+    fieldOrder: Record<string, Record<string, string[]>> = {}
   ) {
     const { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap } = rawResults;
     this.rawQueryMapping = sourceTargetsMap;
@@ -45,14 +45,14 @@ export default class TraceQueryResultsSkinAdapter {
 
   private resolveDisplayName(defaultName: string, referenceName: string, type: string): string {
     const typeKey = type === 'Req' ? 'Requirement' : type;
-    const override = this.fieldDisplayMapping[typeKey]?.[referenceName];
+    const override = this.fieldDisplayMapping[this.queryMode]?.[typeKey]?.[referenceName];
     return typeof override === 'string' && override.trim() ? override.trim() : defaultName;
   }
 
   private isHidden(referenceName: string, type: string): boolean {
     if (ALWAYS_VISIBLE_REFS.has(referenceName)) return false;
     const typeKey = type === 'Req' ? 'Requirement' : type;
-    return this.fieldVisibility[typeKey]?.[referenceName] === false;
+    return this.fieldVisibility[this.queryMode]?.[typeKey]?.[referenceName] === false;
   }
 
   adoptSkinData() {
@@ -116,7 +116,7 @@ export default class TraceQueryResultsSkinAdapter {
 
     // Process other fields — sorted by user-defined column order when present
     const typeKey = type === 'Req' ? 'Requirement' : type;
-    const orderList = this.fieldOrder?.[typeKey] || [];
+    const orderList = this.fieldOrder?.[this.queryMode]?.[typeKey] || [];
     const allEntries = [...mapToUse.entries()].filter(([ref, fn]) => {
       const dn = normalizeFieldName(fn);
       return ref !== TITLE_REF && dn !== 'Work Item Type' && dn !== 'ID';
