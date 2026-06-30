@@ -231,7 +231,7 @@ describe('TraceQueryResultsSkinAdapter', () => {
       const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
 
       const fieldDisplayMapping = {
-        Requirement: { 'Custom.CustomerId': 'System ID' },
+        'req-test': { Requirement: { 'Custom.CustomerId': 'System ID' } },
       };
 
       const adapter = new TraceQueryResultsSkinAdapter(
@@ -260,7 +260,7 @@ describe('TraceQueryResultsSkinAdapter', () => {
       const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
 
       const fieldDisplayMapping = {
-        Requirement: { 'System.AreaPath': 'Department' },
+        'req-test': { Requirement: { 'System.AreaPath': 'Department' } },
       };
 
       const adapter = new TraceQueryResultsSkinAdapter(
@@ -289,7 +289,7 @@ describe('TraceQueryResultsSkinAdapter', () => {
       const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
 
       const fieldDisplayMapping = {
-        Requirement: { 'Custom.CustomerId': '   ' },
+        'req-test': { Requirement: { 'Custom.CustomerId': '   ' } },
       };
 
       const adapter = new TraceQueryResultsSkinAdapter(
@@ -337,7 +337,7 @@ describe('TraceQueryResultsSkinAdapter', () => {
       const sourceTargetsMap = new Map<any, any[]>([[req, [tc]]]);
 
       const fieldDisplayMapping = {
-        'Test Case': { 'Microsoft.VSTS.Common.Priority': 'Urgency' },
+        'req-test': { 'Test Case': { 'Microsoft.VSTS.Common.Priority': 'Urgency' } },
       };
 
       const adapter = new TraceQueryResultsSkinAdapter(
