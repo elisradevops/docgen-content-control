@@ -417,7 +417,10 @@ export default class TestDataFactory {
               linkedRequirementTraceSkinAdapter.adoptSkinData();
               const adoptedData = linkedRequirementTraceSkinAdapter.getAdoptedData();
               const groupedHeader = this.buildTraceGroupedHeader(type, adoptedData);
-              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
+              // Source-side ID/Title are never blanked per row here (unlike the SRS forward-trace
+              // adapter), so vertical merge has no legitimate group to collapse — it would only
+              // ever fire by coincidence on a field that happens to be empty for that row.
+              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader, enableVerticalMerge: false };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
             }
@@ -455,7 +458,9 @@ export default class TestDataFactory {
               queryResultSkinAdapter.adoptSkinData();
               const adoptedData = queryResultSkinAdapter.getAdoptedData();
               const groupedHeader = this.buildTraceGroupedHeader(type, adoptedData);
-              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader };
+              // Same reasoning as linked-requirement above: no per-row blanking, so vertical
+              // merge would only ever fire by coincidence on an empty field value.
+              adoptedTestData[adoptedDataKey] = { title, adoptedData, groupedHeader, enableVerticalMerge: false };
             } else {
               adoptedTestData[adoptedDataKey] = { title, adoptedData: null };
             }

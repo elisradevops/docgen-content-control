@@ -273,10 +273,14 @@ describe('TestDataFactory', () => {
       expect(result.reqTestAdoptedData).toBeDefined();
       expect(result.reqTestAdoptedData.adoptedData[0]).toEqual({ type: 'req-test', count: 1 });
       expect(result.reqTestAdoptedData.title.fields[0].value).toContain('Requirements to Test cases');
+      // Source-side ID/Title are never blanked per row for this adapter, so vertical merge must
+      // stay off — otherwise it fires by coincidence on any column blank for a given row.
+      expect(result.reqTestAdoptedData.enableVerticalMerge).toBe(false);
 
       expect(result.testReqAdoptedData).toBeDefined();
       expect(result.testReqAdoptedData.adoptedData[0]).toEqual({ type: 'test-req', count: 1 });
       expect(result.testReqAdoptedData.title.fields[0].value).toContain('Test cases to Requirement');
+      expect(result.testReqAdoptedData.enableVerticalMerge).toBe(false);
     });
 
     test('jsonSkinDataAdpater should return null adoptedData when linked-requirements-trace maps are missing', async () => {
@@ -313,6 +317,21 @@ describe('TestDataFactory', () => {
       expect(right.title.fields[0].value).toContain('Test cases to Requirement');
       expect(right.adoptedData[0].type).toBe('test-req');
       expect(right.adoptedData[0].mode).toBe('leftOnly');
+    });
+
+    test('jsonSkinDataAdpater disables vertical merge for query-results trace tables', async () => {
+      // Source-side ID/Title are never blanked per row for query-results mode (unlike the SRS
+      // forward-trace adapter), so vertical merge must stay off — otherwise it fires by
+      // coincidence on any column that happens to be blank for a given row (e.g. a custom field).
+      const factory = createTestDataFactory(defaultParams);
+
+      (factory as any).reqTestQueryResults = [{ id: 'req1' }];
+      (factory as any).testReqQueryResults = [{ id: 'tc1' }];
+
+      const result = await (factory as any).jsonSkinDataAdpater('query-results', false, 'leftOnly');
+
+      expect(result.reqTestAdoptedData.enableVerticalMerge).toBe(false);
+      expect(result.testReqAdoptedData.enableVerticalMerge).toBe(false);
     });
 
     test('jsonSkinDataAdpater should calculate grouped-header spans for query trace tables', async () => {
