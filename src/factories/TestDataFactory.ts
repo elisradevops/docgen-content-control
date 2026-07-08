@@ -7,6 +7,11 @@ import HtmlUtils from '../services/htmlUtils';
 import TraceQueryResultsSkinAdapter from '../adapters/TraceQueryResultsSkinAdapter';
 import TraceByLinkedRequirementAdapter from '../adapters/TraceByLinkedRequirementAdapter';
 import SuiteOverviewDataSkinAdapter from '../adapters/SuiteOverviewDataSkinAdapter';
+import {
+  buildSuiteOrdinalIndex,
+  sortSourceTargetsMapByTestCaseSuite,
+  sortSourceTargetsMapByLinkedTestCaseSuite,
+} from '../utils/traceSortUtils';
 
 export default class TestDataFactory {
   isSuiteSpecific = false;
@@ -30,8 +35,10 @@ export default class TestDataFactory {
   includeCustomerId: boolean;
   linkedMomRequest: any;
   traceAnalysisRequest: any;
-  reqTestQueryResults: Map<any, any[]>;
-  testReqQueryResults: Map<any, any[]>;
+  // Actually holds { sourceTargetsMap, sortingSourceColumnsMap, sortingTargetsColumnsMap }
+  // (see TicketsDataProvider.GetQueryResultsFromWiql return shape), not a bare Map.
+  reqTestQueryResults: any;
+  testReqQueryResults: any;
   includeTestResults: boolean;
   minioEndPoint: string;
   minioAccessKey: string;
@@ -349,6 +356,40 @@ export default class TestDataFactory {
       this.testCaseToRequirementsLookup = testCaseToRequirementMap;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
+    }
+  }
+
+  // Re-orders already-fetched query-mode trace rows by test-suite order (DFS pre-order, same
+  // order as the generated test description) instead of the ADO query's ORDER BY. Only called
+  // when traceAnalysisRequest.sortBy[direction] === 'suite' for at least one direction. Must run
+  // after fetchTestData() has populated this.testDataRaw.suites.
+  async applySuiteOrderSort() {
+    try {
+      const sortBy = this.traceAnalysisRequest?.sortBy || {};
+      if (sortBy['req-test'] !== 'suite' && sortBy['test-req'] !== 'suite') {
+        return;
+      }
+
+      const ordinalByTestCaseId = buildSuiteOrdinalIndex(this.testDataRaw?.suites || []);
+
+      if (sortBy['test-req'] === 'suite' && this.testReqQueryResults?.sourceTargetsMap) {
+        this.testReqQueryResults.sourceTargetsMap = sortSourceTargetsMapByTestCaseSuite(
+          this.testReqQueryResults.sourceTargetsMap,
+          ordinalByTestCaseId
+        );
+      }
+
+      if (sortBy['req-test'] === 'suite' && this.reqTestQueryResults?.sourceTargetsMap) {
+        this.reqTestQueryResults.sourceTargetsMap = sortSourceTargetsMapByLinkedTestCaseSuite(
+          this.reqTestQueryResults.sourceTargetsMap,
+          ordinalByTestCaseId
+        );
+      }
+
+      const includeCommonColumnsMode = this.traceAnalysisRequest.includeCommonColumnsMode;
+      this.adoptedQueryResults = await this.jsonSkinDataAdpater('query-results', false, includeCommonColumnsMode);
+    } catch (err) {
+      logger.error(`Could not apply suite order sort to trace analysis: ${err.message}`);
     }
   }
 

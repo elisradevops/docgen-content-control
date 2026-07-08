@@ -1361,6 +1361,137 @@ describe('TestDataFactory', () => {
       });
     });
 
+    describe('applySuiteOrderSort', () => {
+      const buildSuites = () => [
+        { temp: { id: 1, name: 'Suite 1' }, testCases: [{ id: 39 }] },
+        { temp: { id: 2, name: 'Suite 2' }, testCases: [{ id: 35 }, { id: 36 }] },
+      ];
+
+      const buildTestReqResults = () => ({
+        sourceTargetsMap: new Map([
+          [{ id: 999 }, []], // not present in any suite
+          [{ id: 36 }, []],
+          [{ id: 39 }, []],
+        ]),
+      });
+
+      const buildReqTestResults = () => ({
+        sourceTargetsMap: new Map([
+          [{ id: 'req-A' }, [{ id: 36 }]],
+          [{ id: 'req-B' }, [{ id: 39 }]],
+        ]),
+      });
+
+      test('does nothing and skips the adapter rebuild when neither direction is set to suite', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.testReqQueryResults = buildTestReqResults();
+        testDataFactory.traceAnalysisRequest = { sortBy: { 'req-test': 'query', 'test-req': 'query' } };
+        testDataFactory.jsonSkinDataAdpater = jest.fn();
+        const originalMap = testDataFactory.testReqQueryResults.sourceTargetsMap;
+
+        await testDataFactory.applySuiteOrderSort();
+
+        expect(testDataFactory.jsonSkinDataAdpater).not.toHaveBeenCalled();
+        expect(testDataFactory.testReqQueryResults.sourceTargetsMap).toBe(originalMap);
+      });
+
+      test('reorders test-req rows by the source test case suite position', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.testReqQueryResults = buildTestReqResults();
+        testDataFactory.traceAnalysisRequest = {
+          sortBy: { 'test-req': 'suite' },
+          includeCommonColumnsMode: 'both',
+        };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue('rebuilt-adopted-data');
+
+        await testDataFactory.applySuiteOrderSort();
+
+        const orderedIds = [...testDataFactory.testReqQueryResults.sourceTargetsMap.keys()].map((k) => k.id);
+        expect(orderedIds).toEqual([39, 36, 999]); // suite order, unmatched (999) trails
+        expect(testDataFactory.jsonSkinDataAdpater).toHaveBeenCalledWith('query-results', false, 'both');
+        expect(testDataFactory.adoptedQueryResults).toBe('rebuilt-adopted-data');
+      });
+
+      test('reorders req-test rows by the linked test case suite position', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.reqTestQueryResults = buildReqTestResults();
+        testDataFactory.traceAnalysisRequest = { sortBy: { 'req-test': 'suite' }, includeCommonColumnsMode: 'both' };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue({});
+
+        await testDataFactory.applySuiteOrderSort();
+
+        const orderedSourceIds = [...testDataFactory.reqTestQueryResults.sourceTargetsMap.keys()].map(
+          (k) => k.id
+        );
+        expect(orderedSourceIds).toEqual(['req-B', 'req-A']); // req-B -> tc39 (ordinal 0) sorts before req-A -> tc36 (ordinal 1)
+      });
+
+      test('sorts both directions independently when both are set to suite', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.testReqQueryResults = buildTestReqResults();
+        testDataFactory.reqTestQueryResults = buildReqTestResults();
+        testDataFactory.traceAnalysisRequest = {
+          sortBy: { 'req-test': 'suite', 'test-req': 'suite' },
+          includeCommonColumnsMode: 'both',
+        };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue({});
+
+        await testDataFactory.applySuiteOrderSort();
+
+        expect([...testDataFactory.testReqQueryResults.sourceTargetsMap.keys()].map((k) => k.id)).toEqual([
+          39, 36, 999,
+        ]);
+        expect([...testDataFactory.reqTestQueryResults.sourceTargetsMap.keys()].map((k) => k.id)).toEqual([
+          'req-B',
+          'req-A',
+        ]);
+      });
+
+      test('degrades to original relative order without throwing when suites are missing/empty', async () => {
+        testDataFactory.testDataRaw = { suites: [] };
+        testDataFactory.testReqQueryResults = buildTestReqResults();
+        testDataFactory.traceAnalysisRequest = { sortBy: { 'test-req': 'suite' }, includeCommonColumnsMode: 'both' };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue({});
+
+        await expect(testDataFactory.applySuiteOrderSort()).resolves.not.toThrow();
+
+        // No suite data to sort by -> every row falls back to Infinity -> original relative order preserved
+        expect([...testDataFactory.testReqQueryResults.sourceTargetsMap.keys()].map((k) => k.id)).toEqual([
+          999, 36, 39,
+        ]);
+      });
+
+      test('is a no-op for a direction whose sourceTargetsMap was never populated (query not selected)', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.testReqQueryResults = undefined;
+        testDataFactory.reqTestQueryResults = buildReqTestResults();
+        testDataFactory.traceAnalysisRequest = {
+          sortBy: { 'req-test': 'suite', 'test-req': 'suite' },
+          includeCommonColumnsMode: 'both',
+        };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockResolvedValue({});
+
+        await expect(testDataFactory.applySuiteOrderSort()).resolves.not.toThrow();
+
+        expect(testDataFactory.testReqQueryResults).toBeUndefined();
+        expect([...testDataFactory.reqTestQueryResults.sourceTargetsMap.keys()].map((k) => k.id)).toEqual([
+          'req-B',
+          'req-A',
+        ]);
+      });
+
+      test('logs and swallows errors instead of throwing', async () => {
+        testDataFactory.testDataRaw = { suites: buildSuites() };
+        testDataFactory.testReqQueryResults = buildTestReqResults();
+        testDataFactory.traceAnalysisRequest = { sortBy: { 'test-req': 'suite' }, includeCommonColumnsMode: 'both' };
+        testDataFactory.jsonSkinDataAdpater = jest.fn().mockRejectedValue(new Error('adapter exploded'));
+
+        await expect(testDataFactory.applySuiteOrderSort()).resolves.not.toThrow();
+
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Could not apply suite order sort'));
+      });
+    });
+
     describe('fetchLinkedMomResults', () => {
       test('should fetch linked MOM results and populate lookup map', async () => {
         // Configure linkedMomRequest to include a linkedMomQuery

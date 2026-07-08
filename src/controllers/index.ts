@@ -924,6 +924,14 @@ export default class DgContentControls {
       if (traceAnalysisRequest?.traceAnalysisMode === 'linkedRequirement') {
         await testDataFactory.fetchLinkedRequirementsTrace();
       }
+
+      if (
+        traceAnalysisRequest?.traceAnalysisMode === 'query' &&
+        (traceAnalysisRequest?.sortBy?.['req-test'] === 'suite' ||
+          traceAnalysisRequest?.sortBy?.['test-req'] === 'suite')
+      ) {
+        await testDataFactory.applySuiteOrderSort();
+      }
     } catch (error) {
       logger.error(`Error initializing test data factory ${error.message}`);
       if (!error.message.includes('Warning:')) {
