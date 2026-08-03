@@ -1162,6 +1162,47 @@ describe('ChangeDataFactory', () => {
         ).toBe(true);
       });
 
+      it('passes the resolved release id to GetRecentReleaseArtifactInfo, not just the project name', async () => {
+        changeDataFactory.rangeType = 'release';
+        changeDataFactory.from = '14';
+        changeDataFactory.to = '16';
+        mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue([]);
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [];
+        });
+
+        await changeDataFactory.fetchSvdData();
+
+        expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).toHaveBeenCalledWith(
+          expect.any(String),
+          Number(changeDataFactory.to)
+        );
+      });
+
+      it('should skip release-components lookup when release id is unresolved (empty or invalid)', async () => {
+        changeDataFactory.rangeType = 'release';
+        changeDataFactory.from = '14';
+        changeDataFactory.to = ''; // Unresolved release ID
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [
+            {
+              artifact: { name: 'Repo 1' },
+              changes: [{ workItem: { id: 1, fields: {}, _links: {} } }],
+              nonLinkedCommits: [],
+            },
+          ];
+        });
+
+        await changeDataFactory.fetchSvdData();
+
+        // Should NOT call GetRecentReleaseArtifactInfo when to is invalid
+        expect(mockPipelinesDataProvider.GetRecentReleaseArtifactInfo).not.toHaveBeenCalled();
+        // Should log a distinct "skipped" warning, not a "failed" warning
+        expect(logger.warn).toHaveBeenCalledWith(
+          expect.stringContaining('release-components lookup skipped')
+        );
+      });
+
       it('should skip changes and non-associated-commits when there are no raw changes', async () => {
         // No recent release artifacts
         mockPipelinesDataProvider.GetRecentReleaseArtifactInfo.mockResolvedValue([]);
@@ -5155,6 +5196,48 @@ describe('ChangeDataFactory', () => {
         expect(factory.from).toBe(10);
         expect(factory.to).toBe(20);
         expect(factory.getResolvedContextName()).toBe('release-MyRelease-2-0-0');
+      });
+
+      it('resolveReleaseIds Scenario 4: to auto-discovery skips an abandoned newest release', async () => {
+        const factory = new ChangeDataFactory(
+          defaultParams.teamProject,
+          defaultParams.repoId,
+          '',
+          '',
+          'release',
+          defaultParams.linkTypeFilterArray,
+          defaultParams.branchName,
+          defaultParams.includePullRequests,
+          defaultParams.includePullRequestWorkItems,
+          defaultParams.attachmentWikiUrl,
+          defaultParams.includeChangeDescription,
+          defaultParams.includeCommittedBy,
+          mockDgDataProvider,
+          defaultParams.attachmentsBucketName,
+          defaultParams.minioEndPoint,
+          defaultParams.minioAccessKey,
+          defaultParams.minioSecretKey,
+          defaultParams.PAT
+        ) as any;
+
+        const pipelines = {
+          GetReleaseHistory: jest.fn().mockResolvedValue({
+            value: [
+              { id: 21, status: 'abandoned' },
+              { id: 20, status: 'active' },
+            ]
+          }),
+          findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+          GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) => {
+            if (id === 20) return Promise.resolve({ id: 20, name: '2.0.0', releaseDefinition: { id: 1, name: 'MyRelease' } });
+            return Promise.resolve(undefined);
+          }),
+        } as any;
+
+        await factory.resolveReleaseIds(pipelines);
+
+        expect(factory.to).toBe(20);
+        expect(pipelines.GetReleaseByReleaseId).toHaveBeenCalledWith(defaultParams.teamProject, 20);
       });
 
       it('resolvePipelineIds Scenario 1: from is explicit, to is empty', async () => {

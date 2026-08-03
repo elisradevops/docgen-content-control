@@ -55,6 +55,7 @@ describe('DgContentControls SVD release-file-content-control generation', () => 
       getAdoptedData: jest.fn().mockReturnValue([]),
       getAttachmentMinioData: jest.fn().mockReturnValue([]),
       getResolvedContextName: jest.fn().mockReturnValue(''),
+      getResolvedTo: jest.fn().mockReturnValue('17'),
     }));
   });
 
