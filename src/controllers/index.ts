@@ -2046,6 +2046,7 @@ export default class DgContentControls {
     baselineOptions: any = undefined,
   ) {
     let adoptedChangesData;
+    let changeDataFactory: ChangeDataFactory;
     logger.debug(`fetching data with params:
       repoId:${repoId}
       from:${JSON.stringify(from)}
@@ -2059,7 +2060,7 @@ export default class DgContentControls {
       attachmentsWikiUrl:${attachmentWikiUrl}
       linkedWiOptions:${JSON.stringify(linkedWiOptions)}`);
     try {
-      let changeDataFactory = new ChangeDataFactory(
+      changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
         repoId,
         from,
@@ -2210,7 +2211,10 @@ export default class DgContentControls {
           .trim()
           .toLowerCase() === 'required-states-and-modes';
       if (isSvdChangesControl) {
-        const releaseZipFileName = await this.resolveSvdReleaseZipFileName(rangeType, to);
+        const releaseZipFileName = await this.resolveSvdReleaseZipFileName(
+          rangeType,
+          changeDataFactory.getResolvedTo(),
+        );
         const releaseFileControlTitle = 'release-file-content-control';
         contentControls.push(
           ...(await this.addReleaseFileContentControl(releaseFileControlTitle, releaseZipFileName)),

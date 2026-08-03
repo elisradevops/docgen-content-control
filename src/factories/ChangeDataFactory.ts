@@ -201,15 +201,23 @@ export default class ChangeDataFactory {
       logger.info(`[SVD ${svdId}] phase=resolveIds ${Date.now() - resolveStart}ms (from=${this.from}, to=${this.to})`);
       let recentReleaseArtifactInfo: any[] = [];
       if (this.rangeType === 'release') {
-        try {
-          recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
-            this.teamProject
-          );
-        } catch (error: any) {
+        const toReleaseId = Number(this.to);
+        if (!Number.isFinite(toReleaseId) || toReleaseId <= 0) {
           logger.warn(
-            `fetchSvdData: release-components lookup failed, skipping optional section: ${error?.message || error}`
+            `fetchSvdData: release-components lookup skipped — release id not resolved (to=${this.to})`
           );
-          recentReleaseArtifactInfo = [];
+        } else {
+          try {
+            recentReleaseArtifactInfo = await pipelinesDataProvider.GetRecentReleaseArtifactInfo(
+              this.teamProject,
+              toReleaseId
+            );
+          } catch (error: any) {
+            logger.warn(
+              `fetchSvdData: release-components lookup failed, skipping optional section: ${error?.message || error}`
+            );
+            recentReleaseArtifactInfo = [];
+          }
         }
       }
       const releaseComponentsCount = recentReleaseArtifactInfo?.length || 0;
@@ -635,6 +643,10 @@ export default class ChangeDataFactory {
 
   public getResolvedContextName(): string {
     return this.resolvedContextName;
+  }
+
+  public getResolvedTo(): string | number {
+    return this.to;
   }
 
   //#endregion public methods
@@ -1332,8 +1344,9 @@ export default class ChangeDataFactory {
             String(requestedReleaseDefinitionId)
           );
           const releases = history?.value || [];
-          if (releases.length > 0) {
-            latestReleaseId = releases[0].id;
+          const candidate = releases.find((r: any) => r.status !== 'abandoned');
+          if (candidate) {
+            latestReleaseId = candidate.id;
           }
         }
       } catch (e: any) {
@@ -1355,6 +1368,11 @@ export default class ChangeDataFactory {
       }
 
       if (!latestReleaseId) {
+        // Leaves this.to unresolved (non-finite/blank) on purpose: callers downstream
+        // (e.g. the GetRecentReleaseArtifactInfo guard in fetchSvdData) treat a
+        // non-finite/<=0 this.to as "unresolved" and skip release-scoped lookups
+        // rather than fetch with an invalid id. Keep this early-return contract in
+        // sync with any guard that reads this.to after resolveReleaseIds() runs.
         logger.warn(`Could not find a valid latest release for definition #${requestedReleaseDefinitionId}`);
         return;
       }
