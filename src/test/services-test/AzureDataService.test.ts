@@ -1,11 +1,13 @@
 const getTicketsDataProviderMock = jest.fn();
 const getPipelinesDataProviderMock = jest.fn();
+const getMangementDataProviderMock = jest.fn();
 
 jest.mock('@elisra-devops/docgen-data-provider', () => ({
   __esModule: true,
   default: jest.fn().mockImplementation(() => ({
     getTicketsDataProvider: getTicketsDataProviderMock,
     getPipelinesDataProvider: getPipelinesDataProviderMock,
+    getMangementDataProvider: getMangementDataProviderMock,
   })),
 }));
 
@@ -157,5 +159,32 @@ describe('AzureDataService.getTraceColumns', () => {
       undefined,
       'my-project',
     );
+  });
+});
+
+describe('AzureDataService.getIdentityById', () => {
+  const managementProvider = { GetIdentityById: jest.fn() };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getMangementDataProviderMock.mockResolvedValue(managementProvider);
+  });
+
+  it('delegates to the management data provider with the identity id', async () => {
+    managementProvider.GetIdentityById.mockResolvedValueOnce({ count: 1, value: [{ id: 'x' }] });
+    const svc = new AzureDataService('https://org/', 'pat');
+
+    const result = await svc.getIdentityById('vsid-1');
+
+    expect(managementProvider.GetIdentityById).toHaveBeenCalledWith('vsid-1');
+    expect(result).toEqual({ count: 1, value: [{ id: 'x' }] });
+  });
+
+  it('throws a clear error instead of a raw TypeError when the management provider is unavailable', async () => {
+    getMangementDataProviderMock.mockResolvedValueOnce(null);
+    const svc = new AzureDataService('https://org/', 'pat');
+
+    await expect(svc.getIdentityById('vsid-1')).rejects.toThrow('Management data provider unavailable');
+    expect(managementProvider.GetIdentityById).not.toHaveBeenCalled();
   });
 });

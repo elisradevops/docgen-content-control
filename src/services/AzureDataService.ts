@@ -8,24 +8,37 @@ export default class AzureDataService {
   }
 
   // Management
+  private async getManagement(): Promise<any> {
+    const management = await this.dg.getMangementDataProvider?.();
+    if (!management) {
+      throw new Error('Management data provider unavailable');
+    }
+    return management;
+  }
+
   async getProjects() {
-    const management = (await this.dg.getMangementDataProvider?.()) || null;
+    const management = await this.getManagement();
     return management.GetProjects();
   }
 
   async getUserProfile() {
-    const management = (await this.dg.getMangementDataProvider?.()) || null;
+    const management = await this.getManagement();
     return management.GetUserProfile();
   }
 
   async getCollectionLinkTypes() {
-    const management = (await this.dg.getMangementDataProvider?.()) || null;
+    const management = await this.getManagement();
     return management.GetCllectionLinkTypes();
   }
 
   async checkOrgUrlValidity(token?: string) {
-    const management = (await this.dg.getMangementDataProvider?.()) || null;
+    const management = await this.getManagement();
     return management.CheckOrgUrlValidity(token);
+  }
+
+  async getIdentityById(identityId: string) {
+    const management = await this.getManagement();
+    return management.GetIdentityById(identityId);
   }
 
   // Queries & Fields
