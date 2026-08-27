@@ -9,6 +9,7 @@ import path from 'path';
 import logger from '../services/logger';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
+import { extractWindowsIdentityHint } from '../utils/adoIdentity';
 
 const normalizeOrgUrl = (value: string) => {
   const trimmed = String(value || '').trim();
@@ -555,6 +556,34 @@ export class Routes {
         }
 
         res.status(status).json({ message: errorMessage });
+      }
+    });
+
+    // Best-effort autofill hint for the on-prem SharePoint NTLM dialog —
+    // resolves the caller's AD domain/account from their ADO identity, for
+    // Windows-integrated-auth on-prem deployments only. This route MUST
+    // ALWAYS return 200, even on failure: a cloud/Entra org's request here
+    // is EXPECTED to fail (Identities API isn't even hosted on the org URL
+    // for Azure DevOps Services), and relaying a real error status up would
+    // risk tripping the frontend's global 401/302 sign-out handling for
+    // what is a purely cosmetic prefill. Do not "fix" this to relay real
+    // statuses without re-reading this comment.
+    app.route('/azure/user/windows-identity').post(async ({ body }: Request, res: Response) => {
+      const identityId = String(body?.identityId || '').trim();
+      const empty = { domain: null, account: null };
+      if (!identityId) {
+        res.status(StatusCodes.OK).json(empty);
+        return;
+      }
+      try {
+        const svc = getAzureService(body);
+        const raw = await svc.getIdentityById(identityId);
+        res.status(StatusCodes.OK).json(extractWindowsIdentityHint(raw));
+      } catch (error: any) {
+        logger.debug(
+          `azure/user/windows-identity unavailable: ${error?.response?.status || ''} ${error?.message || ''}`
+        );
+        res.status(StatusCodes.OK).json(empty);
       }
     });
 
