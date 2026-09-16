@@ -35,6 +35,10 @@ const RELEASE_BASELINE_MESSAGE =
 const RELEASE_BASELINE_BUILD_ONLY_MESSAGE =
   `${RELEASE_BASELINE_MESSAGE} Release baseline currently supports Build artifacts only; no Build artifacts were found on the target release.`;
 const BASELINE_WORK_ITEM_CONCURRENCY = 8;
+// Build infrastructure repos that must never appear as SVD content, even though they are
+// declared run resources (pipeline resource repositories / release artifacts) alongside the
+// actual product repos. Overridable per-request via changeFilterOptions.excludedRepoNames.
+const DEFAULT_EXCLUDED_REPO_NAMES = ['pipeline-templates', 'DevOpsTemplates'];
 
 export default class ChangeDataFactory {
   //#region properties
@@ -87,6 +91,7 @@ export default class ChangeDataFactory {
   private allowBaselineSvd: boolean = false;
   private baselineChangeSource: string = '';
   private resolvedContextName: string = '';
+  private excludedRepoNames: Set<string> = new Set();
   //#endregion properties
 
   //#region constructor
@@ -119,7 +124,8 @@ export default class ChangeDataFactory {
     workItemFilterOptions: any = undefined,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive',
     replaceTaskWithParent: boolean = false,
-    baselineOptions: any = undefined
+    baselineOptions: any = undefined,
+    changeFilterOptions: any = undefined
   ) {
     this.dgDataProviderAzureDevOps = dgDataProvider;
     this.teamProject = teamProjectName;
@@ -157,6 +163,16 @@ export default class ChangeDataFactory {
     this.replaceTaskWithParent = !!replaceTaskWithParent;
     this.allowBaselineSvd = !!baselineOptions?.allowBaselineSvd;
     this.baselineChangeSource = baselineOptions?.baselineChangeSource || (this.allowBaselineSvd ? 'currentTargetChanges' : '');
+    const rawExcludedRepoNames = Array.isArray(changeFilterOptions?.excludedRepoNames)
+      ? changeFilterOptions.excludedRepoNames
+      : [];
+    const effectiveExcludedRepoNames =
+      rawExcludedRepoNames.length > 0 ? rawExcludedRepoNames : DEFAULT_EXCLUDED_REPO_NAMES;
+    this.excludedRepoNames = new Set(
+      effectiveExcludedRepoNames
+        .map((n: any) => String(n ?? '').trim().replace(/^_/, '').toLowerCase())
+        .filter((n: string) => n.length > 0)
+    );
   } //constructor
   // #endregion constructor
 
@@ -220,6 +236,14 @@ export default class ChangeDataFactory {
           }
         }
       }
+      // Drop build-infrastructure artifacts (e.g. pipeline-templates) — not product content.
+      recentReleaseArtifactInfo = (recentReleaseArtifactInfo || []).filter((a: any) => {
+        if (this.isExcludedRepoName(a?.artifactName)) {
+          logger.debug(`Excluding infrastructure artifact from release-components: ${a?.artifactName}`);
+          return false;
+        }
+        return true;
+      });
       const releaseComponentsCount = recentReleaseArtifactInfo?.length || 0;
       logger.info(
         `[SVD ${svdId}] release-components: items=${releaseComponentsCount}${
@@ -1604,6 +1628,15 @@ export default class ChangeDataFactory {
               continue;
             }
 
+            // Drop build-infrastructure artifacts (e.g. pipeline-templates) — not product content.
+            const toRelArtDefName = toRelArt.definitionReference?.['definition']?.name;
+            if (this.isExcludedRepoName(artifactAlias) || this.isExcludedRepoName(toRelArtDefName)) {
+              logger.debug(
+                `Excluding infrastructure artifact from SVD: alias=${artifactAlias}, definition=${toRelArtDefName}`
+              );
+              continue;
+            }
+
             // Build a stable, unique key per artifact group (type + definition id + alias when possible)
             const key = this.buildArtifactKey(toRelArt);
             let fromRelArt = fromArtifactMap.get(key);
@@ -2011,14 +2044,27 @@ export default class ChangeDataFactory {
           sourcePipelineRun,
           gitDataProvider
         );
-      const targetResourceRepositories =
+      const targetResourceRepositoriesRaw =
         await pipelinesDataProvider.getPipelineResourceRepositoriesFromObject(
           targetPipelineRun,
           gitDataProvider
         );
 
+      // Drop build-infrastructure repos (e.g. pipeline-templates) declared only as run
+      // resources so a template can be resolved — they are not product content.
+      const filterExcludedRepos = (repos: any[]) =>
+        (repos || []).filter((r: any) => {
+          if (this.isExcludedRepoName(r?.repoName)) {
+            logger.debug(`Excluding infrastructure repository from SVD: ${r?.repoName}`);
+            return false;
+          }
+          return true;
+        });
+      const sourceResourceRepositoriesFiltered = filterExcludedRepos(sourceResourceRepositories as any[]);
+      const targetResourceRepositories = filterExcludedRepos(targetResourceRepositoriesRaw as any[]);
+
       const sourceReposByName: Map<string, any> = new Map();
-      for (const r of sourceResourceRepositories as any[]) {
+      for (const r of sourceResourceRepositoriesFiltered as any[]) {
         const name = String(r?.repoName || '');
         if (!name) continue;
         // Preserve the previous behavior: the first matching repo wins.
@@ -3855,6 +3901,10 @@ export default class ChangeDataFactory {
           !['TfsGit', 'TfsVersionControl'].includes(a?.definitionReference?.['repository.provider']?.id)
         )
           continue;
+        // Drop build-infrastructure artifacts (e.g. pipeline-templates) — not product content.
+        if (this.isExcludedRepoName(a?.alias) || this.isExcludedRepoName(a?.definitionReference?.['definition']?.name)) {
+          continue;
+        }
         const k = this.buildArtifactKey(a);
         if (!artifactPresence.has(k)) artifactPresence.set(k, []);
         artifactPresence.get(k)!.push({ idx, art: a });
@@ -4316,6 +4366,16 @@ export default class ChangeDataFactory {
     const definitionId = Number(pipelineResource?.definitionId);
     if (!teamProject || !Number.isFinite(definitionId)) return '';
     return `${teamProject}|${definitionId}`;
+  }
+
+  /**
+   * True when a repository/artifact is build infrastructure that must not appear in the SVD
+   * (e.g. the pipeline-templates repo, present only because it is a declared run resource).
+   */
+  private isExcludedRepoName(name: any): boolean {
+    const normalized = String(name ?? '').trim().replace(/^_/, '').toLowerCase();
+    if (!normalized) return false;
+    return this.excludedRepoNames.has(normalized);
   }
 
   /**

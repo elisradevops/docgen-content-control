@@ -357,6 +357,9 @@ export default class DgContentControls {
               allowBaselineSvd: contentControlOptions.data.allowBaselineSvd,
               baselineChangeSource: contentControlOptions.data.baselineChangeSource,
             },
+            {
+              excludedRepoNames: contentControlOptions.data.excludedRepoNames,
+            },
           );
           break;
         case 'pr-change-description-table':
@@ -2044,6 +2047,7 @@ export default class DgContentControls {
     replaceTaskWithParent: boolean = false,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive',
     baselineOptions: any = undefined,
+    changeFilterOptions: any = undefined,
   ) {
     let adoptedChangesData;
     let changeDataFactory: ChangeDataFactory;
@@ -2090,6 +2094,7 @@ export default class DgContentControls {
         compareMode,
         replaceTaskWithParent,
         baselineOptions,
+        changeFilterOptions,
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
