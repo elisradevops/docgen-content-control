@@ -14,6 +14,7 @@ import RequirementsDataFactory from '../factories/RequirementsDataFactory';
 import CriticalRequirementsTableSkinAdapter from '../adapters/CriticalRequirementsTableSkinAdapter';
 import VcrmTableSkinAdapter from '../adapters/VcrmTableSkinAdapter';
 import CustomerCoverageTableSkinAdapter from '../adapters/CustomerCoverageTableSkinAdapter';
+import HistoricalCompareDataSkinAdapter from '../adapters/HistoricalCompareDataSkinAdapter';
 import { formatLocalILShort } from '../services/adapterUtils';
 import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
 
@@ -357,6 +358,9 @@ export default class DgContentControls {
               allowBaselineSvd: contentControlOptions.data.allowBaselineSvd,
               baselineChangeSource: contentControlOptions.data.baselineChangeSource,
             },
+            {
+              excludedRepoNames: contentControlOptions.data.excludedRepoNames,
+            },
           );
           break;
         case 'pr-change-description-table':
@@ -455,6 +459,37 @@ export default class DgContentControls {
     ];
   }
 
+  /**
+   * Resolves the compare result for a Historical Query report. When the request already carries
+   * an inline compareResult/rows (older frontend, or a caller that already has the data), it is
+   * used as-is. Otherwise the request is expected to be "lean" (queryId + the two as-of
+   * timestamps only) and the comparison is re-run here, so the browser -> api-gate ->
+   * content-control payload no longer scales with the number of work items / diff size.
+   */
+  private async resolveHistoricalCompareResult(data: any): Promise<any> {
+    const inlineCompareResult = data?.compareResult || (Array.isArray(data?.rows) ? data : null);
+    if (inlineCompareResult && Array.isArray(inlineCompareResult.rows)) {
+      return inlineCompareResult;
+    }
+
+    const queryId = data?.queryId || data?.compareResult?.queryId;
+    const baselineAsOf = data?.baselineAsOf || data?.compareResult?.baseline?.asOf;
+    const compareToAsOf = data?.compareToAsOf || data?.compareResult?.compareTo?.asOf;
+    if (!queryId || !baselineAsOf || !compareToAsOf) {
+      throw new Error(
+        'Historical compare report requires either an inline compareResult or queryId + baselineAsOf + compareToAsOf',
+      );
+    }
+
+    const ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
+    return ticketsDataProvider.CompareHistoricalQueryResults(
+      queryId,
+      this.teamProjectName,
+      baselineAsOf,
+      compareToAsOf,
+    );
+  }
+
   private async addHistoricalCompareReportContent(
     contentControlTitle: string,
     data: any,
@@ -474,11 +509,24 @@ export default class DgContentControls {
       InsertLineBreak: false,
       InsertSpace: false,
     };
+    const compareResult = await this.resolveHistoricalCompareResult(data);
+    const historicalCompareAdapter = new HistoricalCompareDataSkinAdapter(
+      this.templatePath,
+      this.teamProjectName,
+      this.attachmentsBucketName,
+      this.minioEndPoint,
+      this.minioAccessKey,
+      this.minioSecretKey,
+      this.PAT,
+      this.formattingSettings,
+    );
+    const cleanedCompareResult = await historicalCompareAdapter.adapt(compareResult);
+    this.minioAttachmentData = this.minioAttachmentData.concat(historicalCompareAdapter.attachmentMinioData);
     const normalizedPayload = {
       ...data,
-      queryName: data?.queryName || data?.compareResult?.queryName || '',
+      queryName: data?.queryName || cleanedCompareResult?.queryName || '',
       teamProjectName: data?.teamProjectName || this.teamProjectName,
-      compareResult: data?.compareResult || data || {},
+      compareResult: cleanedCompareResult,
     };
     const timeMachineSkinType = (this.skins as any).SKIN_TYPE_TIME_MACHINE || 'time-machine-report';
     let wordObjects: any[] = [];
@@ -707,12 +755,14 @@ export default class DgContentControls {
               {
                 name: 'Baseline',
                 value:
+                  this.toHistoricalText(diff?.baselineDisplay) ||
                   `${this.toHistoricalText(row?.baselineRevisionId || '')} ${this.toHistoricalText(diff?.baseline)}`.trim(),
                 width: '50%',
               },
               {
                 name: 'Compare to',
                 value:
+                  this.toHistoricalText(diff?.compareToDisplay) ||
                   `${this.toHistoricalText(row?.compareToRevisionId || '')} ${this.toHistoricalText(diff?.compareTo)}`.trim(),
                 width: '50%',
               },
@@ -2044,6 +2094,7 @@ export default class DgContentControls {
     replaceTaskWithParent: boolean = false,
     compareMode: 'consecutive' | 'allPairs' = 'consecutive',
     baselineOptions: any = undefined,
+    changeFilterOptions: any = undefined,
   ) {
     let adoptedChangesData;
     let changeDataFactory: ChangeDataFactory;
@@ -2090,6 +2141,7 @@ export default class DgContentControls {
         compareMode,
         replaceTaskWithParent,
         baselineOptions,
+        changeFilterOptions,
       );
       await changeDataFactory.fetchSvdData();
       adoptedChangesData = changeDataFactory.getAdoptedData();
