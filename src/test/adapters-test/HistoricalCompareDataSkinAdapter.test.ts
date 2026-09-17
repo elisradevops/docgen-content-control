@@ -36,7 +36,7 @@ describe('HistoricalCompareDataSkinAdapter', () => {
     }));
   });
 
-  it('cleans a Description difference and prefixes the revision id as its own paragraph', async () => {
+  it('cleans a Description difference, diff-highlights it, and prefixes the revision id as its own paragraph', async () => {
     const adapter = createAdapter();
     const compareResult = {
       rows: [
@@ -52,14 +52,21 @@ describe('HistoricalCompareDataSkinAdapter', () => {
 
     const result = await adapter.adapt(compareResult);
     const diff = result.rows[0].differences[0];
-    expect(diff.baselineDisplay).toBe('<p>2</p>rich:clean:<p>old</p>');
-    expect(diff.compareToDisplay).toBe('<p>20</p>rich:clean:<p>new</p>');
+    // cleanHtml/RichTextDataFactory are mocked to prefix "clean:"/"rich:", so the cleaned
+    // values diffed here are "rich:clean:<p>old</p>" vs "rich:clean:<p>new</p>" - only the
+    // "old"/"new" word differs, so only that word is wrapped.
+    expect(diff.baselineDisplay).toBe(
+      '<p>2</p>rich:clean:<p><span style="color:#C00000"><s>old</s></span></p>',
+    );
+    expect(diff.compareToDisplay).toBe(
+      '<p>20</p>rich:clean:<p><span style="color:#107C10">new</span></p>',
+    );
     // Original raw fields are preserved untouched.
     expect(diff.baseline).toBe('<p>old</p>');
     expect(diff.compareTo).toBe('<p>new</p>');
   });
 
-  it('leaves scalar-field differences (e.g. Test Phase) untouched', async () => {
+  it('diff-highlights scalar-field differences (e.g. Test Phase)', async () => {
     const adapter = createAdapter();
     const compareResult = {
       rows: [
@@ -74,7 +81,48 @@ describe('HistoricalCompareDataSkinAdapter', () => {
     };
 
     const result = await adapter.adapt(compareResult);
-    expect(result.rows[0].differences[0]).toEqual({ field: 'Test Phase', baseline: 'FAT', compareTo: 'FAT; ATP' });
+    const diff = result.rows[0].differences[0];
+    expect(diff.baselineDisplay).toBe('<p>2</p>FAT');
+    expect(diff.compareToDisplay).toBe('<p>20</p>FAT<span style="color:#107C10">; ATP</span>');
+    // Original raw fields are preserved untouched.
+    expect(diff.baseline).toBe('FAT');
+    expect(diff.compareTo).toBe('FAT; ATP');
+  });
+
+  it('leaves a scalar-field difference untouched when one side is empty', async () => {
+    const adapter = createAdapter();
+    const compareResult = {
+      rows: [
+        {
+          id: 11,
+          baselineRevisionId: 2,
+          compareToRevisionId: 20,
+          compareStatus: 'Changed',
+          differences: [{ field: 'State', baseline: '', compareTo: 'Active' }],
+        },
+      ],
+    };
+
+    const result = await adapter.adapt(compareResult);
+    expect(result.rows[0].differences[0]).toEqual({ field: 'State', baseline: '', compareTo: 'Active' });
+  });
+
+  it('leaves a scalar-field difference untouched when both sides are equal', async () => {
+    const adapter = createAdapter();
+    const compareResult = {
+      rows: [
+        {
+          id: 11,
+          baselineRevisionId: 2,
+          compareToRevisionId: 20,
+          compareStatus: 'Changed',
+          differences: [{ field: 'Related Link Count', baseline: '3', compareTo: '3' }],
+        },
+      ],
+    };
+
+    const result = await adapter.adapt(compareResult);
+    expect(result.rows[0].differences[0]).toEqual({ field: 'Related Link Count', baseline: '3', compareTo: '3' });
   });
 
   it('renders parsed Action/Expected steps per side when the provider attached them', async () => {
@@ -101,11 +149,12 @@ describe('HistoricalCompareDataSkinAdapter', () => {
 
     const result = await adapter.adapt(compareResult);
     const diff = result.rows[0].differences[0];
+    // "Open app" is identical on both sides so it's left plain; only "Login"/"Dashboard" differ.
     expect(diff.baselineDisplay).toBe(
-      '<p>1</p><p><b>1. Action:</b></p>rich:clean:Open app<p><b>Expected:</b></p>rich:clean:Login shown',
+      '<p>1</p><p><b>1. Action:</b></p>rich:clean:Open app<p><b>Expected:</b></p>rich:clean:<span style="color:#C00000"><s>Login</s></span> shown',
     );
     expect(diff.compareToDisplay).toBe(
-      '<p>2</p><p><b>1. Action:</b></p>rich:clean:Open app<p><b>Expected:</b></p>rich:clean:Dashboard shown',
+      '<p>2</p><p><b>1. Action:</b></p>rich:clean:Open app<p><b>Expected:</b></p>rich:clean:<span style="color:#107C10">Dashboard</span> shown',
     );
   });
 
@@ -133,8 +182,13 @@ describe('HistoricalCompareDataSkinAdapter', () => {
 
     const result = await adapter.adapt(compareResult);
     const diff = result.rows[0].differences[0];
-    expect(diff.baselineDisplay).toBe('<p>1</p>rich:clean:<steps>raw-baseline</steps>');
-    expect(diff.compareToDisplay).toBe('<p>2</p>rich:clean:<steps>raw-compare</steps>');
+    // "raw-" is a shared prefix so it's left plain; only "baseline"/"compare" differ.
+    expect(diff.baselineDisplay).toBe(
+      '<p>1</p>rich:clean:<steps>raw-<span style="color:#C00000"><s>baseline</s></span></steps>',
+    );
+    expect(diff.compareToDisplay).toBe(
+      '<p>2</p>rich:clean:<steps>raw-<span style="color:#107C10">compare</span></steps>',
+    );
   });
 
   it('collects attachment MinIO data emitted while cleaning images across all differences', async () => {

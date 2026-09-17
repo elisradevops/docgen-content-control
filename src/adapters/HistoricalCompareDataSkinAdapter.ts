@@ -1,5 +1,6 @@
 import RichTextDataFactory from '../factories/RichTextDataFactory';
 import HtmlUtils from '../services/htmlUtils';
+import { buildHtmlDiffPair, escapeHtmlText } from '../services/htmlDiffUtils';
 import logger from '../services/logger';
 
 /**
@@ -7,8 +8,12 @@ import logger from '../services/logger';
  * result, using the same mechanism STD/STR use for test-case content: HtmlUtils.cleanHtml for
  * Word-fidelity normalization, then RichTextDataFactory to download/embed images into MinIO.
  *
- * Only HTML-bearing fields are touched. Scalar fields (Title, State, Test Phase, Related Link
- * Count) are left untouched by this adapter.
+ * Every changed field - HTML-bearing (Description, Steps) and scalar (Title, State, Test Phase,
+ * Related Link Count) alike - gets a baselineDisplay/compareToDisplay pair with git-diff/Beyond
+ * Compare styling: text removed from the baseline is wrapped red+strikethrough, text added in
+ * the compare-to side is wrapped green, via htmlDiffUtils.buildHtmlDiffPair. Scalar fields are
+ * skipped when either side is empty or the two sides are equal, in which case the raw diff
+ * object passes through unchanged.
  */
 export default class HistoricalCompareDataSkinAdapter {
   htmlUtils: HtmlUtils;
@@ -111,9 +116,33 @@ export default class HistoricalCompareDataSkinAdapter {
   }
 
   /**
+   * Builds the baselineDisplay/compareToDisplay pair for a difference, giving the two sides
+   * git-diff/Beyond-Compare styling: text removed from the baseline is wrapped
+   * red+strikethrough, text added in the compare-to side is wrapped green. Diffing happens
+   * after `cleaned` has already been through HtmlUtils.cleanHtml/RichTextDataFactory - never
+   * before - since cleanHtml strips the `color` style off spans it doesn't recognize.
+   */
+  private buildDiffedDisplays(
+    row: any,
+    cleanedBaseline: string,
+    cleanedCompareTo: string,
+  ): { baselineDisplay: string; compareToDisplay: string } {
+    const { baseline: diffedBaseline, compareTo: diffedCompareTo } = buildHtmlDiffPair(
+      cleanedBaseline,
+      cleanedCompareTo,
+    );
+    return {
+      baselineDisplay: this.buildDisplay(row?.baselineRevisionId, diffedBaseline),
+      compareToDisplay: this.buildDisplay(row?.compareToRevisionId, diffedCompareTo),
+    };
+  }
+
+  /**
    * Cleans every HTML-bearing difference on every "Changed" row of a Historical Query compare
-   * result, returning a new compareResult object with baselineDisplay/compareToDisplay attached.
-   * Scalar-field differences and every other property of the payload pass through untouched.
+   * result, returning a new compareResult object with baselineDisplay/compareToDisplay attached
+   * and diff-highlighted per field. Scalar fields are diff-highlighted too, from their raw
+   * (HTML-escaped) values, as long as both sides are non-empty and actually differ; every other
+   * property of the payload passes through untouched.
    */
   public async adapt(compareResult: any): Promise<any> {
     try {
@@ -129,22 +158,22 @@ export default class HistoricalCompareDataSkinAdapter {
               if (diff?.field === 'Steps') {
                 const cleanedBaseline = await this.cleanStepsSide(diff?.baseline, diff?.baselineSteps);
                 const cleanedCompareTo = await this.cleanStepsSide(diff?.compareTo, diff?.compareToSteps);
-                return {
-                  ...diff,
-                  baselineDisplay: this.buildDisplay(row?.baselineRevisionId, cleanedBaseline),
-                  compareToDisplay: this.buildDisplay(row?.compareToRevisionId, cleanedCompareTo),
-                };
+                return { ...diff, ...this.buildDiffedDisplays(row, cleanedBaseline, cleanedCompareTo) };
               }
               if (HistoricalCompareDataSkinAdapter.HTML_FIELDS.has(diff?.field)) {
                 const cleanedBaseline = await this.cleanAndEmbed(diff?.baseline);
                 const cleanedCompareTo = await this.cleanAndEmbed(diff?.compareTo);
-                return {
-                  ...diff,
-                  baselineDisplay: this.buildDisplay(row?.baselineRevisionId, cleanedBaseline),
-                  compareToDisplay: this.buildDisplay(row?.compareToRevisionId, cleanedCompareTo),
-                };
+                return { ...diff, ...this.buildDiffedDisplays(row, cleanedBaseline, cleanedCompareTo) };
               }
-              return diff;
+              const baselineText = diff?.baseline === null || diff?.baseline === undefined ? '' : String(diff.baseline);
+              const compareToText = diff?.compareTo === null || diff?.compareTo === undefined ? '' : String(diff.compareTo);
+              if (!baselineText || !compareToText || baselineText === compareToText) {
+                return diff;
+              }
+              return {
+                ...diff,
+                ...this.buildDiffedDisplays(row, escapeHtmlText(baselineText), escapeHtmlText(compareToText)),
+              };
             }),
           );
           return { ...row, differences: adaptedDifferences };
