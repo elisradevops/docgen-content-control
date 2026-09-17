@@ -233,8 +233,11 @@ describe('DgContentControls historical compare report generation', () => {
 
     const skinData = addNewContentToDocumentSkin.mock.calls[0][2];
     const diff = skinData.compareResult.rows[0].differences[0];
-    expect(diff.baselineDisplay).toBe('<p>2</p>rich:clean:<p>old</p>');
-    expect(diff.compareToDisplay).toBe('<p>20</p>rich:clean:<p><img src="x"/>new</p>');
+    // "old"/"new" are diff-highlighted; the <img> tag is preserved as-is (never wrapped).
+    expect(diff.baselineDisplay).toBe('<p>2</p>rich:clean:<p><span style="color:#C00000"><s>old</s></span></p>');
+    expect(diff.compareToDisplay).toBe(
+      '<p>20</p>rich:clean:<p><img src="x"/><span style="color:#107C10">new</span></p>',
+    );
     // Raw diff values must stay intact for anything else that still reads them.
     expect(diff.baseline).toBe('<p>old</p>');
   });
@@ -431,7 +434,7 @@ describe('DgContentControls historical compare report generation', () => {
     expect(diffTableCall).toBeTruthy();
     const baselineField = diffTableCall[2][0].fields.find((f: any) => f.name === 'Baseline');
     const compareField = diffTableCall[2][0].fields.find((f: any) => f.name === 'Compare to');
-    expect(baselineField.value).toBe('<p>2</p>rich:clean:<p>old</p>');
-    expect(compareField.value).toBe('<p>20</p>rich:clean:<p>new</p>');
+    expect(baselineField.value).toBe('<p>2</p>rich:clean:<p><span style="color:#C00000"><s>old</s></span></p>');
+    expect(compareField.value).toBe('<p>20</p>rich:clean:<p><span style="color:#107C10">new</span></p>');
   });
 });
