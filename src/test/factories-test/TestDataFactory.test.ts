@@ -785,9 +785,9 @@ describe('TestDataFactory', () => {
       await expect(factory.jsonSkinDataAdpater(null, false)).rejects.toBeDefined();
 
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining('Error occurred while mapping test suite 1 test case 10 - boom-clean')
+        expect.stringContaining('Error occurred while mapping test suite 1 test case 10'),
+        expect.objectContaining({ message: 'boom-clean' })
       );
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('error stack '));
     });
 
     test('jsonSkinDataAdpater should handle test-result-group-summary case as no-op', async () => {

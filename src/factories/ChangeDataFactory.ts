@@ -634,8 +634,7 @@ export default class ChangeDataFactory {
 
             logger.debug(`Installation instructions processed successfully`);
           } catch (error) {
-            logger.error(`Error processing installation instructions: ${error.message}`);
-            logger.error(error.stack);
+            logger.error('Error processing installation instructions', error);
           }
           break;
         case 'possible-problems-known-errors':

@@ -852,9 +852,9 @@ export default class TestDataFactory {
                     return adoptedTestCaseData;
                   } catch (error) {
                     logger.error(
-                      `Error occurred while mapping test suite ${suite.temp.id} test case ${testCase.id} - ${error.message}`
+                      `Error occurred while mapping test suite ${suite.temp.id} test case ${testCase.id}`,
+                      error
                     );
-                    logger.error(`error stack ${error.stack}`);
                     throw error;
                   }
                 })

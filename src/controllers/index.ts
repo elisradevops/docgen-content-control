@@ -409,11 +409,9 @@ export default class DgContentControls {
       return jsonData;
     } catch (error) {
       logger.error(
-        `Error initializing Skins: ${error.message} ${
-          contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
-        } `,
+        `Error initializing Skins${contentControlOptions.title ? ` for ${contentControlOptions.title}` : ''}`,
+        error,
       );
-      logger.error(`Error stack: ${error.stack}`);
       throw error;
     }
   }

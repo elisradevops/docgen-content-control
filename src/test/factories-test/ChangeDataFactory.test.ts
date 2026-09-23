@@ -2042,7 +2042,8 @@ describe('ChangeDataFactory', () => {
 
         expect(result).toBeUndefined();
         expect((logger as any).error).toHaveBeenCalledWith(
-          expect.stringContaining('Error processing installation instructions:')
+          'Error processing installation instructions',
+          expect.any(Error)
         );
       });
 

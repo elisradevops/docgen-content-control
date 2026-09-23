@@ -770,8 +770,7 @@ export default class HtmlUtils {
       this.trimWhitespaceAroundBr();
       return this.$.html();
     } catch (error: any) {
-      logger.error(`Error occurred during clean HTML: ${error.message}`);
-      logger.error(`error stack ${error.stack}`);
+      logger.error('Error occurred during clean HTML', error);
       throw error;
     }
   }
