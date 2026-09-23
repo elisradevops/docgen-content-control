@@ -14,7 +14,7 @@ import logger from './logger';
 
 type TokenType = 'tag' | 'text';
 
-interface Token {
+export interface Token {
   type: TokenType;
   value: string;
 }
@@ -59,8 +59,12 @@ export function escapeHtmlText(value: string): string {
  * Longest-common-subsequence diff between two token arrays. Uses a flat Int32Array DP table
  * (rather than an array of arrays) to keep memory bounded for the largest inputs this is
  * allowed to run on (see MAX_DIFF_TOKEN_PRODUCT).
+ *
+ * Exported so hunkDiffUtils.ts can reuse the exact same alignment engine to match items other
+ * than HTML tokens (Steps, table rows) - fed synthetic `{type:'text', value: key}` tokens
+ * instead. No new algorithm, just a different key.
  */
-function lcsDiff(a: Token[], b: Token[]): DiffOp[] {
+export function lcsDiff(a: Token[], b: Token[]): DiffOp[] {
   const n = a.length;
   const m = b.length;
   const width = m + 1;

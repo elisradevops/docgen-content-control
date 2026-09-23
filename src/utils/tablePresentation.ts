@@ -5,6 +5,15 @@ export const COLOR_TEST_SOFT = 'E4DFEC'; // Test Case/Software
 export const COLOR_PCR = COLOR_REQ_SYS;
 export const COLOR_TRACE_UNCOVERED = 'FFC7CE';
 
+// Historical Query Steps-diff row shading - pale enough to keep black text readable on a white
+// page (unlike Azure DevOps's own darker theme colors, which only work against its own dark/
+// light UI chrome): pale blue for the "Updated"/"Added" row, pale gray for the
+// "Previous"/"Removed" row, just to help tell the two rows of a pair apart at a glance. Blue,
+// not green, for Updated - the inline diff-insert text on that row is itself green (#107C10,
+// htmlDiffUtils.ts), and green-on-pale-green was too low-contrast to read comfortably.
+export const COLOR_HISTORICAL_STEP_UPDATED = 'DDEBF7';
+export const COLOR_HISTORICAL_STEP_PREVIOUS = 'F2F2F2';
+
 // Link-type tokens used to detect traceability relations between work items.
 // Matches substrings of ADO link-type ref names (e.g. 'System.LinkTypes.Affects-Forward',
 // 'Elisra.CoveredBy-Reverse').
