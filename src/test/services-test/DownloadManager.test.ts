@@ -130,7 +130,9 @@ describe('DownloadManager', () => {
       expect(body.bucketName).toBe(bucketName);
       expect(body.minioEndPoint).toBe('minio.example.com');
       expect(result).toEqual({ fileName: 'file.txt', filePath: '/tmp/file.txt' });
-      expect((logger as any).info).toHaveBeenCalledWith(expect.stringContaining('downloaded to :'));
+      // Was JSON.stringify'd inline into the message (a crash risk on circular data / BigInt);
+      // now passed as meta and logged as a separate arg — see docgen-log-redaction / Phase 2.
+      expect((logger as any).info).toHaveBeenCalledWith('downloaded to', { fileName: 'file.txt', filePath: '/tmp/file.txt' });
     });
 
     it('should return null when upload by URL responds with non-200 status', async () => {

@@ -220,10 +220,12 @@ describe('TestResultsAttachmentDataFactory', () => {
             expect(result.analysisLevel[0].attachmentMinioPath).toBeUndefined();
             expect(result.analysisLevel[0].attachmentFileName).toBe('error.png');
 
-            // Verify the original download error was logged
-            expect(logger.error).toHaveBeenCalledWith('error downloading attachment : error.png');
-            // Just verify the second call happened without checking the specific content
-            expect(logger.error).toHaveBeenCalledTimes(2);
+            // Verify the original download error was logged. Used to be two separate calls
+            // (message, then JSON.stringify(e) — which logs "{}" for an Error and is a crash
+            // risk on circular data); now one call with the error as meta (docgen-log-redaction
+            // / Phase 2).
+            expect(logger.error).toHaveBeenCalledWith('error downloading attachment : error.png', error);
+            expect(logger.error).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -299,7 +301,7 @@ describe('TestResultsAttachmentDataFactory', () => {
                 PAT
             );
 
-            expect(logger.error).toHaveBeenCalledWith('error downloading attachment : test.png');
+            expect(logger.error).toHaveBeenCalledWith('error downloading attachment : test.png', expect.any(Error));
             expect(result).toBe('');
         });
     });

@@ -85,7 +85,7 @@ export default class DownloadManager {
         token: this.PAT,
       });
 
-      logger.info(`downloaded to :${JSON.stringify(downloadManagerResponse.data)}`);
+      logger.info('downloaded to', downloadManagerResponse.data);
       return downloadManagerResponse.status === 200 ? downloadManagerResponse.data : null;
     } catch (e) {
       logger.error(`error downloading : ${this.downloadUrl}`);

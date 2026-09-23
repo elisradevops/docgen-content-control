@@ -108,8 +108,9 @@ export default class AttachmentsDataFactory {
       }
       return attachmentData;
     } catch (e) {
-      logger.error(`error creating attachmets array for work item ${this.wiId}`);
-      logger.error(JSON.stringify(e));
+      // JSON.stringify(e) on an Error returns "{}" — own enumerable props only, message/stack
+      // are non-enumerable — so this logged literally nothing useful. Pass it as meta instead.
+      logger.error(`error creating attachmets array for work item ${this.wiId}`, e);
       return [];
     }
   }
@@ -137,8 +138,7 @@ export default class AttachmentsDataFactory {
       let res = await downloadManager.downloadFile();
       return res;
     } catch (e) {
-      logger.error(`error downloading attachmet : ${attachmentFileName} for work item ${this.wiId}`);
-      logger.error(JSON.stringify(e));
+      logger.error(`error downloading attachmet : ${attachmentFileName} for work item ${this.wiId}`, e);
       return '';
     }
   }

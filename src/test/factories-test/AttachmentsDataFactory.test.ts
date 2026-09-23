@@ -107,8 +107,11 @@ describe('AttachmentsDataFactory', () => {
       );
 
       expect(result).toEqual([]); // Now we expect empty array
+      // JSON.stringify(e) on an Error used to log "{}" — fixed to pass the error as meta
+      // (see docgen-log-redaction / Phase 2), so the error object is now a real second arg.
       expect(logger.error).toHaveBeenCalledWith(
-        expect.stringContaining(`error creating attachmets array for work item ${wiId}`)
+        expect.stringContaining(`error creating attachmets array for work item ${wiId}`),
+        expect.any(Error)
       );
     });
 
