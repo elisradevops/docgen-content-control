@@ -1,6 +1,7 @@
 import express from "express";
 import * as bodyParser from "body-parser";
 import { Routes } from "./routes";
+import { attachRunContext } from "./services/runContext";
 
 //add metrics route , for monitoring
 const promBundle = require("express-prom-bundle");
@@ -30,6 +31,9 @@ export default class App {
   }
 
   private config(): void {
+    // First middleware in the chain so the whole request lifecycle — including downstream
+    // data-provider/skins calls — runs inside the run context. See runContext.ts.
+    this.app.use(attachRunContext);
     this.app.use(metricsMiddleware);
     // No explicit limit here used to mean body-parser's 100kb default, which
     // the Historical Query compare-report content control (can run into
