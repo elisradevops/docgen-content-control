@@ -318,8 +318,10 @@ export class Routes {
           undefined,
           body.formattingSettings,
         );
-        logger.info(`request recieved with body :
-          ${JSON.stringify(body)}`);
+        logTokenSummary('/generate-content-control', body.token);
+        logger.info(
+          `/generate-content-control request — project=${body.projectName} type=${body.contentControlOptions?.type} title=${body.contentControlOptions?.title}`
+        );
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateContentControl(body.contentControlOptions);
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
@@ -378,8 +380,8 @@ export class Routes {
           undefined,
           body.formattingSettings,
         );
-        logger.info(`flat test reporter request recieved with body :
-          ${JSON.stringify(body)}`);
+        logTokenSummary('/generate-test-reporter-flat', body.token);
+        logger.info(`/generate-test-reporter-flat request — project=${body.projectName}`);
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateTestReporterFlatContent(
           body.contentControlOptions,
@@ -630,7 +632,8 @@ export class Routes {
       try {
         const { body } = req;
         const { teamProjectId = '', docType = '', path = 'shared' } = body || {};
-        logger.info(`request recieved with body : ${JSON.stringify(body)}`);
+        logTokenSummary('/azure/queries', body?.token);
+        logger.info(`/azure/queries request — teamProjectId=${teamProjectId} docType=${docType} path=${path}`);
         const svc = getAzureService(body);
         const data = await svc.getSharedQueries(teamProjectId, docType, path);
         res.status(StatusCodes.OK).json(data ?? []);
