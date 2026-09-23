@@ -7,6 +7,7 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import logger from '../services/logger';
+import { runContextStore } from '../services/runContext';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
 import { extractWindowsIdentityHint } from '../utils/adoIdentity';
@@ -299,7 +300,14 @@ export class Routes {
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error });
+        // `{ error }` on an Error instance serializes to `{"error":{}}` — own enumerable
+        // props only, message/stack are non-enumerable — so this told the caller nothing.
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+          message: error.message,
+          code: error?.code,
+          step: 'generate-doc-template',
+          runId: runContextStore.getStore()?.runId,
+        });
       }
     });
 
@@ -331,7 +339,14 @@ export class Routes {
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
-        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
+        res.status(resolveHttpErrorStatus(error)).json({
+          message: error.message,
+          code: error?.code,
+          step: 'generate-content-control',
+          contentControlType: body.contentControlOptions?.type,
+          contentControlTitle: body.contentControlOptions?.title,
+          runId: runContextStore.getStore()?.runId,
+        });
       }
     });
 
