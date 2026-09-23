@@ -31,6 +31,14 @@ describe('AttachmentsDataFactory', () => {
     jest.clearAllMocks();
   });
 
+  afterEach(() => {
+    // Several tests in this file spy on AttachmentsDataFactory.prototype.downloadAttachment;
+    // jest.clearAllMocks() only clears call history, not a spy's mockImplementation, so without
+    // this an un-restored spy from one test silently leaks into every later test that calls
+    // downloadAttachment.
+    jest.restoreAllMocks();
+  });
+
   describe('fetchWiAttachments', () => {
     // Fix the test for handling errors in processing attachments
     test('should handle errors in processing attachments', async () => {
@@ -67,6 +75,7 @@ describe('AttachmentsDataFactory', () => {
           attachmentMinioPath: undefined,
           minioFileName: undefined,
           attachmentStepNo: '',
+          attachmentCreatedDate: '',
         },
       ]);
 
@@ -107,7 +116,7 @@ describe('AttachmentsDataFactory', () => {
       const additionalAttachments = [
         {
           downloadUrl: 'http://example.com/attachments/file1.png',
-          attributes: { comment: 'My comment' },
+          attributes: { comment: 'My comment', resourceCreatedDate: '2026-01-01T00:00:00Z' },
         },
         {
           downloadUrl: 'http://example.com/attachments/file2.png',
@@ -153,6 +162,7 @@ describe('AttachmentsDataFactory', () => {
           ThumbMinioPath: 'minio/thumb1',
           minioThumbName: 'thumb1.png',
           attachmentStepNo: '',
+          attachmentCreatedDate: '2026-01-01T00:00:00Z',
         },
         {
           attachmentComment: '',
@@ -163,6 +173,7 @@ describe('AttachmentsDataFactory', () => {
           attachmentMinioPath: 'minio/path2',
           minioFileName: 'file2.png',
           attachmentStepNo: '2',
+          attachmentCreatedDate: '',
         },
       ]);
 

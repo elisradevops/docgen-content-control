@@ -2,6 +2,7 @@ import DgContentControls from '../../controllers';
 import Skins from '@elisra-devops/docgen-skins';
 import HtmlUtils from '../../services/htmlUtils';
 import RichTextDataFactory from '../../factories/RichTextDataFactory';
+import AttachmentsDataFactory from '../../factories/AttachmentsDataFactory';
 
 jest.mock('../../services/logger', () => ({
   debug: jest.fn(),
@@ -27,6 +28,7 @@ jest.mock('@elisra-devops/docgen-skins', () => {
 // pipeline's network/cheerio behavior is already covered by their own unit tests.
 jest.mock('../../services/htmlUtils');
 jest.mock('../../factories/RichTextDataFactory');
+jest.mock('../../factories/AttachmentsDataFactory');
 
 describe('DgContentControls historical compare report generation', () => {
   beforeEach(() => {
@@ -37,6 +39,9 @@ describe('DgContentControls historical compare report generation', () => {
     (RichTextDataFactory as jest.Mock).mockImplementation((text: string) => ({
       factorizeRichTextData: jest.fn().mockResolvedValue(`rich:${text}`),
       attachmentMinioData: [],
+    }));
+    (AttachmentsDataFactory as jest.Mock).mockImplementation(() => ({
+      fetchWiAttachments: jest.fn().mockResolvedValue([]),
     }));
   });
 
@@ -285,9 +290,12 @@ describe('DgContentControls historical compare report generation', () => {
 
     await controller.generateContentControl(payload as any);
 
+    // Renamed to json-to-word's AttachmentsData contract (attachmentMinioPath/minioFileName) -
+    // passing RichTextDataFactory's raw {attachmentPath, fileName} through crashes document
+    // creation with a null Uri on the .NET side.
     expect((controller as any).minioAttachmentData).toEqual([
-      { attachmentPath: 'path-clean:<p>old</p>', fileName: 'file-clean:<p>old</p>' },
-      { attachmentPath: 'path-clean:<p>new</p>', fileName: 'file-clean:<p>new</p>' },
+      { attachmentMinioPath: 'path-clean:<p>old</p>', minioFileName: 'file-clean:<p>old</p>' },
+      { attachmentMinioPath: 'path-clean:<p>new</p>', minioFileName: 'file-clean:<p>new</p>' },
     ]);
   });
 
@@ -436,5 +444,169 @@ describe('DgContentControls historical compare report generation', () => {
     const compareField = diffTableCall[2][0].fields.find((f: any) => f.name === 'Compare to');
     expect(baselineField.value).toBe('<p>2</p>rich:clean:<p><span style="color:#C00000"><s>old</s></span></p>');
     expect(compareField.value).toBe('<p>20</p>rich:clean:<p><span style="color:#107C10">new</span></p>');
+  });
+
+  test('generateContentControl fetches and matches per-step attachments for a row with a Steps difference', async () => {
+    (AttachmentsDataFactory as jest.Mock).mockImplementation(() => ({
+      fetchWiAttachments: jest.fn().mockResolvedValue([
+        {
+          // Created after the baseline revision - noted as newly added.
+          attachmentComment: '[TestStep=step-1]',
+          attachmentFileName: 'screenshot.png',
+          attachmentLink: 'TempFiles/screenshot.png',
+          tableCellAttachmentLink: 'TempFiles/screenshot-thumb.png',
+          attachmentMinioPath: 'minio/screenshot.png',
+          minioFileName: 'screenshot.png',
+          attachmentCreatedDate: '2025-06-01T00:00:00Z',
+        },
+        {
+          // Matches the same step but predates baseline - already existed, so it's not noted.
+          attachmentComment: '[TestStep=step-1]',
+          attachmentFileName: 'pre-existing.png',
+          attachmentMinioPath: 'minio/pre-existing.png',
+          minioFileName: 'pre-existing.png',
+          attachmentCreatedDate: '2024-01-01T00:00:00Z',
+        },
+        {
+          attachmentComment: 'unrelated, no step marker',
+          attachmentFileName: 'other.png',
+          attachmentMinioPath: 'minio/other.png',
+          minioFileName: 'other.png',
+          attachmentCreatedDate: '2025-06-01T00:00:00Z',
+        },
+      ]),
+    }));
+    const controller = createController();
+    const addNewContentToDocumentSkin = jest.fn(async (_title?, _skinType?, _data?) => [{ type: 'paragraph', runs: [] }]);
+    (controller as any).skins = {
+      SKIN_TYPE_TIME_MACHINE: 'time-machine-report',
+      addNewContentToDocumentSkin,
+    };
+    jest.spyOn(controller as any, 'writeToJson').mockResolvedValue('/tmp/historical-compare-steps-attach.json');
+    jest.spyOn(controller as any, 'uploadToMinio').mockResolvedValue({
+      bucketName: 'content-controls',
+      objectName: 'historical-compare-steps-attach.json',
+    });
+    jest.spyOn(controller as any, 'deleteFile').mockImplementation(() => undefined);
+
+    const payload = {
+      type: 'historical-compare-report',
+      title: 'historical-compare-report-content-control',
+      headingLevel: 1,
+      data: {
+        teamProjectName: 'MEWP',
+        compareResult: {
+          baseline: { asOf: '2025-01-01T00:00:00Z', total: 1 },
+          compareTo: { asOf: '2025-12-01T00:00:00Z', total: 1 },
+          summary: { updatedCount: 1 },
+          rows: [
+            {
+              id: 42,
+              compareStatus: 'Changed',
+              baselineRevisionId: 1,
+              compareToRevisionId: 2,
+              differences: [
+                {
+                  field: 'Steps',
+                  baseline: '',
+                  compareTo: '',
+                  baselineSteps: [{ stepId: 'step-1', stepPosition: '1', action: 'Open app', expected: 'App opens' }],
+                  compareToSteps: [
+                    { stepId: 'step-1', stepPosition: '1', action: 'Open the app', expected: 'App opens' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    await controller.generateContentControl(payload as any);
+
+    // Fetched once, for the work item that actually carries a Steps difference.
+    expect(AttachmentsDataFactory).toHaveBeenCalledWith('MEWP', '42', '', (controller as any).dgDataProviderAzureDevOps);
+    const skinData = addNewContentToDocumentSkin.mock.calls[0][2];
+    const diff = skinData.compareResult.rows[0].differences[0];
+    const [updatedRow, previousRow] = diff.stepsTableRows;
+    const attachmentsField = updatedRow.fields.find((f: any) => f.name === 'Attachments');
+    // Only the attachment matching this step's [TestStep=<id>] marker AND created after the
+    // baseline revision is noted - the unrelated one (no marker) and the pre-existing one
+    // (predates baseline) are both silently omitted.
+    expect(attachmentsField.value).toBe('<p>Attachment added: screenshot.png</p>');
+    // The note is identical on both rows of a pair - attachments aren't revision-scoped.
+    expect(previousRow.fields.find((f: any) => f.name === 'Attachments').value).toBe(
+      '<p>Attachment added: screenshot.png</p>',
+    );
+    // All three fetched attachments are still queued for MinIO upload regardless of per-step
+    // matching or the added/pre-existing distinction - the file itself may still be referenced
+    // elsewhere in the document.
+    expect((controller as any).minioAttachmentData).toEqual(
+      expect.arrayContaining([
+        { attachmentMinioPath: 'minio/screenshot.png', minioFileName: 'screenshot.png' },
+        { attachmentMinioPath: 'minio/pre-existing.png', minioFileName: 'pre-existing.png' },
+        { attachmentMinioPath: 'minio/other.png', minioFileName: 'other.png' },
+      ]),
+    );
+  });
+
+  test('generateContentControl degrades gracefully when fetching Steps attachments fails for one work item', async () => {
+    (AttachmentsDataFactory as jest.Mock).mockImplementation(() => ({
+      fetchWiAttachments: jest.fn().mockRejectedValue(new Error('network down')),
+    }));
+    const controller = createController();
+    const addNewContentToDocumentSkin = jest.fn(async (_title?, _skinType?, _data?) => [{ type: 'paragraph', runs: [] }]);
+    (controller as any).skins = {
+      SKIN_TYPE_TIME_MACHINE: 'time-machine-report',
+      addNewContentToDocumentSkin,
+    };
+    jest.spyOn(controller as any, 'writeToJson').mockResolvedValue('/tmp/historical-compare-steps-attach-fail.json');
+    jest.spyOn(controller as any, 'uploadToMinio').mockResolvedValue({
+      bucketName: 'content-controls',
+      objectName: 'historical-compare-steps-attach-fail.json',
+    });
+    jest.spyOn(controller as any, 'deleteFile').mockImplementation(() => undefined);
+
+    const payload = {
+      type: 'historical-compare-report',
+      title: 'historical-compare-report-content-control',
+      headingLevel: 1,
+      data: {
+        teamProjectName: 'MEWP',
+        compareResult: {
+          baseline: { asOf: 'a', total: 1 },
+          compareTo: { asOf: 'b', total: 1 },
+          summary: { updatedCount: 1 },
+          rows: [
+            {
+              id: 43,
+              compareStatus: 'Changed',
+              baselineRevisionId: 1,
+              compareToRevisionId: 2,
+              differences: [
+                {
+                  field: 'Steps',
+                  baseline: '',
+                  compareTo: '',
+                  baselineSteps: [{ stepId: 'step-1', stepPosition: '1', action: 'Open app', expected: 'App opens' }],
+                  compareToSteps: [
+                    { stepId: 'step-1', stepPosition: '1', action: 'Open the app', expected: 'App opens' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    };
+
+    // Must not throw - a fetch failure for one work item is logged and skipped.
+    await expect(controller.generateContentControl(payload as any)).resolves.not.toThrow();
+    const skinData = addNewContentToDocumentSkin.mock.calls[0][2];
+    const diff = skinData.compareResult.rows[0].differences[0];
+    // No attachment notes anywhere in this table (fetch failed) - the Attachments column is
+    // dropped entirely rather than rendering an empty cell on every row.
+    const attachmentsField = diff.stepsTableRows[0].fields.find((f: any) => f.name === 'Attachments');
+    expect(attachmentsField).toBeUndefined();
   });
 });

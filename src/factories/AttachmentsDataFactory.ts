@@ -63,10 +63,18 @@ export default class AttachmentsDataFactory {
         let attachmentComment: string = '';
         let attachmentStepNo: string = '';
         let LocalAttachmentPath = `TempFiles/${downloadedAttachmentData.fileName}`;
+        // ADO's AttachedFile relation carries this on `attributes` - used by the Historical
+        // Query Steps diff to tell a newly-added attachment from one that already existed at
+        // the baseline revision (attachments themselves aren't revision-scoped, so this is the
+        // only signal available for "was this added since baseline?").
+        let attachmentCreatedDate: string = '';
         if (rawAttachmentData[i].attributes && rawAttachmentData[i].attributes.comment) {
           attachmentComment = rawAttachmentData[i].attributes.comment;
         } else if (isRunAttachments && rawAttachmentData[i]) {
           attachmentStepNo = rawAttachmentData[i].stepNo;
+        }
+        if (rawAttachmentData[i].attributes && rawAttachmentData[i].attributes.resourceCreatedDate) {
+          attachmentCreatedDate = rawAttachmentData[i].attributes.resourceCreatedDate;
         }
 
         if (downloadedAttachmentData.thumbnailName && downloadedAttachmentData.thumbnailPath) {
@@ -82,6 +90,7 @@ export default class AttachmentsDataFactory {
             ThumbMinioPath: downloadedAttachmentData.thumbnailPath,
             minioThumbName: downloadedAttachmentData.thumbnailName,
             attachmentStepNo: attachmentStepNo,
+            attachmentCreatedDate: attachmentCreatedDate,
           });
         } else {
           attachmentData.push({
@@ -93,6 +102,7 @@ export default class AttachmentsDataFactory {
             attachmentMinioPath: downloadedAttachmentData.attachmentPath,
             minioFileName: downloadedAttachmentData.fileName,
             attachmentStepNo: attachmentStepNo,
+            attachmentCreatedDate: attachmentCreatedDate,
           });
         }
       }

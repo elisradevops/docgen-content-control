@@ -15,6 +15,7 @@ import CriticalRequirementsTableSkinAdapter from '../adapters/CriticalRequiremen
 import VcrmTableSkinAdapter from '../adapters/VcrmTableSkinAdapter';
 import CustomerCoverageTableSkinAdapter from '../adapters/CustomerCoverageTableSkinAdapter';
 import HistoricalCompareDataSkinAdapter from '../adapters/HistoricalCompareDataSkinAdapter';
+import AttachmentsDataFactory from '../factories/AttachmentsDataFactory';
 import { formatLocalILShort } from '../services/adapterUtils';
 import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
 
@@ -490,6 +491,52 @@ export default class DgContentControls {
     );
   }
 
+  /**
+   * Fetches the current work-item attachments (not revision-scoped - ADO keeps one attachment
+   * list per work item, not one per revision) for every "Changed" row that carries a Steps
+   * difference, so HistoricalCompareDataSkinAdapter can populate the Steps diff table's
+   * Attachments column by matching each attachment's `[TestStep=<stepId>]` comment marker (the
+   * same convention `TestDataFactory.ts` uses for STD reports). A fetch failure for one work
+   * item is logged and skipped rather than failing the whole report.
+   */
+  private async fetchHistoricalStepsAttachments(compareResult: any): Promise<Map<string, any[]>> {
+    const attachmentsByWorkItemId = new Map<string, any[]>();
+    const rows = Array.isArray(compareResult?.rows) ? compareResult.rows : [];
+    const rowsWithSteps = rows.filter(
+      (row: any) =>
+        String(row?.compareStatus || '').toLowerCase() === 'changed' &&
+        Array.isArray(row?.differences) &&
+        row.differences.some((diff: any) => diff?.field === 'Steps'),
+    );
+    for (const row of rowsWithSteps) {
+      try {
+        const attachmentsFactory = new AttachmentsDataFactory(
+          this.teamProjectName,
+          String(row.id),
+          this.templatePath,
+          this.dgDataProviderAzureDevOps,
+        );
+        const attachments = await attachmentsFactory.fetchWiAttachments(
+          this.attachmentsBucketName,
+          this.minioEndPoint,
+          this.minioAccessKey,
+          this.minioSecretKey,
+          this.PAT,
+        );
+        attachmentsByWorkItemId.set(String(row.id), attachments || []);
+        this.minioAttachmentData = this.minioAttachmentData.concat(
+          (attachments || []).map((attachment: any) => ({
+            attachmentMinioPath: attachment.attachmentMinioPath,
+            minioFileName: attachment.minioFileName,
+          })),
+        );
+      } catch (e: any) {
+        logger.error(`Error fetching Steps attachments for work item ${row?.id}: ${e?.message || e}`);
+      }
+    }
+    return attachmentsByWorkItemId;
+  }
+
   private async addHistoricalCompareReportContent(
     contentControlTitle: string,
     data: any,
@@ -510,6 +557,7 @@ export default class DgContentControls {
       InsertSpace: false,
     };
     const compareResult = await this.resolveHistoricalCompareResult(data);
+    const attachmentsByWorkItemId = await this.fetchHistoricalStepsAttachments(compareResult);
     const historicalCompareAdapter = new HistoricalCompareDataSkinAdapter(
       this.templatePath,
       this.teamProjectName,
@@ -520,7 +568,7 @@ export default class DgContentControls {
       this.PAT,
       this.formattingSettings,
     );
-    const cleanedCompareResult = await historicalCompareAdapter.adapt(compareResult);
+    const cleanedCompareResult = await historicalCompareAdapter.adapt(compareResult, attachmentsByWorkItemId);
     this.minioAttachmentData = this.minioAttachmentData.concat(historicalCompareAdapter.attachmentMinioData);
     const normalizedPayload = {
       ...data,
@@ -748,6 +796,10 @@ export default class DgContentControls {
 
       for (const diff of differences) {
         await appendParagraph(`${this.toHistoricalText(diff?.field)}:`, 0, false, true);
+        if (Array.isArray(diff?.stepsTableRows) && diff.stepsTableRows.length > 0) {
+          await appendTable(diff.stepsTableRows);
+          continue;
+        }
         await appendTable([
           {
             url: '',
