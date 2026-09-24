@@ -91,4 +91,24 @@ describe('attachRunContext middleware', () => {
     });
     expect(called).toBe(true);
   });
+
+  test.each(['verbose', 'retain-on-failure'])('accepts a valid x-docgen-capture-mode: %s', (mode) => {
+    let seenInsideNext: unknown;
+    attachRunContext(fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-capture-mode': mode }), {} as any, () => {
+      seenInsideNext = runContextStore.getStore()?.captureMode;
+    });
+    expect(seenInsideNext).toBe(mode);
+  });
+
+  test('drops a malformed x-docgen-capture-mode rather than trusting it', () => {
+    let seenInsideNext: unknown;
+    attachRunContext(
+      fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-capture-mode': 'DROP TABLE runs' }),
+      {} as any,
+      () => {
+        seenInsideNext = runContextStore.getStore()?.captureMode;
+      }
+    );
+    expect(seenInsideNext).toBeUndefined();
+  });
 });
