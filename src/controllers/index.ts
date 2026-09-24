@@ -18,6 +18,8 @@ import HistoricalCompareDataSkinAdapter from '../adapters/HistoricalCompareDataS
 import AttachmentsDataFactory from '../factories/AttachmentsDataFactory';
 import { formatLocalILShort } from '../services/adapterUtils';
 import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
+import { computeOutputSummary } from '../utils/outputSummary';
+import { runContextStore } from '../services/runContext';
 
 let defaultStyles = {
   isBold: false,
@@ -403,9 +405,11 @@ export default class DgContentControls {
           );
           break;
       }
+      const outputSummary = computeOutputSummary(contentControlData);
       let jsonLocalData = await this.writeToJson(contentControlData);
-      let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
+      let jsonData: any = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
       this.deleteFile(jsonLocalData);
+      jsonData.outputSummary = outputSummary;
       return jsonData;
     } catch (error) {
       logger.error(
@@ -2885,8 +2889,13 @@ export default class DgContentControls {
           accessKey: this.minioAccessKey,
           secretKey: this.minioSecretKey,
         });
-        const metaData = {
+        // Tags the object with the run id so a later diff can be traced back to its source
+        // MinIO artifact — the manifest's artifacts[] pointer is only as useful as the object
+        // it points at being identifiable independently of that pointer.
+        const runId = runContextStore.getStore()?.runId;
+        const metaData: Record<string, string> = {
           'Content-Type': 'application/json', // or any other metadata if required
+          ...(runId ? { 'x-docgen-run-id': runId } : {}),
         };
         minioClient
           .fPutObject(

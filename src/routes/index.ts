@@ -217,6 +217,25 @@ const readResolvedDependencyVersion = (dependencyName: string, declaredVersion =
   }
 };
 
+// Same version resolution as the /health handler below, reused for the run manifest's
+// environment layer — /generate-doc-template runs exactly once per generation, so this is
+// the one round trip that already exists to carry it.
+const buildVersionsHeader = (): { service: string; dataProvider: string; skins: string } => {
+  const packageJson = readServicePackageJson();
+  const declaredDependencies = packageJson?.dependencies || {};
+  return {
+    service: String(packageJson?.version || 'unknown'),
+    dataProvider: readResolvedDependencyVersion(
+      '@elisra-devops/docgen-data-provider',
+      String(declaredDependencies['@elisra-devops/docgen-data-provider'] || 'unknown'),
+    ),
+    skins: readResolvedDependencyVersion(
+      '@elisra-devops/docgen-skins',
+      String(declaredDependencies['@elisra-devops/docgen-skins'] || 'unknown'),
+    ),
+  };
+};
+
 export class Routes {
   public routes(app: any): void {
     app.route('/health').get(async (_req: Request, res: Response) => {
@@ -297,6 +316,14 @@ export class Routes {
         );
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateDocTemplate();
+        // Runs exactly once per generation, so this is where the run manifest's environment
+        // layer picks up service/package versions — a header, not a body field, since the
+        // body is mutated and forwarded whole to json-to-word by DocumentsGeneratorController.
+        try {
+          res.set('x-docgen-versions', JSON.stringify(buildVersionsHeader()));
+        } catch (headerError) {
+          logger.warn(`Failed to build x-docgen-versions header: ${(headerError as any)?.message || headerError}`);
+        }
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
