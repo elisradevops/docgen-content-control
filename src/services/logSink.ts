@@ -1,0 +1,42 @@
+'use strict';
+
+// The one queryable-error-store event shape, emitted by DiagnosticsTransport (logger.ts)
+// and consumed by whatever LogSink this process installs (an HttpLogSink in this repo's
+// index.ts; a MongoLogSink in docgen-api-gate). err is intentionally narrow —
+// {message, code, stack} — per the settled Phase 6 schema decision: no generic
+// extra-fields bucket.
+export interface DiagnosticEvent {
+  ts: string;
+  level: string;
+  service: string;
+  version: string;
+  runId?: string;
+  step?: string;
+  contentControlType?: string;
+  contentControlTitle?: string;
+  project?: string;
+  userId?: string;
+  message: string;
+  err?: { message: string; code?: string; stack?: string };
+}
+
+export interface LogSink {
+  push(event: DiagnosticEvent): void;
+}
+
+// Symbol.for so every duplicated copy of this file across the DocGen packages — hoisted or
+// nested at any depth by npm — converges on the same installed sink, the same reasoning as
+// runContext.ts's AsyncLocalStorage. docgen-data-provider-package and docgen-dg-skins-package
+// run in-process inside this service (they're npm dependencies, not separate services), so
+// one sink installed here (index.ts) serves every logger in this process. When nothing has
+// installed a sink — a package used standalone, or any test — getLogSink() returns
+// undefined and DiagnosticsTransport no-ops.
+const KEY = Symbol.for('elisradevops.docgen.logSink');
+
+export function getLogSink(): LogSink | undefined {
+  return (globalThis as Record<symbol, unknown>)[KEY] as LogSink | undefined;
+}
+
+export function installLogSink(sink: LogSink): void {
+  (globalThis as Record<symbol, unknown>)[KEY] = sink;
+}
