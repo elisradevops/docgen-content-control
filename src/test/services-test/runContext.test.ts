@@ -45,6 +45,14 @@ describe('withRunContext', () => {
     });
     expect(capture.lines[0].runId).toBe('run-async');
   });
+
+  test('stamps docType onto every log emitted inside store.run(...), same as runId', () => {
+    const { logger, capture } = makeTestLogger();
+    runContextStore.run({ runId: 'run-123', docType: 'SVD' }, () => {
+      logger.info('inside the run');
+    });
+    expect(capture.lines[0].docType).toBe('SVD');
+  });
 });
 
 // Mock req/res since supertest isn't in this repo's dependencies — attachRunContext only
@@ -110,5 +118,33 @@ describe('attachRunContext middleware', () => {
       }
     );
     expect(seenInsideNext).toBeUndefined();
+  });
+
+  test('normalizes a valid x-docgen-doc-type header (trim, uppercase)', () => {
+    let seenInsideNext: unknown;
+    attachRunContext(fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-doc-type': '  svd  ' }), {} as any, () => {
+      seenInsideNext = runContextStore.getStore()?.docType;
+    });
+    expect(seenInsideNext).toBe('SVD');
+  });
+
+  test('leaves docType undefined when the header is absent', () => {
+    let seenInsideNext: unknown;
+    attachRunContext(fakeReq({ 'x-docgen-run-id': 'abc-123' }), {} as any, () => {
+      seenInsideNext = runContextStore.getStore()?.docType;
+    });
+    expect(seenInsideNext).toBeUndefined();
+  });
+
+  test('clamps an oversized x-docgen-doc-type header to 40 characters', () => {
+    let seenInsideNext: unknown;
+    attachRunContext(
+      fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-doc-type': 'a'.repeat(60) }),
+      {} as any,
+      () => {
+        seenInsideNext = runContextStore.getStore()?.docType;
+      }
+    );
+    expect(seenInsideNext).toBe('A'.repeat(40));
   });
 });
