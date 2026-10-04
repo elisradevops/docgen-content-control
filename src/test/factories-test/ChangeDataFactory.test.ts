@@ -352,12 +352,10 @@ describe('ChangeDataFactory', () => {
       expect(result.knownBugsQueryData).toEqual(mockKnownBugsData);
     });
 
-    it('should handle errors and return empty array', async () => {
+    it('should log and rethrow on failure rather than silently returning an empty result', async () => {
       mockTicketsDataProvider.GetQueryResultsFromWiql.mockRejectedValue(new Error('Query failed'));
 
-      const result = await changeDataFactory.fetchQueryResults();
-
-      expect(result).toEqual([]);
+      await expect(changeDataFactory.fetchQueryResults()).rejects.toThrow('Query failed');
       expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Could not fetch query results'));
     });
   });
