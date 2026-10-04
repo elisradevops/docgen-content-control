@@ -3,10 +3,10 @@ import { StatusCodes } from 'http-status-codes';
 import axios from 'axios';
 import http from 'http';
 import https from 'https';
-import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import logger from '../services/logger';
+import { logRelayedError } from '../services/relayedError';
 import { runContextStore } from '../services/runContext';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
@@ -62,12 +62,8 @@ const getAzureService = (body: any) => new AzureDataService(body?.orgUrl, getTok
 const logTokenSummary = (endpoint: string, token: string) => {
   const bearer = extractBearer(token);
   const kind = bearer ? 'bearer' : token ? 'pat' : 'none';
-  logger.info(`${endpoint} auth token: type=${kind} length=${token?.length || 0}`);
-};
-const getTokenFingerprint = (token: string) => {
-  const raw = String(token || '').trim();
-  if (!raw) return 'none';
-  return createHash('sha256').update(raw).digest('hex').slice(0, 12);
+  // Type only: neither the length nor a hash of a credential belongs in a persisted log.
+  logger.info(`${endpoint} auth token: type=${kind}`);
 };
 
 const resolveHttpErrorStatus = (error: any, fallback = StatusCodes.INTERNAL_SERVER_ERROR) => {
@@ -484,7 +480,7 @@ export class Routes {
         const data = await svc.getProjects();
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/projects error: ${error.message}`);
+        logRelayedError(`azure/projects error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -513,7 +509,7 @@ export class Routes {
           status = StatusCodes.INTERNAL_SERVER_ERROR;
         }
 
-        logger.error(`azure/check-org-url error (${status}): ${message}`);
+        logRelayedError(`azure/check-org-url error (${status}): ${message}`, error);
 
         // Return the actual status code with appropriate message
         let errorMessage = message;
@@ -540,11 +536,7 @@ export class Routes {
       const isBearer = !!extractBearer(token);
       try {
         logTokenSummary('/azure/user/profile', token);
-        logger.info(
-          `/azure/user/profile debug: orgUrl=${normalizeOrgUrl(body?.orgUrl)} tokenHash=${getTokenFingerprint(
-            token,
-          )}`,
-        );
+        logger.info(`/azure/user/profile debug: orgUrl=${normalizeOrgUrl(body?.orgUrl)}`);
         if (isBearer) {
           const orgUrl = normalizeOrgUrl(body?.orgUrl);
           logger.info(`azure/user/profile using bearer token; calling connectionData for ${orgUrl}`);
@@ -595,7 +587,7 @@ export class Routes {
           status = StatusCodes.INTERNAL_SERVER_ERROR;
         }
 
-        logger.error(`azure/user/profile error (${status}): ${message}`);
+        logRelayedError(`azure/user/profile error (${status}): ${message}`, error);
 
         // Return appropriate error message based on status
         let errorMessage = message;
@@ -667,7 +659,7 @@ export class Routes {
       } catch (error) {
         const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
         const message = error?.response?.data?.message || error?.message || 'Unknown error';
-        logger.error(`azure/link-types error (${status}): ${message}`);
+        logRelayedError(`azure/link-types error (${status}): ${message}`, error);
         res.status(status).json({ message });
       }
     });
@@ -683,7 +675,7 @@ export class Routes {
         const data = await svc.getSharedQueries(teamProjectId, docType, path);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/queries/shared error: ${error.message}`);
+        logRelayedError(`azure/queries/shared error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -698,7 +690,7 @@ export class Routes {
       } catch (error) {
         const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
         const message = error?.response?.data?.message || error?.message || 'Unknown error';
-        logger.error(`azure/queries/historical error (${status}): ${message}`);
+        logRelayedError(`azure/queries/historical error (${status}): ${message}`, error);
         res.status(status).json({ message });
       }
     });
@@ -710,7 +702,7 @@ export class Routes {
         const data = await svc.getFieldsByType(teamProjectId, type);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/fields error: ${error.message}`);
+        logRelayedError(`azure/fields error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -725,7 +717,7 @@ export class Routes {
 
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/queries/:queryId/results error: ${error.message}`);
+        logRelayedError(`azure/queries/:queryId/results error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -739,7 +731,7 @@ export class Routes {
         const data = await svc.getQueryDefinition(queryId, teamProjectId);
         res.status(StatusCodes.OK).json(data);
       } catch (error) {
-        logger.error(`azure/queries/:queryId/definition error: ${error.message}`);
+        logRelayedError(`azure/queries/:queryId/definition error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -753,7 +745,7 @@ export class Routes {
         res.status(StatusCodes.OK).json(data);
       } catch (error) {
         const msg = error?.message ?? String(error);
-        logger.error(`azure/trace/columns error: ${msg}`);
+        logRelayedError(`azure/trace/columns error: ${msg}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: msg });
       }
     });
@@ -777,7 +769,7 @@ export class Routes {
       } catch (error) {
         const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
         const message = error?.response?.data?.message || error?.message || 'Unknown error';
-        logger.error(`azure/queries/:queryId/historical-results error (${status}): ${message}`);
+        logRelayedError(`azure/queries/:queryId/historical-results error (${status}): ${message}`, error);
         res.status(status).json({ message });
       }
     });
@@ -808,7 +800,7 @@ export class Routes {
       } catch (error) {
         const status = error?.response?.status || error?.status || StatusCodes.INTERNAL_SERVER_ERROR;
         const message = error?.response?.data?.message || error?.message || 'Unknown error';
-        logger.error(`azure/queries/:queryId/historical-compare error (${status}): ${message}`);
+        logRelayedError(`azure/queries/:queryId/historical-compare error (${status}): ${message}`, error);
         res.status(status).json({ message });
       }
     });
@@ -847,7 +839,7 @@ export class Routes {
         const data = await svc.getTestPlans(safeTeamProjectId);
         res.status(StatusCodes.OK).json(data ?? {});
       } catch (error) {
-        logger.error(`azure/tests/plans error: ${error.message}`);
+        logRelayedError(`azure/tests/plans error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -868,7 +860,7 @@ export class Routes {
         );
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/tests/plans/:testPlanId/suites error: ${error.message}`);
+        logRelayedError(`azure/tests/plans/:testPlanId/suites error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -881,7 +873,7 @@ export class Routes {
         const data = await svc.getGitRepos(teamProjectId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/git/repos error: ${error.message}`);
+        logRelayedError(`azure/git/repos error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -895,7 +887,7 @@ export class Routes {
         const data = await svc.getRepoBranches(teamProjectId, repoId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/git/repos/:repoId/branches error: ${error.message}`);
+        logRelayedError(`azure/git/repos/:repoId/branches error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -909,7 +901,7 @@ export class Routes {
         const data = await svc.getRepoCommits(teamProjectId, repoId, versionIdentifier);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/git/repos/:repoId/commits error: ${error.message}`);
+        logRelayedError(`azure/git/repos/:repoId/commits error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -923,7 +915,7 @@ export class Routes {
         const data = await svc.getRepoPullRequests(teamProjectId, repoId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/git/repos/:repoId/pull-requests error: ${error.message}`);
+        logRelayedError(`azure/git/repos/:repoId/pull-requests error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -937,7 +929,7 @@ export class Routes {
         const data = await svc.getRepoRefs(teamProjectId, repoId, type);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/git/repos/:repoId/refs error: ${error.message}`);
+        logRelayedError(`azure/git/repos/:repoId/refs error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -950,7 +942,7 @@ export class Routes {
         const data = await svc.getPipelines(teamProjectId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/pipelines error: ${error.message}`);
+        logRelayedError(`azure/pipelines error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -964,7 +956,7 @@ export class Routes {
         const data = await svc.getPipelineRunHistory(teamProjectId, String(pipelineId));
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/pipelines/:pipelineId/runs error: ${error.message}`);
+        logRelayedError(`azure/pipelines/:pipelineId/runs error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -976,7 +968,7 @@ export class Routes {
         const data = await svc.getReleaseDefinitionList(teamProjectId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/pipelines/releases/definitions error: ${error.message}`);
+        logRelayedError(`azure/pipelines/releases/definitions error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
@@ -992,7 +984,7 @@ export class Routes {
           const data = await svc.getReleaseDefinitionHistory(teamProjectId, String(definitionId));
           res.status(StatusCodes.OK).json(data ?? []);
         } catch (error) {
-          logger.error(`azure/pipelines/releases/definitions/:definitionId/history error: ${error.message}`);
+          logRelayedError(`azure/pipelines/releases/definitions/:definitionId/history error: ${error.message}`, error);
           res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
         }
       });
@@ -1004,7 +996,7 @@ export class Routes {
         const data = await svc.getWorkItemTypeList(teamProjectId);
         res.status(StatusCodes.OK).json(data ?? []);
       } catch (error) {
-        logger.error(`azure/work-item-types error: ${error.message}`);
+        logRelayedError(`azure/work-item-types error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
       }
     });
