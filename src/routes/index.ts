@@ -252,6 +252,15 @@ const buildVersionsHeader = (): { service: string; dataProvider: string; skins: 
 
 export class Routes {
   public routes(app: any): void {
+    // Once at startup, so a stale deployment (an older content-control or data-provider than
+    // intended — e.g. one that predates project/doc-type stamping on log records) is obvious
+    // from the pod's own log instead of having to be inferred from missing fields.
+    try {
+      const v = buildVersionsHeader();
+      logger.info(`versions: service=${v.service} data-provider=${v.dataProvider} skins=${v.skins}`);
+    } catch (e: any) {
+      logger.warn(`Could not read component versions: ${e?.message || e}`);
+    }
     app.route('/health').get(async (_req: Request, res: Response) => {
       try {
         const checkedAt = new Date().toISOString();
