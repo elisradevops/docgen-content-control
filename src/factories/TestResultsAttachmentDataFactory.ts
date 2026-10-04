@@ -216,8 +216,7 @@ export default class TestResultsAttachmentDataFactory {
       let res = await downloadManager.downloadFile();
       return res;
     } catch (e) {
-      logger.error(`error downloading attachment : ${attachmentFileName}`);
-      logger.error(JSON.stringify(e));
+      logger.error(`error downloading attachment : ${attachmentFileName}`, e);
       return '';
     }
   }

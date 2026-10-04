@@ -7,9 +7,28 @@ import { createHash } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import logger from '../services/logger';
+import { runContextStore } from '../services/runContext';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
 import { extractWindowsIdentityHint } from '../utils/adoIdentity';
+
+// Shared across all direct-bearer ADO proxy calls in this file (/azure/projects and its 3
+// siblings below) — each one previously constructed its own identical agent pair per request,
+// which defeats keep-alive entirely (a fresh TCP+TLS handshake every call instead of a pooled,
+// reused connection). Sharing one agent pair also makes maxSockets a real, permanent cap on
+// concurrent ADO calls per org (previously a no-op, since each request got its own pool) —
+// configurable rather than hardcoded, same pattern as CC_HISTORICAL_TIMEOUT_MS in api-gate's
+// DataProviderController.ts.
+const envMaxSockets = parseInt(process.env.ADO_PROXY_MAX_SOCKETS || '', 10);
+const ADO_PROXY_MAX_SOCKETS = Number.isFinite(envMaxSockets) && envMaxSockets > 0 ? envMaxSockets : 50;
+
+const sharedHttpAgent = new http.Agent({ keepAlive: true, maxSockets: ADO_PROXY_MAX_SOCKETS, keepAliveMsecs: 300000 });
+const sharedHttpsAgent = new https.Agent({
+  keepAlive: true,
+  maxSockets: ADO_PROXY_MAX_SOCKETS,
+  keepAliveMsecs: 300000,
+  rejectUnauthorized: false,
+});
 
 const normalizeOrgUrl = (value: string) => {
   const trimmed = String(value || '').trim();
@@ -216,6 +235,25 @@ const readResolvedDependencyVersion = (dependencyName: string, declaredVersion =
   }
 };
 
+// Same version resolution as the /health handler below, reused for the run manifest's
+// environment layer — /generate-doc-template runs exactly once per generation, so this is
+// the one round trip that already exists to carry it.
+const buildVersionsHeader = (): { service: string; dataProvider: string; skins: string } => {
+  const packageJson = readServicePackageJson();
+  const declaredDependencies = packageJson?.dependencies || {};
+  return {
+    service: String(packageJson?.version || 'unknown'),
+    dataProvider: readResolvedDependencyVersion(
+      '@elisra-devops/docgen-data-provider',
+      String(declaredDependencies['@elisra-devops/docgen-data-provider'] || 'unknown'),
+    ),
+    skins: readResolvedDependencyVersion(
+      '@elisra-devops/docgen-skins',
+      String(declaredDependencies['@elisra-devops/docgen-skins'] || 'unknown'),
+    ),
+  };
+};
+
 export class Routes {
   public routes(app: any): void {
     app.route('/health').get(async (_req: Request, res: Response) => {
@@ -296,10 +334,25 @@ export class Routes {
         );
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateDocTemplate();
+        // Runs exactly once per generation, so this is where the run manifest's environment
+        // layer picks up service/package versions — a header, not a body field, since the
+        // body is mutated and forwarded whole to json-to-word by DocumentsGeneratorController.
+        try {
+          res.set('x-docgen-versions', JSON.stringify(buildVersionsHeader()));
+        } catch (headerError) {
+          logger.warn(`Failed to build x-docgen-versions header: ${(headerError as any)?.message || headerError}`);
+        }
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ error });
+        // `{ error }` on an Error instance serializes to `{"error":{}}` — own enumerable
+        // props only, message/stack are non-enumerable — so this told the caller nothing.
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
+          message: error.message,
+          code: error?.code,
+          step: 'generate-doc-template',
+          runId: runContextStore.getStore()?.runId,
+        });
       }
     });
 
@@ -318,8 +371,10 @@ export class Routes {
           undefined,
           body.formattingSettings,
         );
-        logger.info(`request recieved with body :
-          ${JSON.stringify(body)}`);
+        logTokenSummary('/generate-content-control', body.token);
+        logger.info(
+          `/generate-content-control request — project=${body.projectName} type=${body.contentControlOptions?.type} title=${body.contentControlOptions?.title}`
+        );
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateContentControl(body.contentControlOptions);
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
@@ -329,7 +384,14 @@ export class Routes {
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
         logger.error(`content control module error : ${error.message}`);
-        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
+        res.status(resolveHttpErrorStatus(error)).json({
+          message: error.message,
+          code: error?.code,
+          step: 'generate-content-control',
+          contentControlType: body.contentControlOptions?.type,
+          contentControlTitle: body.contentControlOptions?.title,
+          runId: runContextStore.getStore()?.runId,
+        });
       }
     });
 
@@ -378,8 +440,8 @@ export class Routes {
           undefined,
           body.formattingSettings,
         );
-        logger.info(`flat test reporter request recieved with body :
-          ${JSON.stringify(body)}`);
+        logTokenSummary('/generate-test-reporter-flat', body.token);
+        logger.info(`/generate-test-reporter-flat request — project=${body.projectName}`);
         await dgContentControls.init();
         let resJson: any = await dgContentControls.generateTestReporterFlatContent(
           body.contentControlOptions,
@@ -402,13 +464,8 @@ export class Routes {
         const bearer = extractBearer(token);
         if (bearer) {
           const orgUrl = normalizeOrgUrl(body?.orgUrl);
-          const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 300000 });
-          const httpsAgent = new https.Agent({
-            keepAlive: true,
-            maxSockets: 50,
-            keepAliveMsecs: 300000,
-            rejectUnauthorized: false,
-          });
+          const httpAgent = sharedHttpAgent;
+          const httpsAgent = sharedHttpsAgent;
           const { data } = await axios.get(`${orgUrl}_apis/projects?$top=1000`, {
             headers: {
               Authorization: `Bearer ${bearer}`,
@@ -491,13 +548,8 @@ export class Routes {
         if (isBearer) {
           const orgUrl = normalizeOrgUrl(body?.orgUrl);
           logger.info(`azure/user/profile using bearer token; calling connectionData for ${orgUrl}`);
-          const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 300000 });
-          const httpsAgent = new https.Agent({
-            keepAlive: true,
-            maxSockets: 50,
-            keepAliveMsecs: 300000,
-            rejectUnauthorized: false,
-          });
+          const httpAgent = sharedHttpAgent;
+          const httpsAgent = sharedHttpsAgent;
           const { data } = await axios.get(`${orgUrl}_apis/connectionData`, {
             headers: {
               Authorization: `Bearer ${extractBearer(token)}`,
@@ -594,13 +646,8 @@ export class Routes {
         const bearer = extractBearer(token);
         if (bearer) {
           const orgUrl = normalizeOrgUrl(body?.orgUrl);
-          const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 300000 });
-          const httpsAgent = new https.Agent({
-            keepAlive: true,
-            maxSockets: 50,
-            keepAliveMsecs: 300000,
-            rejectUnauthorized: false,
-          });
+          const httpAgent = sharedHttpAgent;
+          const httpsAgent = sharedHttpsAgent;
           const { data } = await axios.get(`${orgUrl}_apis/wit/workitemrelationtypes`, {
             headers: {
               Authorization: `Bearer ${bearer}`,
@@ -630,7 +677,8 @@ export class Routes {
       try {
         const { body } = req;
         const { teamProjectId = '', docType = '', path = 'shared' } = body || {};
-        logger.info(`request recieved with body : ${JSON.stringify(body)}`);
+        logTokenSummary('/azure/queries', body?.token);
+        logger.info(`/azure/queries request — teamProjectId=${teamProjectId} docType=${docType} path=${path}`);
         const svc = getAzureService(body);
         const data = await svc.getSharedQueries(teamProjectId, docType, path);
         res.status(StatusCodes.OK).json(data ?? []);
@@ -777,13 +825,8 @@ export class Routes {
         if (bearer) {
           const orgUrl = normalizeOrgUrl(body?.orgUrl);
           logger.debug(`orgUrl: ${orgUrl}`);
-          const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 50, keepAliveMsecs: 300000 });
-          const httpsAgent = new https.Agent({
-            keepAlive: true,
-            maxSockets: 50,
-            keepAliveMsecs: 300000,
-            rejectUnauthorized: false,
-          });
+          const httpAgent = sharedHttpAgent;
+          const httpsAgent = sharedHttpsAgent;
           const { data } = await axios.get(
             `${orgUrl}${encodeURIComponent(safeTeamProjectId)}/_apis/testplan/Plans?api-version=7.0`,
             {

@@ -189,7 +189,7 @@ describe('HtmlUtils', () => {
       (minify as jest.Mock).mockRejectedValue(error);
 
       await expect(htmlUtils.cleanHtml('<p>Test</p>')).rejects.toThrow('Minification error');
-      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('Error occurred during clean HTML'));
+      expect(logger.error).toHaveBeenCalledWith('Error occurred during clean HTML', error);
     });
 
     it('should properly clean multiple nested elements', async () => {

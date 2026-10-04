@@ -414,8 +414,8 @@ export default class ChangeDataFactory {
       return queryResults;
     } catch (err) {
       logger.error(`Could not fetch query results: ${err.message}`);
+      throw err;
     }
-    return [];
   }
 
   /*arranging the test data for json skins package*/
@@ -634,8 +634,7 @@ export default class ChangeDataFactory {
 
             logger.debug(`Installation instructions processed successfully`);
           } catch (error) {
-            logger.error(`Error processing installation instructions: ${error.message}`);
-            logger.error(error.stack);
+            logger.error('Error processing installation instructions', error);
           }
           break;
         case 'possible-problems-known-errors':
@@ -1294,7 +1293,7 @@ export default class ChangeDataFactory {
       await this.handleServiceJsonFile(fromRelease, toRelease, this.teamProject, gitDataProvider, false);
     } catch (e: any) {
       logger.error(`Failed handling services.json for releases ${fromId}->${toId}: ${e.message}`);
-      logger.debug(`Services.json error stack: ${e.stack}`);
+      logger.debug('Services.json error stack', e);
     }
 
     // Edge pass: in 'consecutive' mode process only adjacent pairs; in 'allPairs' process every i<j
@@ -1843,12 +1842,12 @@ export default class ChangeDataFactory {
               logger.error(
                 `Failed to process artifact ${artifactAlias} (${artifactType}) for releases ${fromRelease.id} -> ${toRelease.id}: ${error.message}`
               );
-              logger.debug(`Error stack: ${error.stack}`);
+              logger.debug('Artifact comparison error stack', error);
             }
           } // end per-artifact loop
         } catch (e: any) {
           logger.error(`Failed comparing pair ${i}->${j}: ${e.message}`);
-          logger.debug(`Pair error stack: ${e.stack}`);
+          logger.debug('Pair error stack', e);
           continue;
         }
       } // end inner from-loop for this target

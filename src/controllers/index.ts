@@ -18,6 +18,8 @@ import HistoricalCompareDataSkinAdapter from '../adapters/HistoricalCompareDataS
 import AttachmentsDataFactory from '../factories/AttachmentsDataFactory';
 import { formatLocalILShort } from '../services/adapterUtils';
 import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
+import { computeOutputSummary } from '../utils/outputSummary';
+import { runContextStore } from '../services/runContext';
 
 let defaultStyles = {
   isBold: false,
@@ -403,17 +405,17 @@ export default class DgContentControls {
           );
           break;
       }
+      const outputSummary = computeOutputSummary(contentControlData);
       let jsonLocalData = await this.writeToJson(contentControlData);
-      let jsonData = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
+      let jsonData: any = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
       this.deleteFile(jsonLocalData);
+      jsonData.outputSummary = outputSummary;
       return jsonData;
     } catch (error) {
       logger.error(
-        `Error initializing Skins: ${error.message} ${
-          contentControlOptions.title ? `for ${contentControlOptions.title}` : ''
-        } `,
+        `Error initializing Skins${contentControlOptions.title ? ` for ${contentControlOptions.title}` : ''}`,
+        error,
       );
-      logger.error(`Error stack: ${error.stack}`);
       throw error;
     }
   }
@@ -905,10 +907,7 @@ export default class DgContentControls {
       if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
-      logger.debug(JSON.stringify(contentControlTitle));
-      logger.debug(JSON.stringify(skinType));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      logger.debug('addNewContentToDocumentSkin', { contentControlTitle, skinType, defaultStyles, headingLevel });
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         skinType,
@@ -1015,8 +1014,7 @@ export default class DgContentControls {
       }
 
       if (linkedMomRequest?.linkedMomMode === 'query') {
-        logger.debug(`fetching linked mom results with params:
-          linkedMomRequest:${JSON.stringify(linkedMomRequest)}`);
+        logger.debug('fetching linked mom results with params', { linkedMomRequest });
         await testDataFactory.fetchLinkedMomResults();
       }
 
@@ -1043,10 +1041,12 @@ export default class DgContentControls {
     try {
       const contentControls: contentControl[] = [];
 
-      logger.debug(JSON.stringify(contentControlTitle));
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      logger.debug('addTestDescriptionContent', {
+        contentControlTitle,
+        skinType: this.skins.SKIN_TYPE_TEST_PLAN,
+        defaultStyles,
+        headingLevel,
+      });
 
       const baseStyles = {
         IsItalic: false,
@@ -1303,12 +1303,13 @@ export default class DgContentControls {
     contentControl?: contentControl,
   ) {
     let traceFactory;
-    logger.debug(`fetching data with params:
-      testPlanId:${testPlanId}
-      testSuiteArray:${testSuiteArray}
-      queryId:${queryId}
-      filterArray: ${JSON.stringify(linkTypeFilterArray)}
-      teamProjectName:${this.teamProjectName}`);
+    logger.debug('fetching data with params', {
+      testPlanId,
+      testSuiteArray,
+      queryId,
+      filterArray: linkTypeFilterArray,
+      teamProjectName: this.teamProjectName,
+    });
     try {
       traceFactory = new TraceDataFactory(
         this.teamProjectName,
@@ -1327,10 +1328,12 @@ export default class DgContentControls {
       if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
-      logger.debug(JSON.stringify(contentControlTitle));
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TEST_PLAN));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      logger.debug('addNewContentToDocumentSkin', {
+        contentControlTitle,
+        skinType: this.skins.SKIN_TYPE_TEST_PLAN,
+        defaultStyles,
+        headingLevel,
+      });
       let skins = await this.skins.addNewContentToDocumentSkin(
         contentControlTitle,
         this.skins.SKIN_TYPE_TABLE,
@@ -1375,11 +1378,12 @@ export default class DgContentControls {
       if (!this.teamProjectName) {
         throw new Error('Project name is not defined');
       }
-      logger.debug(`fetching data with params:
-      testPlanId:${testPlanId}
-      testSuiteArray:${testSuiteArray}
-      teamProjectName:${this.teamProjectName}
-      openPCRsSelectionRequest:${JSON.stringify(openPCRsSelectionRequest)}`);
+      logger.debug('fetching data with params', {
+        testPlanId,
+        testSuiteArray,
+        teamProjectName: this.teamProjectName,
+        openPCRsSelectionRequest,
+      });
 
       //Run the result data factory
       resultDataFactory = new ResultDataFactory(
@@ -1420,9 +1424,11 @@ export default class DgContentControls {
     }
     try {
       const contentControls: contentControl[] = [];
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      logger.debug('result content control config', {
+        skinType: this.skins.SKIN_TYPE_TABLE,
+        defaultStyles,
+        headingLevel,
+      });
 
       let adoptedDataArray = resultDataFactory.getAdoptedResultData();
       let stepExecutionObject = adoptedDataArray.find(
@@ -1595,12 +1601,13 @@ export default class DgContentControls {
         throw new Error('Project name is not defined');
       }
 
-      logger.debug(`fetching data with params:
-      testPlanId:${testPlanId}
-      testSuiteArray:${testSuiteArray}
-      teamProjectName:${this.teamProjectName}
-      selectedFields:${JSON.stringify(selectedFields)}
-      linkedQueryRequest:${JSON.stringify(linkedQueryRequest)}`);
+      logger.debug('fetching data with params', {
+        testPlanId,
+        testSuiteArray,
+        teamProjectName: this.teamProjectName,
+        selectedFields,
+        linkedQueryRequest,
+      });
 
       //Run the result data factory
       resultDataFactory = new ResultDataFactory(
@@ -1641,7 +1648,7 @@ export default class DgContentControls {
 
     try {
       const contentControls: contentControl[] = [];
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
+      logger.debug('result content control config', { skinType: this.skins.SKIN_TYPE_TABLE });
       let adoptedDataArray = resultDataFactory.getAdoptedResultData();
       const baseStyles = {
         IsItalic: false,
@@ -2150,18 +2157,19 @@ export default class DgContentControls {
   ) {
     let adoptedChangesData;
     let changeDataFactory: ChangeDataFactory;
-    logger.debug(`fetching data with params:
-      repoId:${repoId}
-      from:${JSON.stringify(from)}
-      to:${JSON.stringify(to)}
-      rangeType: ${rangeType}
-      linkTypeFilterArray:${linkTypeFilterArray}
-      teamProjectName:${this.teamProjectName}
-      branchName:${branchName}
-      includePullRequests:${includePullRequests}
-      includePullRequestWorkItems:${includePullRequestWorkItems}
-      attachmentsWikiUrl:${attachmentWikiUrl}
-      linkedWiOptions:${JSON.stringify(linkedWiOptions)}`);
+    logger.debug('fetching data with params', {
+      repoId,
+      from,
+      to,
+      rangeType,
+      linkTypeFilterArray,
+      teamProjectName: this.teamProjectName,
+      branchName,
+      includePullRequests,
+      includePullRequestWorkItems,
+      attachmentsWikiUrl: attachmentWikiUrl,
+      linkedWiOptions,
+    });
     try {
       changeDataFactory = new ChangeDataFactory(
         this.teamProjectName,
@@ -2451,10 +2459,12 @@ export default class DgContentControls {
       if (!contentControl) {
         contentControl = { title: contentControlTitle, wordObjects: [] };
       }
-      logger.debug(JSON.stringify(contentControlTitle));
-      logger.debug(JSON.stringify(this.skins.SKIN_TYPE_TABLE));
-      logger.debug(JSON.stringify(defaultStyles));
-      logger.debug(JSON.stringify(headingLevel));
+      logger.debug('addNewContentToDocumentSkin', {
+        contentControlTitle,
+        skinType: this.skins.SKIN_TYPE_TABLE,
+        defaultStyles,
+        headingLevel,
+      });
 
       for (const artifactChangesData of adoptedChangesData) {
         let paragraphSkins = await this.skins.addNewContentToDocumentSkin(
@@ -2496,8 +2506,7 @@ export default class DgContentControls {
   ) {
     let adoptedRequirementsData;
     try {
-      logger.debug(`adding SRS content with params:
-        queriesRequest:${JSON.stringify(queriesRequest)}`);
+      logger.debug('adding SRS content with params', { queriesRequest });
 
       let srsDataFactory = new RequirementsDataFactory(
         this.teamProjectName,
@@ -2610,8 +2619,7 @@ export default class DgContentControls {
   async addSysRSContent(queriesRequest: any, contentControlTitle: string, headingLevel?: number) {
     let adoptedRequirementsData;
     try {
-      logger.debug(`adding SysRS content with params:
-        queriesRequest:${JSON.stringify(queriesRequest)}`);
+      logger.debug('adding SysRS content with params', { queriesRequest });
 
       let sysRsDataFactory = new RequirementsDataFactory(
         this.teamProjectName,
@@ -2881,8 +2889,13 @@ export default class DgContentControls {
           accessKey: this.minioAccessKey,
           secretKey: this.minioSecretKey,
         });
-        const metaData = {
+        // Tags the object with the run id so a later diff can be traced back to its source
+        // MinIO artifact — the manifest's artifacts[] pointer is only as useful as the object
+        // it points at being identifiable independently of that pointer.
+        const runId = runContextStore.getStore()?.runId;
+        const metaData: Record<string, string> = {
           'Content-Type': 'application/json', // or any other metadata if required
+          ...(runId ? { 'x-docgen-run-id': runId } : {}),
         };
         minioClient
           .fPutObject(
