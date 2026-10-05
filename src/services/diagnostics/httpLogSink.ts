@@ -11,7 +11,9 @@
 import axios from 'axios';
 import { LogSink, DiagnosticEvent, installLogSink } from '../logSink';
 
-const FLUSH_INTERVAL_MS = Number(process.env.DIAGNOSTICS_FLUSH_INTERVAL_MS) || 2000;
+// Half a second, not two: with api-gate's own flush and the UI's poll this is what a live-tail viewer
+// waits for an event. Size-triggered flushes and the single-flight/backoff behaviour are unchanged.
+const FLUSH_INTERVAL_MS = Number(process.env.DIAGNOSTICS_FLUSH_INTERVAL_MS) || 500;
 const FLUSH_BATCH_SIZE = Number(process.env.DIAGNOSTICS_FLUSH_BATCH_SIZE) || 500;
 const BUFFER_MAX = Number(process.env.DIAGNOSTICS_BUFFER_MAX) || 10_000;
 // Dropping one event at a time with shift() is O(n) per push once the buffer is full; dropping a
