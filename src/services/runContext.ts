@@ -34,6 +34,18 @@ const DOC_TYPE_MAX_LENGTH = 40;
 // Same normalization api-gate's own runDocType.ts applies before it ever reaches a header —
 // re-applied here since a header is untrusted input on this hop too, even though api-gate is
 // the trust boundary that decides the value in the first place.
+// api-gate percent-encodes a header value only when it holds characters a header cannot carry
+// (a non-ASCII project name); ordinary values arrive as they are. Decode defensively, so a
+// malformed escape is used as sent instead of failing the request.
+function decodeHeader(value: string | undefined): string | undefined {
+  if (!value || !/%[0-9A-Fa-f]{2}/.test(value)) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function normalizeDocType(value: string | undefined): string | undefined {
   const trimmed = String(value || "").trim();
   if (!trimmed) return undefined;
@@ -53,8 +65,8 @@ export function attachRunContext(req: Request, _res: Response, next: NextFunctio
     const captureMode = rawCaptureMode && CAPTURE_MODES.has(rawCaptureMode)
       ? (rawCaptureMode as "verbose" | "retain-on-failure")
       : undefined;
-    const docType = normalizeDocType(req.header("x-docgen-doc-type"));
-    const rawProject = req.header("x-docgen-project");
+    const docType = normalizeDocType(decodeHeader(req.header("x-docgen-doc-type")));
+    const rawProject = decodeHeader(req.header("x-docgen-project"));
     const project = rawProject && rawProject.trim() ? rawProject.trim().slice(0, 128) : undefined;
     runContextStore.run({ runId, captureMode, docType, project }, next);
   } else {

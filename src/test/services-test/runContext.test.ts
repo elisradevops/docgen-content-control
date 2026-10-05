@@ -120,6 +120,31 @@ describe('attachRunContext middleware', () => {
     expect(seenInsideNext).toBeUndefined();
   });
 
+  test('decodes a percent-encoded project name (what api-gate sends for non-ASCII names)', () => {
+    let seen: any;
+    attachRunContext(
+      fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-project': encodeURIComponent('פרויקט MEWP') }),
+      {} as any,
+      () => {
+        seen = runContextStore.getStore();
+      }
+    );
+    expect(seen.project).toBe('פרויקט MEWP');
+  });
+
+  test('uses an ordinary or malformed-escape project value as sent', () => {
+    const seenFor = (project: string) => {
+      let seen: any;
+      attachRunContext(fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-project': project }), {} as any, () => {
+        seen = runContextStore.getStore();
+      });
+      return seen.project;
+    };
+    expect(seenFor('Cube ADCS')).toBe('Cube ADCS');
+    expect(seenFor('100%')).toBe('100%');
+    expect(seenFor('%E0%A4%A')).toBe('%E0%A4%A');
+  });
+
   test('normalizes a valid x-docgen-doc-type header (trim, uppercase)', () => {
     let seenInsideNext: unknown;
     attachRunContext(fakeReq({ 'x-docgen-run-id': 'abc-123', 'x-docgen-doc-type': '  svd  ' }), {} as any, () => {
