@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import logger from '../services/logger';
 import { logRelayedError } from '../services/relayedError';
-import { runContextStore } from '../services/runContext';
+import { runContextStore, setRunStep } from '../services/runContext';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
 import { extractWindowsIdentityHint } from '../utils/adoIdentity';
@@ -323,6 +323,7 @@ export class Routes {
     });
 
     app.route('/generate-doc-template').post(async ({ body }: Request, res: Response) => {
+      setRunStep('generate-doc-template');
       try {
         const dgContentControls = new DgContentControls(
           body.orgUrl,
@@ -362,6 +363,7 @@ export class Routes {
     });
 
     app.route('/generate-content-control').post(async ({ body }: Request, res: Response) => {
+      setRunStep('generate-content-control', body?.contentControlOptions);
       try {
         const dgContentControls = new DgContentControls(
           body.orgUrl,

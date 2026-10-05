@@ -2954,9 +2954,28 @@ export default class ChangeDataFactory {
     const fromBranchVal = fb.v;
     const toBranchVal = tb.v;
 
-    if (!servicesJsonVar || !servicesJsonVersion || !servicesJsonVersionType) {
-      logger.warn(`missing variables in release`);
-      logger.warn(`required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value`);
+    const missingVariables = [
+      ['servicesJson', servicesJsonVar],
+      ['servicesJsonVersion', servicesJsonVersion],
+      ['servicesJsonVersionType', servicesJsonVersionType],
+    ]
+      .filter(([, value]) => !value)
+      .map(([name]) => name);
+    if (missingVariables.length > 0) {
+      const releaseLabel = `'${toRelease?.name ?? toRelease?.id ?? 'unknown'}' (pipeline '${
+        toRelease?.releaseDefinition?.name ?? 'unknown'
+      }')`;
+      if (missingVariables.length === 3) {
+        // None of the three is set: the services-JSON feature simply is not configured for this
+        // pipeline. That is a normal state, not a problem to warn about.
+        logger.info(`Services JSON is not configured for release ${releaseLabel}; skipping service-level changes`);
+      } else {
+        // Partly configured is a misconfiguration: say which release and exactly which variables.
+        logger.warn(
+          `Release ${releaseLabel} is missing variable(s) ${missingVariables.join(', ')} that the services JSON needs; ` +
+            `service-level changes are omitted for it`
+        );
+      }
       return false;
     }
 

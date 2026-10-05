@@ -4713,7 +4713,7 @@ describe('ChangeDataFactory', () => {
         ).toBe(false);
       });
 
-      it('handleServiceJsonFile should return false and log when required variables are missing', async () => {
+      it('handleServiceJsonFile should return false and log (info, not a warning) when none of the variables are set', async () => {
         const factory = changeDataFactory as any;
 
         const fromRelease = { id: 1, variables: {} };
@@ -4727,10 +4727,10 @@ describe('ChangeDataFactory', () => {
         );
 
         expect(result).toBe(false);
-        expect((logger as any).warn).toHaveBeenCalledWith('missing variables in release');
-        expect((logger as any).warn).toHaveBeenCalledWith(
-          'required: servicesJson.value, servicesJsonVersion.value, servicesJsonVersionType.value'
-        );
+        // The feature simply is not configured: a normal state. The wording and the partly-configured
+        // warning are covered in ChangeDataFactory.serviceJsonVariables.test.ts.
+        expect((logger as any).warn).not.toHaveBeenCalled();
+        expect((logger as any).info).toHaveBeenCalledWith(expect.stringContaining('Services JSON is not configured'));
       });
 
       it('resolveServiceRange should fall back from TAG to BRANCH mode when source tag is missing and branches exist', async () => {

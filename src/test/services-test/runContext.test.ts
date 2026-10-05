@@ -1,7 +1,7 @@
 import * as winston from 'winston';
 import Transport from 'winston-transport';
 import { withRunContext } from '../../services/logger';
-import { attachRunContext, runContextStore } from '../../services/runContext';
+import { attachRunContext, runContextStore, setRunStep } from '../../services/runContext';
 
 class CaptureTransport extends Transport {
   lines: Record<string, unknown>[] = [];
@@ -173,3 +173,61 @@ describe('attachRunContext middleware', () => {
     expect(seenInsideNext).toBe('A'.repeat(40));
   });
 });
+
+describe('step and content control on log records', () => {
+  test('records emitted while serving a content control carry its step, type and title', () => {
+    const { logger, capture } = makeTestLogger();
+    runContextStore.run({ runId: 'r-attr' }, () => {
+      setRunStep('generate-content-control', { type: 'release-range', title: 'release-range-content-control' });
+      logger.warn('something degraded');
+    });
+    expect(capture.lines[0]).toMatchObject({
+      runId: 'r-attr',
+      step: 'generate-content-control',
+      contentControlType: 'release-range',
+      contentControlTitle: 'release-range-content-control',
+    });
+  });
+});
+
+describe('setRunStep', () => {
+  test('is a no-op outside a run', () => {
+    expect(() => setRunStep('generate-content-control', { title: 'T' })).not.toThrow();
+    expect(runContextStore.getStore()).toBeUndefined();
+  });
+
+  test('marks the step and the content control on the current request\'s store', () => {
+    runContextStore.run({ runId: 'r1' }, () => {
+      setRunStep('generate-content-control', { type: 'release-range', title: 'Release range' });
+      expect(runContextStore.getStore()).toMatchObject({
+        step: 'generate-content-control',
+        contentControlType: 'release-range',
+        contentControlTitle: 'Release range',
+      });
+    });
+  });
+
+  test('a step without a content control leaves those fields alone; values are bounded and must be strings', () => {
+    runContextStore.run({ runId: 'r2' }, () => {
+      setRunStep('generate-doc-template');
+      expect(runContextStore.getStore()?.contentControlTitle).toBeUndefined();
+      setRunStep('generate-content-control', { type: 42, title: 'x'.repeat(500) });
+      const s = runContextStore.getStore()!;
+      expect(s.contentControlType).toBeUndefined();
+      expect(s.contentControlTitle).toHaveLength(200);
+    });
+  });
+
+  test('concurrent requests keep their own step and content control', async () => {
+    await Promise.all(
+      ['A', 'B', 'C', 'D'].map((id) =>
+        runContextStore.run({ runId: `run-${id}` }, async () => {
+          setRunStep('generate-content-control', { title: `cc-${id}` });
+          await new Promise((r) => setTimeout(r, Math.random() * 10));
+          expect(runContextStore.getStore()?.contentControlTitle).toBe(`cc-${id}`);
+        })
+      )
+    );
+  });
+});
+
