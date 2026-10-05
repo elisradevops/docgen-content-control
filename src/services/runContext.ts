@@ -15,6 +15,13 @@ export interface RunContext {
   // Phase 7c — forwarded by api-gate's installRunIdForwarding as x-docgen-project so every
   // log event emitted by content-control during a run carries the project name.
   project?: string;
+  // Which generation stage this request is, and which content control it serves. Set by the
+  // request handlers (setRunStep) on this per-request store, and stamped on every record emitted
+  // while serving the request — including the data provider's and skins' own, which read the same
+  // store. Each content control is its own request, so concurrent controls never share a store.
+  step?: string;
+  contentControlType?: string;
+  contentControlTitle?: string;
 }
 
 // Symbol.for uses the global symbol registry, so every duplicated copy of this file across
@@ -73,3 +80,23 @@ export function attachRunContext(req: Request, _res: Response, next: NextFunctio
     next();
   }
 }
+
+const STEP_MAX = 60;
+const CONTROL_TYPE_MAX = 100;
+const CONTROL_TITLE_MAX = 200;
+
+/**
+ * Marks the current request's stage (and optionally the content control it serves) on the ambient
+ * run context, so records emitted while handling it can be attributed to them. A no-op outside a
+ * run. Bounded: the values come from the request body.
+ */
+export function setRunStep(step: string, contentControl?: { type?: unknown; title?: unknown }): void {
+  const store = runContextStore.getStore();
+  if (!store) return;
+  store.step = String(step).slice(0, STEP_MAX);
+  const type = typeof contentControl?.type === "string" ? contentControl.type.trim() : "";
+  const title = typeof contentControl?.title === "string" ? contentControl.title.trim() : "";
+  if (type) store.contentControlType = type.slice(0, CONTROL_TYPE_MAX);
+  if (title) store.contentControlTitle = title.slice(0, CONTROL_TITLE_MAX);
+}
+
