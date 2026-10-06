@@ -1133,6 +1133,49 @@ describe('ChangeDataFactory', () => {
         expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('could not fetch svd data'));
       });
 
+      it('records how many items survived each stage (the funnel)', async () => {
+        changeDataFactory.rangeType = 'release';
+        changeDataFactory.from = '14';
+        changeDataFactory.to = '16';
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [
+            {
+              artifact: { name: 'Repo 1' },
+              changes: [{ workItem: { id: 1, fields: {}, _links: {} } }, { workItem: { id: 2, fields: {}, _links: {} } }],
+              nonLinkedCommits: [{ commitId: 'a' }],
+            },
+            { artifact: { name: 'Repo 2' }, changes: [], nonLinkedCommits: [{ commitId: 'b' }, { commitId: 'c' }] },
+          ];
+        });
+
+        await changeDataFactory.fetchSvdData();
+
+        expect(changeDataFactory.getFunnel()).toEqual({
+          artifacts: 2,
+          linkedChanges: 2,
+          unlinkedCommits: 3,
+          knownBugs: 0,
+        });
+      });
+
+      it('records a funnel of zeros when nothing was found, the empty-SVD case', async () => {
+        changeDataFactory.rangeType = 'release';
+        changeDataFactory.from = '14';
+        changeDataFactory.to = '16';
+        jest.spyOn(changeDataFactory, 'fetchChangesData').mockImplementation(async () => {
+          changeDataFactory['rawChangesArray'] = [];
+        });
+
+        await changeDataFactory.fetchSvdData();
+
+        expect(changeDataFactory.getFunnel()).toEqual({
+          artifacts: 0,
+          linkedChanges: 0,
+          unlinkedCommits: 0,
+          knownBugs: 0,
+        });
+      });
+
       it('should continue SVD generation when optional release components lookup fails', async () => {
         changeDataFactory.rangeType = 'release';
         changeDataFactory.from = '14';
@@ -5256,6 +5299,150 @@ describe('ChangeDataFactory', () => {
 
         expect(factory.to).toBe(20);
         expect(pipelines.GetReleaseByReleaseId).toHaveBeenCalledWith(defaultParams.teamProject, 20);
+      });
+
+      describe('resolvedRange', () => {
+        const makeFactory = (from: string, to: string, rangeType: 'release' | 'pipeline') =>
+          new ChangeDataFactory(
+            defaultParams.teamProject,
+            defaultParams.repoId,
+            from,
+            to,
+            rangeType,
+            defaultParams.linkTypeFilterArray,
+            defaultParams.branchName,
+            defaultParams.includePullRequests,
+            defaultParams.includePullRequestWorkItems,
+            defaultParams.attachmentWikiUrl,
+            defaultParams.includeChangeDescription,
+            defaultParams.includeCommittedBy,
+            mockDgDataProvider,
+            defaultParams.attachmentsBucketName,
+            defaultParams.minioEndPoint,
+            defaultParams.minioAccessKey,
+            defaultParams.minioSecretKey,
+            defaultParams.PAT
+          ) as any;
+        const releaseProvider = (overrides: any = {}) =>
+          ({
+            GetReleaseHistory: jest.fn().mockResolvedValue({ value: [{ id: 20 }] }),
+            findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(10),
+            GetReleaseByReleaseId: jest.fn().mockImplementation((_tp: string, id: number) =>
+              Promise.resolve(
+                id === 20 ? { id: 20, name: '2.0.0', releaseDefinition: { id: 1, name: 'MyRelease' } } : undefined
+              )
+            ),
+            ...overrides,
+          }) as any;
+
+        it('release: records an auto-discovered to and from, with the definition and release names', async () => {
+          const factory = makeFactory('', '', 'release');
+          await factory.resolveReleaseIds(releaseProvider());
+
+          expect(factory.getResolvedRange()).toEqual({
+            rangeType: 'release',
+            definition: { id: 1, name: 'MyRelease' }, // from the loaded release, not the (here non-numeric) request id
+            to: { id: 20, name: '2.0.0', source: 'auto' },
+            from: { id: 10, source: 'auto' },
+          });
+        });
+
+        it('release: an explicit from is recorded as explicit', async () => {
+          const factory = makeFactory('1', '', 'release');
+          await factory.resolveReleaseIds(releaseProvider());
+
+          expect(factory.getResolvedRange().from).toEqual({ id: 1, source: 'explicit' });
+          expect(factory.getResolvedRange().to.source).toBe('auto');
+        });
+
+        it('release: an explicit to is recorded as explicit', async () => {
+          const factory = makeFactory('', '20', 'release');
+          await factory.resolveReleaseIds(releaseProvider());
+
+          expect(factory.getResolvedRange().to).toEqual({ id: 20, name: '2.0.0', source: 'explicit' });
+        });
+
+        it('release: no previous release found is recorded as from "none" (a baseline run)', async () => {
+          const factory = makeFactory('', '20', 'release');
+          await factory.resolveReleaseIds(
+            releaseProvider({
+              GetReleaseHistory: jest.fn().mockResolvedValue({ value: [{ id: 20 }] }),
+              findPreviousSuccessfulRelease: jest.fn().mockResolvedValue(undefined),
+            })
+          );
+
+          expect(factory.getResolvedRange().from).toEqual({ source: 'none' });
+        });
+
+        it('release: an empty from stays "auto" when discovery stops before reaching it (nothing found for the definition)', async () => {
+          const factory = makeFactory('', '', 'release');
+          await factory.resolveReleaseIds(
+            releaseProvider({
+              GetReleaseHistory: jest.fn().mockResolvedValue({ value: [] }),
+              findLatestSuccessfulRelease: jest.fn().mockResolvedValue(undefined),
+            })
+          );
+
+          expect(factory.getResolvedRange()).toEqual({
+            rangeType: 'release',
+            definition: { id: undefined },
+            to: { id: undefined, source: 'auto' },
+            from: { source: 'auto' },
+          });
+        });
+
+        it('release: keeps what was discovered when the target release cannot be loaded', async () => {
+          const factory = makeFactory('', '', 'release');
+          await expect(
+            factory.resolveReleaseIds(releaseProvider({ GetReleaseByReleaseId: jest.fn().mockResolvedValue(undefined) }))
+          ).rejects.toThrow('Could not load target release');
+
+          expect(factory.getResolvedRange().to).toEqual({ id: 20, source: 'auto' });
+        });
+
+        it('pipeline: records the discovered from build and the pipeline and build names', async () => {
+          const factory = makeFactory('', '100', 'pipeline');
+          await factory.resolvePipelineIds({
+            getPipelineBuildByBuildId: jest
+              .fn()
+              .mockResolvedValue({ id: 100, buildNumber: '2026.10.5', definition: { id: 5, name: 'MyPipeline' } }),
+            getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
+            findPreviousPipeline: jest.fn().mockResolvedValue(99),
+          } as any);
+
+          expect(factory.getResolvedRange()).toEqual({
+            rangeType: 'pipeline',
+            definition: { id: 5, name: 'MyPipeline' },
+            to: { id: 100, name: '2026.10.5', source: 'explicit' },
+            from: { id: 99, source: 'auto' },
+          });
+        });
+
+        it('pipeline: no previous build found is recorded as from "none"', async () => {
+          const factory = makeFactory('', '100', 'pipeline');
+          await factory.resolvePipelineIds({
+            getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
+            getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100 }),
+            findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          } as any);
+
+          expect(factory.getResolvedRange().from).toEqual({ source: 'none' });
+        });
+
+        it('pipeline: an explicit from and an auto-discovered to', async () => {
+          const factory = makeFactory('1', '', 'pipeline');
+          (axios.get as jest.Mock).mockResolvedValue({ data: { value: [{ id: 100 }] } });
+          await factory.resolvePipelineIds({
+            getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
+          } as any);
+
+          expect(factory.getResolvedRange().from).toEqual({ id: 1, source: 'explicit' });
+          expect(factory.getResolvedRange().to).toEqual({ id: 100, source: 'auto' });
+        });
+
+        it('is undefined before discovery has run', () => {
+          expect(makeFactory('', '', 'release').getResolvedRange()).toBeUndefined();
+        });
       });
 
       it('resolvePipelineIds Scenario 1: from is explicit, to is empty', async () => {

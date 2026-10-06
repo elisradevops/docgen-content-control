@@ -19,6 +19,7 @@ import AttachmentsDataFactory from '../factories/AttachmentsDataFactory';
 import { formatLocalILShort } from '../services/adapterUtils';
 import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tablePresentation';
 import { computeOutputSummary } from '../utils/outputSummary';
+import type { SvdResolvedRange, SvdFunnel } from '../factories/ChangeDataFactory';
 import { runContextStore } from '../services/runContext';
 
 let defaultStyles = {
@@ -195,6 +196,9 @@ export default class DgContentControls {
   minioSecretKey: string;
   minioAttachmentData: any[];
   resolvedContextName: string;
+  // What an SVD run resolved its range to, and how many items survived each stage (see ChangeDataFactory).
+  resolvedRange?: SvdResolvedRange;
+  funnel?: SvdFunnel;
   attachmentsBucketName: string;
   jsonFileBucketName: string;
   formattingSettings: any;
@@ -409,7 +413,7 @@ export default class DgContentControls {
       let jsonLocalData = await this.writeToJson(contentControlData);
       let jsonData: any = await this.uploadToMinio(jsonLocalData, this.minioEndPoint, this.jsonFileBucketName);
       this.deleteFile(jsonLocalData);
-      jsonData.outputSummary = outputSummary;
+      jsonData.outputSummary = this.funnel ? { ...outputSummary, funnel: this.funnel } : outputSummary;
       return jsonData;
     } catch (error) {
       logger.error(
@@ -2203,7 +2207,13 @@ export default class DgContentControls {
         baselineOptions,
         changeFilterOptions,
       );
-      await changeDataFactory.fetchSvdData();
+      try {
+        await changeDataFactory.fetchSvdData();
+      } finally {
+        // Also when it fails part-way: a run that fails after discovery is the one whose versions are needed.
+        this.resolvedRange = changeDataFactory.getResolvedRange();
+        this.funnel = changeDataFactory.getFunnel();
+      }
       adoptedChangesData = changeDataFactory.getAdoptedData();
       const resolvedCtx = changeDataFactory.getResolvedContextName();
       if (resolvedCtx) this.resolvedContextName = resolvedCtx;
