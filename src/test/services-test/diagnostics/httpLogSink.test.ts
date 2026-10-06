@@ -33,6 +33,22 @@ describe('HttpLogSink', () => {
     process.env.DIAGNOSTICS_INGEST_TOKEN = ORIGINAL_TOKEN;
   });
 
+  test('the timer flushes on a half-second default, so a live-tail viewer is not left waiting', () => {
+    jest.useFakeTimers();
+    try {
+      const sink = new HttpLogSink();
+      sink.push(makeEvent());
+      sink.start();
+      jest.advanceTimersByTime(499);
+      expect(mockPost).not.toHaveBeenCalled();
+      jest.advanceTimersByTime(2);
+      expect(mockPost).toHaveBeenCalledTimes(1);
+      sink.stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   test('buffers events without posting until flush() is called', () => {
     const sink = new HttpLogSink();
     sink.push(makeEvent());

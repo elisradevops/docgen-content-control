@@ -1,6 +1,7 @@
 import DownloadManager from '../../services/DownloadManager';
 import logger from '../../services/logger';
 import axios from 'axios';
+import { runContextStore } from '../../services/runContext';
 
 jest.mock('axios');
 
@@ -69,6 +70,56 @@ describe('DownloadManager', () => {
       );
       const result = dm.convertToWinodwsPath('/folder/sub/file.bin');
       expect(result).toBe('C:\\folder\\sub\\file.bin');
+    });
+  });
+
+  describe('downloadFile - per-run local names', () => {
+    const response = {
+      status: 200,
+      data: {
+        fileName: 'guid.png',
+        attachmentPath: 'http://minio/attachments/guid.png',
+        thumbnailName: 'guid-thumb.png',
+        thumbnailPath: 'http://minio/attachments/guid-thumb.png',
+      },
+    };
+    const newDm = (url = 'http://ado/attachments/x') =>
+      new DownloadManager(bucketName, endpoint, accessKey, secretKey, url, 'x.png', projectName, pat);
+
+    it('prefixes the local file and thumbnail names with the run directory, not the MinIO locations', async () => {
+      mockedAxios.post.mockResolvedValue({ ...response, data: { ...response.data } } as any);
+
+      const result = await runContextStore.run({ runId: 'req-77' }, () => newDm().downloadFile());
+
+      expect(result.fileName).toBe('run-req-77/guid.png');
+      expect(result.thumbnailName).toBe('run-req-77/guid-thumb.png');
+      expect(result.attachmentPath).toBe('http://minio/attachments/guid.png');
+      expect(result.thumbnailPath).toBe('http://minio/attachments/guid-thumb.png');
+    });
+
+    it('applies to base64 uploads too', async () => {
+      mockedAxios.post.mockResolvedValue({ status: 200, data: { fileName: 'img.png' } } as any);
+
+      const result = await runContextStore.run({ runId: 'req-77' }, () =>
+        newDm('data:image/png;base64,AAAA').downloadFile()
+      );
+
+      expect(result.fileName).toBe('run-req-77/img.png');
+    });
+
+    it('leaves the names flat when there is no run id', async () => {
+      mockedAxios.post.mockResolvedValue({ ...response, data: { ...response.data } } as any);
+
+      const result = await newDm().downloadFile();
+
+      expect(result.fileName).toBe('guid.png');
+      expect(result.thumbnailName).toBe('guid-thumb.png');
+    });
+
+    it('still returns null for a non-200 response', async () => {
+      mockedAxios.post.mockResolvedValue({ status: 204, data: undefined } as any);
+
+      expect(await runContextStore.run({ runId: 'req-77' }, () => newDm().downloadFile())).toBeNull();
     });
   });
 

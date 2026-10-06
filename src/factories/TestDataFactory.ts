@@ -12,6 +12,7 @@ import {
   sortSourceTargetsMapByTestCaseSuite,
   sortSourceTargetsMapByLinkedTestCaseSuite,
 } from '../utils/traceSortUtils';
+import { settleBounded } from '../utils/boundedSettle';
 
 export default class TestDataFactory {
   isSuiteSpecific = false;
@@ -204,7 +205,11 @@ export default class TestDataFactory {
 
     if (testCases.length != 0) {
       let testCasesWithAttachments: any = [];
-      for (const testCase of testCases) {
+      // Each test case's attachment fetches are independent of the others: run them with bounded
+      // concurrency, each into its own buffer, then walk the outcomes in test case order so the
+      // result list, this.attachmentMinioData and the first failure surfaced match a sequential run.
+      const settled = await settleBounded(testCases, async (testCase: any) => {
+        const minioData: any[] = [];
         let planAttachmentData = [];
         let runAttachmentData = [];
 
@@ -213,7 +218,7 @@ export default class TestDataFactory {
           (this.runAttachmentMode === 'both' || this.runAttachmentMode === 'planOnly') &&
           this.includeAttachments
         ) {
-          planAttachmentData = await this.fetchAttachmentData(testCase);
+          planAttachmentData = await this.fetchAttachmentData(testCase, [], minioData);
         }
 
         // Fetch run attachments if needed and available
@@ -221,14 +226,26 @@ export default class TestDataFactory {
           (this.runAttachmentMode === 'both' || this.runAttachmentMode === 'runOnly') &&
           testCase.caseEvidenceAttachments?.length > 0
         ) {
-          runAttachmentData = await this.fetchAttachmentData(testCase, testCase.caseEvidenceAttachments);
+          runAttachmentData = await this.fetchAttachmentData(
+            testCase,
+            testCase.caseEvidenceAttachments,
+            minioData
+          );
         }
+        return { planAttachmentData, runAttachmentData, minioData };
+      });
+
+      testCases.forEach((testCase: any, index: number) => {
+        const outcome = settled[index];
+        if (!outcome.ok) throw outcome.error;
+        const { planAttachmentData, runAttachmentData, minioData } = outcome.value!;
+        this.attachmentMinioData.push(...minioData);
 
         // Clone and add attachment data to test case
         const testCaseWithAttachments = JSON.parse(JSON.stringify(testCase));
         testCaseWithAttachments.attachmentsData = [...planAttachmentData, ...runAttachmentData];
         testCasesWithAttachments.push(testCaseWithAttachments);
-      }
+      });
 
       //populate test object with results
       if (this.includeTestResults) {
@@ -238,20 +255,24 @@ export default class TestDataFactory {
       return testCasesWithAttachments;
     }
   }
-  private async fetchAttachmentData(testCase: any, additionalAttachments: any[] = []) {
+  private async fetchAttachmentData(
+    testCase: any,
+    additionalAttachments: any[] = [],
+    minioSink: any[] = this.attachmentMinioData
+  ) {
     let structuredAttachmentData = await this.generateAttachmentData(testCase.id, additionalAttachments);
     structuredAttachmentData.forEach((item) => {
       let attachmentBucketData = {
         attachmentMinioPath: item.attachmentMinioPath,
         minioFileName: item.minioFileName,
       };
-      this.attachmentMinioData.push(attachmentBucketData);
+      minioSink.push(attachmentBucketData);
       if (item.ThumbMinioPath && item.minioThumbName) {
         let thumbBucketData = {
           attachmentMinioPath: item.ThumbMinioPath,
           minioFileName: item.minioThumbName,
         };
-        this.attachmentMinioData.push(thumbBucketData);
+        minioSink.push(thumbBucketData);
       }
     });
     return structuredAttachmentData;
