@@ -5440,6 +5440,56 @@ describe('ChangeDataFactory', () => {
           expect(factory.getResolvedRange().to).toEqual({ id: 100, source: 'auto' });
         });
 
+        it('pipeline: a from that was asked for but is not used (baseline run) is recorded as "none"', async () => {
+          const factory = makeFactory('55', '100784', 'pipeline');
+          factory.resolvedRange = {
+            rangeType: 'pipeline',
+            definition: { id: 5 },
+            to: { id: 100784, source: 'explicit' },
+            from: { id: 55, source: 'explicit' },
+          };
+          const provider = {
+            getPipelineBuildByBuildId: jest.fn().mockImplementation(async (_tp: string, id: number) =>
+              id === 100784 ? { id: 100784, result: 'succeeded', definition: { id: 5, name: 'P' } } : undefined
+            ),
+            getPipelineRunDetails: jest.fn().mockResolvedValue({ id: 100784 }),
+            findPreviousPipeline: jest.fn().mockResolvedValue(undefined),
+          } as any;
+
+          await factory.GetPipelineChanges(provider, {} as any, defaultParams.teamProject, 100784, 55, new Set(), undefined);
+
+          expect(factory.getResolvedRange().from).toEqual({ source: 'none' });
+        });
+
+        it('pipeline: a from that stays unresolved because the lookup failed is "none", not "to be discovered"', async () => {
+          const factory = makeFactory('', '100', 'pipeline');
+          await factory.resolvePipelineIds({
+            getPipelineBuildByBuildId: jest.fn().mockRejectedValue(new Error('boom')),
+          } as any);
+
+          expect(factory.getResolvedRange().from).toEqual({ source: 'none' });
+        });
+
+        it('pipeline: says which run an empty "to" resolved to, including its state and result', async () => {
+          const factory = makeFactory('1', '', 'pipeline');
+          (axios.get as jest.Mock).mockResolvedValue({ data: { value: [{ id: 100, state: 'inProgress', result: undefined }] } });
+          await factory.resolvePipelineIds({
+            getPipelineBuildByBuildId: jest.fn().mockResolvedValue({ id: 100, definition: { id: 5, name: 'MyPipeline' } }),
+          } as any);
+
+          const infos = (logger.info as jest.Mock).mock.calls.map((c: any[]) => String(c[0]));
+          expect(infos.some((m) => m.includes('run #100 (state=inProgress, result=unknown)'))).toBe(true);
+        });
+
+        it('pipeline: with no run at all the error names the pipeline and no longer claims "successful"', async () => {
+          const factory = makeFactory('1', '', 'pipeline');
+          (axios.get as jest.Mock).mockResolvedValue({ data: { value: [] } });
+
+          await expect(
+            factory.resolvePipelineIds({ GetPipelineRunHistory: jest.fn().mockResolvedValue({ value: [] }) } as any)
+          ).rejects.toThrow(/Could not find any run of pipeline definition/);
+        });
+
         it('is undefined before discovery has run', () => {
           expect(makeFactory('', '', 'release').getResolvedRange()).toBeUndefined();
         });

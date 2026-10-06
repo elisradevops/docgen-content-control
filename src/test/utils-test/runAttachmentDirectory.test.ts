@@ -32,4 +32,30 @@ describe('runAttachmentDirectory', () => {
   test('caps the length of the directory name', () => {
     expect(runAttachmentDirectory('a'.repeat(500)).length).toBe('run-'.length + 64);
   });
+
+  describe('ATTACHMENT_RUN_DIRECTORY', () => {
+    const previous = process.env.ATTACHMENT_RUN_DIRECTORY;
+    afterEach(() => {
+      if (previous === undefined) delete process.env.ATTACHMENT_RUN_DIRECTORY;
+      else process.env.ATTACHMENT_RUN_DIRECTORY = previous;
+    });
+
+    test('"off" writes the flat names as before, so a rollback needs no release', () => {
+      process.env.ATTACHMENT_RUN_DIRECTORY = 'off';
+      expect(runAttachmentDirectory('req-1a2b')).toBe('');
+      expect(runAttachmentPath('guid.png', 'req-1a2b')).toBe('guid.png');
+      process.env.ATTACHMENT_RUN_DIRECTORY = ' OFF ';
+      expect(runAttachmentDirectory('req-1a2b')).toBe('');
+    });
+
+    test('anything else (unset, on, a typo) keeps the run directory', () => {
+      delete process.env.ATTACHMENT_RUN_DIRECTORY;
+      expect(runAttachmentDirectory('req-1a2b')).toBe('run-req-1a2b');
+      process.env.ATTACHMENT_RUN_DIRECTORY = 'on';
+      expect(runAttachmentDirectory('req-1a2b')).toBe('run-req-1a2b');
+      process.env.ATTACHMENT_RUN_DIRECTORY = 'of';
+      expect(runAttachmentDirectory('req-1a2b')).toBe('run-req-1a2b');
+    });
+  });
 });
+

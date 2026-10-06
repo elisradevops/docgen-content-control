@@ -188,3 +188,16 @@ describe('AzureDataService.getIdentityById', () => {
     expect(managementProvider.GetIdentityById).not.toHaveBeenCalled();
   });
 });
+
+describe('AzureDataService.probeProjectAccess', () => {
+  it('delegates to the management data provider', async () => {
+    const access = { repositories: { status: 'ok', count: 3 } };
+    const probe = jest.fn().mockResolvedValue(access);
+    getMangementDataProviderMock.mockResolvedValue({ ProbeProjectAccess: probe });
+    const svc = new AzureDataService('https://org/', 'pat');
+
+    await expect(svc.probeProjectAccess('MEWP')).resolves.toEqual(access);
+    expect(probe).toHaveBeenCalledWith('MEWP');
+  });
+});
+
