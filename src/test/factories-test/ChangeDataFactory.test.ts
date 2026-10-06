@@ -47,6 +47,7 @@ jest.mock('axios');
 
 // Now it's safe to import the modules
 import axios from 'axios';
+import { runContextStore } from '../../services/runContext';
 import ChangeDataFactory from '../../factories/ChangeDataFactory';
 import logger from '../../services/logger';
 import { TagCommitMeta } from '../../models/changeModels';
@@ -1995,6 +1996,24 @@ describe('ChangeDataFactory', () => {
             attachmentMinioPath: mockUrl,
             minioFileName: mockFileName,
           }),
+        ]);
+      });
+
+      it('keeps installation-instructions link and download entry in the run directory', async () => {
+        const mockUrl = 'https://wiki.example.com/Install%20Guide.docx';
+        changeDataFactory.attachmentWikiUrl = mockUrl;
+
+        const result: any = await runContextStore.run({ runId: 'req-9' }, () =>
+          changeDataFactory.jsonSkinDataAdapter('installation-instructions', [])
+        );
+
+        const attachment = result[0].attachment;
+        expect(attachment.attachmentFileName).toBe('Install Guide.docx'); // display name unchanged
+        expect(attachment.minioFileName).toBe('run-req-9/Install Guide.docx');
+        expect(attachment.attachmentLink).toBe('TempFiles/run-req-9/Install Guide.docx');
+        expect(attachment.relativeAttachmentLink).toBe(attachment.attachmentLink);
+        expect(changeDataFactory.getAttachmentMinioData()).toEqual([
+          expect.objectContaining({ attachmentMinioPath: mockUrl, minioFileName: 'run-req-9/Install Guide.docx' }),
         ]);
       });
 

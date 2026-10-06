@@ -1,5 +1,6 @@
 import logger from './logger';
 import axios from 'axios';
+import { runAttachmentPath } from '../utils/runAttachmentDirectory';
 
 export default class DownloadManager {
   bucketName: string;
@@ -67,11 +68,21 @@ export default class DownloadManager {
     }
   }
 
+  // The local names callers put in the document JSON (TempFiles/<name>) and in the list of files
+  // json-to-word must download. Prefixing them with the run's directory here, where they all originate,
+  // keeps links and downloads in agreement. The MinIO locations (attachmentPath, thumbnailPath) are
+  // untouched.
+  private withRunDirectory(data: any) {
+    if (data?.fileName) data.fileName = runAttachmentPath(data.fileName);
+    if (data?.thumbnailName) data.thumbnailName = runAttachmentPath(data.thumbnailName);
+    return data;
+  }
+
   async downloadFile() {
     try {
       this.minioEndPoint = this.minioEndPoint.replace(/^https?:\/\//, '');
       if (this.isBase64String(this.downloadUrl)) {
-        return await this.sendBase64Chunks(this.downloadUrl);
+        return this.withRunDirectory(await this.sendBase64Chunks(this.downloadUrl));
       }
 
       let downloadManagerResponse = await axios.post(`${process.env.downloadManagerUrl}/uploadAttachment`, {
@@ -86,7 +97,7 @@ export default class DownloadManager {
       });
 
       logger.info('downloaded to', downloadManagerResponse.data);
-      return downloadManagerResponse.status === 200 ? downloadManagerResponse.data : null;
+      return downloadManagerResponse.status === 200 ? this.withRunDirectory(downloadManagerResponse.data) : null;
     } catch (e) {
       logger.error(`error downloading : ${this.downloadUrl}`);
       throw e;

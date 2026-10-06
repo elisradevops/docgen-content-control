@@ -39,6 +39,7 @@ const BASELINE_WORK_ITEM_CONCURRENCY = 8;
 // declared run resources (pipeline resource repositories / release artifacts) alongside the
 // actual product repos. Overridable per-request via changeFilterOptions.excludedRepoNames.
 const DEFAULT_EXCLUDED_REPO_NAMES = ['pipeline-templates', 'DevOpsTemplates'];
+import { runAttachmentPath } from '../utils/runAttachmentDirectory';
 
 export default class ChangeDataFactory {
   //#region properties
@@ -610,14 +611,17 @@ export default class ChangeDataFactory {
             const fileName = decodeURIComponent(encodedFileName);
             logger.debug(`File name extracted: ${fileName}`);
 
+            // The local file name json-to-word saves it under, inside this run's own directory.
+            const localFileName = runAttachmentPath(fileName);
+
             // Add to attachment tracking
             this.attachmentMinioData.push({
               attachmentMinioPath: this.attachmentWikiUrl,
-              minioFileName: fileName,
+              minioFileName: localFileName,
             });
 
             // Format data for the skin adapter
-            const localPath = `TempFiles/${fileName}`;
+            const localPath = `TempFiles/${localFileName}`;
 
             adoptedData = [
               {
@@ -627,7 +631,7 @@ export default class ChangeDataFactory {
                   attachmentLink: localPath,
                   relativeAttachmentLink: localPath,
                   attachmentMinioPath: this.attachmentWikiUrl,
-                  minioFileName: fileName,
+                  minioFileName: localFileName,
                 },
               },
             ];
