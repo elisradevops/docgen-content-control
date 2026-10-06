@@ -364,8 +364,10 @@ export class Routes {
 
     app.route('/generate-content-control').post(async ({ body }: Request, res: Response) => {
       setRunStep('generate-content-control', body?.contentControlOptions);
+      // Declared outside the try so the error response can still say what an SVD had resolved.
+      let dgContentControls: DgContentControls | undefined;
       try {
-        const dgContentControls = new DgContentControls(
+        dgContentControls = new DgContentControls(
           body.orgUrl,
           body.token,
           body.attachmentsBucketName,
@@ -386,6 +388,7 @@ export class Routes {
         let resJson: any = await dgContentControls.generateContentControl(body.contentControlOptions);
         resJson.minioAttachmentData = dgContentControls.minioAttachmentData;
         resJson.resolvedContextName = dgContentControls.resolvedContextName || '';
+        if (dgContentControls.resolvedRange) resJson.resolvedRange = dgContentControls.resolvedRange;
         const isExcelSpreadsheet = body.contentControlOptions.isExcelSpreadsheet;
         resJson.isExcelSpreadsheet = isExcelSpreadsheet;
         res.status(StatusCodes.OK).json(resJson);
@@ -398,6 +401,7 @@ export class Routes {
           contentControlType: body.contentControlOptions?.type,
           contentControlTitle: body.contentControlOptions?.title,
           runId: runContextStore.getStore()?.runId,
+          resolvedRange: dgContentControls?.resolvedRange,
         });
       }
     });

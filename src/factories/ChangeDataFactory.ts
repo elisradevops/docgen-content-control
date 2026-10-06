@@ -28,6 +28,37 @@ class SvdRangeResolutionError extends Error {
   }
 }
 
+/**
+ * What an SVD run actually used, as opposed to what it was asked for: an omitted `to` or `from` is
+ * auto-discovered, so two runs with the same request can resolve to different versions. ids and names
+ * only - this is recorded on the run and travels into exported reports.
+ */
+export interface SvdResolvedRange {
+  rangeType: 'release' | 'pipeline';
+  definition: { id?: number; name?: string };
+  to: { id?: number; name?: string; source: 'explicit' | 'auto' };
+  from: { id?: number; source: 'explicit' | 'auto' | 'none' };
+}
+
+/** How many items survived each stage of an SVD run: where an empty document lost its rows. */
+export interface SvdFunnel {
+  artifacts: number;
+  linkedChanges: number;
+  unlinkedCommits: number;
+  knownBugs: number;
+}
+
+const positiveIdOrUndefined = (value: any): number | undefined => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+};
+
+// The `from` side as requested, before discovery has run: an empty or zero value is to be discovered.
+const seedFrom = (requested: any): SvdResolvedRange['from'] => {
+  const id = positiveIdOrUndefined(requested);
+  return id ? { id, source: 'explicit' } : { source: 'auto' };
+};
+
 const PIPELINE_BASELINE_MESSAGE =
   'Baseline SVD: no previous successful pipeline run was found. The listed items are associated with the current build and establish the baseline.';
 const RELEASE_BASELINE_MESSAGE =
@@ -92,6 +123,8 @@ export default class ChangeDataFactory {
   private allowBaselineSvd: boolean = false;
   private baselineChangeSource: string = '';
   private resolvedContextName: string = '';
+  private resolvedRange?: SvdResolvedRange;
+  private funnel?: SvdFunnel;
   private excludedRepoNames: Set<string> = new Set();
   //#endregion properties
 
@@ -301,6 +334,7 @@ export default class ChangeDataFactory {
       logger.info(
         `[SVD ${svdId}] changes fetched: artifacts=${artifactsCount}, linked=${linkedTotal}, unlinked=${unlinkedTotal}`
       );
+      this.funnel = { artifacts: artifactsCount, linkedChanges: linkedTotal, unlinkedCommits: unlinkedTotal, knownBugs: 0 };
       if (this.rawChangesArray.length > 0) {
         this.adoptedChangeData.push({
           contentControl: 'required-states-and-modes',
@@ -325,6 +359,7 @@ export default class ChangeDataFactory {
           ? queryResultData.knownBugsQueryData.length
           : 0;
         logger.info(`[SVD ${svdId}] known-bugs: items=${bugsCount}${bugsCount > 0 ? '' : ' (skipped)'}`);
+        if (this.funnel) this.funnel.knownBugs = bugsCount;
         this.adoptedChangeData.push({
           contentControl: 'possible-problems-known-errors-content-control',
           data: await this.jsonSkinDataAdapter(
@@ -670,6 +705,14 @@ export default class ChangeDataFactory {
 
   public getResolvedContextName(): string {
     return this.resolvedContextName;
+  }
+
+  public getResolvedRange(): SvdResolvedRange | undefined {
+    return this.resolvedRange;
+  }
+
+  public getFunnel(): SvdFunnel | undefined {
+    return this.funnel;
   }
 
   public getResolvedTo(): string | number {
@@ -1357,6 +1400,18 @@ export default class ChangeDataFactory {
     let toId = Number(this.to);
     const requestedReleaseDefinitionId = this.repoId;
     const shouldDiscoverToRelease = !Number.isFinite(toId) || toId <= 0;
+    // Filled in as discovery proceeds, so a run that fails part-way still reports what it had resolved.
+    const range: SvdResolvedRange = {
+      rangeType: 'release',
+      definition: { id: positiveIdOrUndefined(requestedReleaseDefinitionId) },
+      to: {
+        id: shouldDiscoverToRelease ? undefined : positiveIdOrUndefined(toId),
+        source: shouldDiscoverToRelease ? 'auto' : 'explicit',
+      },
+      // What was asked for: an empty from is to be discovered. Refined below once it is.
+      from: seedFrom(this.from),
+    };
+    this.resolvedRange = range;
 
     if (shouldDiscoverToRelease) {
       if (!requestedReleaseDefinitionId) {
@@ -1408,6 +1463,7 @@ export default class ChangeDataFactory {
         throw new SvdRangeResolutionError(`Auto-discovered latest release has invalid id: ${String(latestReleaseId)}`);
       }
       this.to = toId;
+      range.to.id = toId;
     }
 
     const toRelease = await pipelinesDataProvider.GetReleaseByReleaseId(this.teamProject, toId);
@@ -1438,9 +1494,16 @@ export default class ChangeDataFactory {
     const relDefName = sanitizeCtx(rawDefName || String(releaseDefinitionId || this.repoId));
     const relRunName = toRelease?.name ? sanitizeCtx(toRelease.name) : '';
     this.resolvedContextName = relRunName ? `release-${relDefName}-${relRunName}` : `release-${relDefName}`;
+    range.definition = { id: positiveIdOrUndefined(releaseDefinitionId), name: rawDefName || undefined };
+    range.to.id = toId;
+    range.to.name = toRelease?.name || undefined;
 
     let fromId = Number(this.from);
     const shouldDiscoverFromRelease = !Number.isFinite(fromId) || fromId <= 0;
+    range.from = {
+      id: shouldDiscoverFromRelease ? undefined : fromId,
+      source: shouldDiscoverFromRelease ? 'auto' : 'explicit',
+    };
     if (shouldDiscoverFromRelease) {
       if (!releaseDefinitionId) {
         throw new SvdRangeResolutionError(`Could not auto-discover previous release before release #${toId}: missing definition id`);
@@ -1480,6 +1543,7 @@ export default class ChangeDataFactory {
       }
       if (!previousReleaseId) {
         logger.warn(`Could not find a valid release before release #${toId}`);
+        range.from = { source: 'none' };
         return;
       }
       fromId = Number(typeof previousReleaseId === 'object' ? previousReleaseId.id : previousReleaseId);
@@ -1487,6 +1551,7 @@ export default class ChangeDataFactory {
         throw new SvdRangeResolutionError(`Auto-discovered previous release has invalid id: ${String(previousReleaseId)}`);
       }
       this.from = fromId;
+      range.from.id = fromId;
     }
     logger.info(
       `[SVD resolveReleaseIds] resolved: to=${toId}(${shouldDiscoverToRelease ? 'auto' : 'explicit'}) toName=${toRelease?.name || ''}, from=${fromId}(${shouldDiscoverFromRelease ? 'auto-preceding' : 'explicit'}), definition=${relDefName}`
@@ -1502,6 +1567,16 @@ export default class ChangeDataFactory {
 
     let toId = Number(this.to);
     const shouldDiscoverToBuild = !Number.isFinite(toId) || toId <= 0;
+    const range: SvdResolvedRange = {
+      rangeType: 'pipeline',
+      definition: { id: positiveIdOrUndefined(this.repoId) },
+      to: {
+        id: shouldDiscoverToBuild ? undefined : positiveIdOrUndefined(toId),
+        source: shouldDiscoverToBuild ? 'auto' : 'explicit',
+      },
+      from: seedFrom(this.from),
+    };
+    this.resolvedRange = range;
 
     if (shouldDiscoverToBuild) {
       if (!this.repoId) {
@@ -1542,13 +1617,24 @@ export default class ChangeDataFactory {
       }
       toId = Number(latestBuildId);
       this.to = toId;
+      range.to.id = toId;
     }
 
     let fromId = Number(this.from);
     const shouldDiscoverFromBuild = !Number.isFinite(fromId) || fromId <= 0;
+    range.from = {
+      id: shouldDiscoverFromBuild ? undefined : fromId,
+      source: shouldDiscoverFromBuild ? 'auto' : 'explicit',
+    };
 
     try {
       const targetBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(this.teamProject, toId);
+      range.definition = {
+        id: positiveIdOrUndefined(targetBuild?.definition?.id) ?? range.definition.id,
+        name: targetBuild?.definition?.name || undefined,
+      };
+      range.to.id = toId;
+      range.to.name = targetBuild?.buildNumber || undefined;
       if (targetBuild?.definition?.name) {
         const sanitizeCtxP = (s: string) => String(s || '').trim().replace(/\./g, '-').replace(/\s+/g, '_');
         this.resolvedContextName = `pipeline-${sanitizeCtxP(targetBuild.definition.name)}`;
@@ -1571,13 +1657,18 @@ export default class ChangeDataFactory {
             const numericPrev = Number(typeof prevRunId === 'object' ? (prevRunId as any).id : prevRunId);
             if (Number.isFinite(numericPrev) && numericPrev > 0) {
               this.from = numericPrev;
+              range.from = { id: numericPrev, source: 'auto' };
             }
           }
         }
+        if (range.from.id === undefined) range.from = { source: 'none' };
       }
     } catch (e: any) {
       logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
     }
+    logger.info(
+      `[SVD resolvePipelineIds] resolved: to=${toId}(${range.to.source}), from=${range.from.id ?? 'none'}(${range.from.source}), pipeline=${range.definition.name || range.definition.id || ''}`
+    );
   }
 
   private async compareConsecutiveReleases(
@@ -2015,6 +2106,9 @@ export default class ChangeDataFactory {
         }
 
         resolvedFromRunId = Number(typeof prevRunId === 'object' ? prevRunId.id : prevRunId);
+        if (this.resolvedRange?.rangeType === 'pipeline') {
+          this.resolvedRange.from = { id: positiveIdOrUndefined(resolvedFromRunId), source: 'auto' };
+        }
         sourceBuild = await pipelinesDataProvider.getPipelineBuildByBuildId(teamProject, resolvedFromRunId);
         if (!sourceBuild) {
           logger.warn(`Could not load previous build details for run #${resolvedFromRunId}`);
