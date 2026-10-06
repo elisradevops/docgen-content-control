@@ -1284,8 +1284,57 @@ describe('TestDataFactory', () => {
         expect(factory.fetchAttachmentData).toHaveBeenCalledTimes(2);
         expect(factory.fetchAttachmentData).toHaveBeenCalledWith(
           testCases[0],
-          testCases[0].caseEvidenceAttachments
+          testCases[0].caseEvidenceAttachments,
+          expect.any(Array)
         );
+      });
+
+      describe('attachment fetching across test cases', () => {
+        const attachmentParams = { ...defaultParams, includeAttachments: true, runAttachmentMode: 'planOnly' };
+        const suite = { id: 456, name: 'Suite 456' };
+        const makeCases = (count: number) =>
+          Array.from({ length: count }, (_, i) => ({ id: 100 + i, suit: 456, title: `TC ${100 + i}` }));
+        const attachmentFor = (id: number) => [
+          { attachmentMinioPath: `path/${id}`, minioFileName: `file-${id}`, ThumbMinioPath: `thumb/${id}`, minioThumbName: `t-${id}` },
+        ];
+
+        test('keeps test case order and attachmentMinioData order, with bounded concurrency', async () => {
+          const factory = createTestDataFactory(attachmentParams) as any;
+          let inFlight = 0;
+          let maxInFlight = 0;
+          factory.generateAttachmentData = jest.fn(async (id: number) => {
+            inFlight++;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            // Later cases answer faster, so completion order differs from case order.
+            await new Promise((resolve) => setTimeout(resolve, 30 - (id - 100) * 2));
+            inFlight--;
+            return attachmentFor(id);
+          });
+
+          const result = await factory.generateSuiteObject(suite, makeCases(10));
+
+          expect(result.map((tc: any) => tc.id)).toEqual(makeCases(10).map((tc) => tc.id));
+          expect(result[3].attachmentsData).toEqual(attachmentFor(103));
+          expect(factory.attachmentMinioData.map((a: any) => a.minioFileName)).toEqual(
+            makeCases(10).flatMap((tc) => [`file-${tc.id}`, `t-${tc.id}`])
+          );
+          expect(maxInFlight).toBeGreaterThan(1);
+          expect(maxInFlight).toBeLessThanOrEqual(4);
+        });
+
+        test('a failing test case rethrows after the earlier ones were registered, as a sequential run did', async () => {
+          const factory = createTestDataFactory(attachmentParams) as any;
+          factory.generateAttachmentData = jest.fn(async (id: number) => {
+            if (id === 103) return undefined; // generateAttachmentData swallows errors and returns undefined
+            return attachmentFor(id);
+          });
+
+          await expect(factory.generateSuiteObject(suite, makeCases(6))).rejects.toThrow();
+
+          expect(factory.attachmentMinioData.map((a: any) => a.minioFileName)).toEqual(
+            [100, 101, 102].flatMap((id) => [`file-${id}`, `t-${id}`])
+          );
+        });
       });
     });
   });
