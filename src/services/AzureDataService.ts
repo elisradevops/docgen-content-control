@@ -31,6 +31,12 @@ export default class AzureDataService {
     return management.GetCllectionLinkTypes();
   }
 
+  // What this credential can actually see in a project (counts, and denied/notFound per area).
+  async probeProjectAccess(projectName: string) {
+    const management = await this.getManagement();
+    return management.ProbeProjectAccess(projectName);
+  }
+
   async checkOrgUrlValidity(token?: string) {
     const management = await this.getManagement();
     return management.CheckOrgUrlValidity(token);

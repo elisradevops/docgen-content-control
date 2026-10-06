@@ -1,4 +1,4 @@
-import { settleBounded } from '../../utils/boundedSettle';
+import { settleBounded, fetchConcurrency } from '../../utils/boundedSettle';
 
 describe('settleBounded', () => {
   test('returns outcomes in item order and never exceeds the concurrency bound', async () => {
@@ -34,5 +34,36 @@ describe('settleBounded', () => {
 
   test('resolves immediately for no items', async () => {
     expect(await settleBounded([], async () => 1)).toEqual([]);
+  });
+});
+
+describe('fetchConcurrency', () => {
+  const previous = process.env.DOCGEN_FETCH_CONCURRENCY;
+  afterEach(() => {
+    if (previous === undefined) delete process.env.DOCGEN_FETCH_CONCURRENCY;
+    else process.env.DOCGEN_FETCH_CONCURRENCY = previous;
+  });
+
+  test('defaults to 4, is clamped to 1..8, and invalid values fall back to the default', () => {
+    expect(fetchConcurrency(undefined)).toBe(4);
+    expect(fetchConcurrency('abc')).toBe(4);
+    expect(fetchConcurrency('0')).toBe(4);
+    expect(fetchConcurrency('1')).toBe(1);
+    expect(fetchConcurrency('64')).toBe(8);
+  });
+
+  test('is read at call time when no explicit bound is given', async () => {
+    process.env.DOCGEN_FETCH_CONCURRENCY = '2';
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    await settleBounded([1, 2, 3, 4, 5, 6], async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight--;
+    });
+
+    expect(maxInFlight).toBe(2);
   });
 });

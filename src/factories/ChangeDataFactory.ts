@@ -1583,7 +1583,10 @@ export default class ChangeDataFactory {
         throw new SvdRangeResolutionError('Could not auto-discover latest pipeline build: missing pipeline definition id');
       }
 
+      // The newest run of the pipeline, whatever its state or result (the Auto SVD flow passes the build it
+      // runs for explicitly; an empty `to` means "the latest"). Which run was picked is logged below.
       let latestBuildId;
+      let latestRun: any;
       try {
         const authHeader = 'Basic ' + Buffer.from(':' + pipelinesDataProvider.token).toString('base64');
         const url = `${pipelinesDataProvider.orgUrl}${this.teamProject}/_apis/pipelines/${this.repoId}/runs?api-version=6.0-preview.1`;
@@ -1594,7 +1597,8 @@ export default class ChangeDataFactory {
         });
         const runs = response.data?.value || [];
         if (runs.length > 0) {
-          latestBuildId = runs[0].id;
+          latestRun = runs[0];
+          latestBuildId = latestRun.id;
         }
       } catch (e: any) {
         logger.warn(`Direct runs API call failed during pipeline auto-discovery: ${e.message}. Falling back to GetPipelineRunHistory.`);
@@ -1605,7 +1609,8 @@ export default class ChangeDataFactory {
           const history = await pipelinesDataProvider.GetPipelineRunHistory(this.teamProject, String(this.repoId));
           const runs = history?.value || [];
           if (runs.length > 0) {
-            latestBuildId = runs[0].id;
+            latestRun = runs[0];
+            latestBuildId = latestRun.id;
           }
         } catch (e: any) {
           throw new SvdRangeResolutionError(`Pipeline auto-discovery failed: ${e.message}`);
@@ -1613,8 +1618,11 @@ export default class ChangeDataFactory {
       }
 
       if (!latestBuildId) {
-        throw new SvdRangeResolutionError(`Could not find a valid latest successful build for pipeline definition #${this.repoId}`);
+        throw new SvdRangeResolutionError(`Could not find any run of pipeline definition #${this.repoId} to use as the target build`);
       }
+      logger.info(
+        `[SVD resolvePipelineIds] no target build was given: using the newest run of pipeline #${this.repoId}: run #${latestBuildId} (state=${latestRun?.state ?? 'unknown'}, result=${latestRun?.result ?? 'unknown'})`
+      );
       toId = Number(latestBuildId);
       this.to = toId;
       range.to.id = toId;
@@ -1665,6 +1673,8 @@ export default class ChangeDataFactory {
       }
     } catch (e: any) {
       logger.warn(`resolvePipelineIds: previous build resolution failed: ${e?.message || e}`);
+      // Whatever stopped it, a from that is not resolved is not "to be discovered": nothing was found.
+      if (range.from.id === undefined) range.from = { source: 'none' };
     }
     logger.info(
       `[SVD resolvePipelineIds] resolved: to=${toId}(${range.to.source}), from=${range.from.id ?? 'none'}(${range.from.source}), pipeline=${range.definition.name || range.definition.id || ''}`
@@ -2092,6 +2102,8 @@ export default class ChangeDataFactory {
 
         if (!prevRunId) {
           logger.warn(`Could not find a valid pipeline before run #${to}`);
+          // The run goes on as a baseline: whatever from was asked for was not used.
+          if (this.resolvedRange?.rangeType === 'pipeline') this.resolvedRange.from = { source: 'none' };
           if (this.canUseBaselineSvd(from, targetBuildId)) {
             const baselineChanges = await this.getTargetBuildBaselineChanges(
               pipelinesDataProvider,

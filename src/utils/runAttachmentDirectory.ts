@@ -13,6 +13,10 @@ const MAX_RUN_ID_LENGTH = 64;
  * prefix as a directory it owns (docgen-json-to-word AWSS3Service.RunDirectoryPrefix) - keep them in step.
  */
 export function runAttachmentDirectory(runId: string | undefined = runContextStore.getStore()?.runId): string {
+  // ATTACHMENT_RUN_DIRECTORY=off writes the flat names as before. For rolling back without a release when
+  // json-to-word that understands run directories (>= 1.0.19) is not (yet) running: against an older
+  // json-to-word, links into run-<id>/ would silently lose every picture and attachment. Read at call time.
+  if (String(process.env.ATTACHMENT_RUN_DIRECTORY ?? '').trim().toLowerCase() === 'off') return '';
   const safe = String(runId ?? '')
     .replace(/[^A-Za-z0-9._-]/g, '-')
     .slice(0, MAX_RUN_ID_LENGTH);

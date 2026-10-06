@@ -1,3 +1,4 @@
+import { runAccessProbe, validateAccessProbeBody } from '../services/accessProbe';
 import { Request, Response } from 'express';
 import { StatusCodes } from 'http-status-codes';
 import axios from 'axios';
@@ -497,6 +498,25 @@ export class Routes {
       } catch (error) {
         logRelayedError(`azure/projects error: ${error.message}`, error);
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+      }
+    });
+
+    // Who this credential is and what it can see in a project, for the run record (api-gate calls it
+    // alongside a generation). Identity is best effort: the credential was already validated elsewhere.
+    // Only the identity's display fields are returned, never the whole connectionData.
+    app.route('/azure/access-probe').post(async ({ body }: Request, res: Response) => {
+      try {
+        const token = getToken(body);
+        logTokenSummary('/azure/access-probe', token);
+        const invalid = validateAccessProbeBody(body);
+        if (invalid) {
+          return res.status(StatusCodes.BAD_REQUEST).json({ message: invalid });
+        }
+        const svc = getAzureService(body);
+        res.status(StatusCodes.OK).json(await runAccessProbe(svc, token, String(body.projectName)));
+      } catch (error: any) {
+        logRelayedError(`azure/access-probe error: ${error?.message}`, error);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error?.message || 'Access probe failed' });
       }
     });
 
