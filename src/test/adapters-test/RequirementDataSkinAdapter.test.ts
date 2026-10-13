@@ -128,10 +128,26 @@ describe('RequirementDataSkinAdapter', () => {
     expect(result.length).toBe(800);
   });
 
-  test('throws when node count exceeds 1000 with allowBiggerThan500 = true', async () => {
+  test('accepts more than 1000 nodes with allowBiggerThan500 = true', async () => {
     const adapter = new RequirementDataSkinAdapter(...baseArgs, true, true);
 
-    const largeRoots = Array.from({ length: 1001 }, (_, i) => ({
+    const roots = Array.from({ length: 2500 }, (_, i) => ({
+      id: i + 1,
+      title: `Req ${i + 1}`,
+      description: 'desc',
+      children: [],
+      htmlUrl: `http://req/${i + 1}`,
+    }));
+
+    const result = await adapter.jsonSkinAdapter({ requirementQueryData: roots });
+
+    expect(result.length).toBe(2500);
+  });
+
+  test('throws when node count exceeds 3000 with allowBiggerThan500 = true', async () => {
+    const adapter = new RequirementDataSkinAdapter(...baseArgs, true, true);
+
+    const largeRoots = Array.from({ length: 3001 }, (_, i) => ({
       id: i + 1,
       title: `Req ${i + 1}`,
       description: 'desc',
