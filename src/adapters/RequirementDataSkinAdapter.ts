@@ -5,6 +5,9 @@ import logger from '../services/logger';
 // Represents a single link edge from source id 's' to target id 't'.
 type LinkPair = { s: number; t: number };
 
+// Node limit applied when allowBiggerThan500 is true (default limit is 500).
+const EXTENDED_NODE_LIMIT = 3000;
+
 export default class RequirementDataSkinAdapter {
   private adoptedData: any[] = [];
   private attachmentMinioData: any[] = [];
@@ -55,9 +58,9 @@ export default class RequirementDataSkinAdapter {
         // If link-order arrays are provided, prefer adapting in that exact order
         const totalNodes = this.countFromLinks(rawData.workItemLinksDebug) ?? 0;
 
-        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > EXTENDED_NODE_LIMIT) {
           const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
-            this.allowBiggerThan500 ? 1000 : 500
+            this.allowBiggerThan500 ? EXTENDED_NODE_LIMIT : 500
           }. Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
@@ -66,9 +69,9 @@ export default class RequirementDataSkinAdapter {
       } else if (requirementQueryData.length > 0) {
         const totalNodes = this.countTotalNodes(requirementQueryData);
 
-        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > 1000) {
+        if (!this.allowBiggerThan500 ? totalNodes > 500 : totalNodes > EXTENDED_NODE_LIMIT) {
           const errorMsg = `Too many results to process: ${totalNodes}. Maximum allowed is ${
-            this.allowBiggerThan500 ? 1000 : 500
+            this.allowBiggerThan500 ? EXTENDED_NODE_LIMIT : 500
           }. Please narrow down the query parameters.`;
           logger.error(errorMsg);
           throw new Error(errorMsg);
