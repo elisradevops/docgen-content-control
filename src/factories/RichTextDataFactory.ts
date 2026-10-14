@@ -1,6 +1,7 @@
 import * as cheerio from 'cheerio';
 import logger from '../services/logger';
 import DownloadManager from '../services/DownloadManager';
+import { resolveAttachmentSrc } from '../utils/adoAttachmentUrl';
 
 export default class RichTextDataFactory {
   richTextString: string;
@@ -183,7 +184,13 @@ export default class RichTextDataFactory {
     let rawUrl: string;
 
     const idx = originalUrl.indexOf('?');
-    if (idx !== -1) {
+    const idInQuery = resolveAttachmentSrc(originalUrl);
+    if (idInQuery) {
+      // The attachment id lives in the query string (FileNameGUID / FileID / AttachFileHandler.ashx), so the URL
+      // is requested as stored: cutting the query would drop the id and leave a URL ADO answers with 405.
+      imageFileName = idInQuery.fileName;
+      rawUrl = idInQuery.requestUrl;
+    } else if (idx !== -1) {
       imageFileName = originalUrl.substring(idx + 10);
       rawUrl = originalUrl.substring(0, idx);
     } else {
