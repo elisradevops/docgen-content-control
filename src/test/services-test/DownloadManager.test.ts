@@ -7,6 +7,7 @@ jest.mock('axios');
 
 jest.mock('../../services/logger', () => ({
   info: jest.fn(),
+  warn: jest.fn(),
   error: jest.fn(),
 }));
 
@@ -120,6 +121,46 @@ describe('DownloadManager', () => {
       mockedAxios.post.mockResolvedValue({ status: 204, data: undefined } as any);
 
       expect(await runContextStore.run({ runId: 'req-77' }, () => newDm().downloadFile())).toBeNull();
+    });
+  });
+
+  describe('downloadFile - placeholder for a failed download', () => {
+    const newDm = (url: string) =>
+      new DownloadManager(bucketName, endpoint, accessKey, secretKey, url, 'x.png', projectName, pat);
+    const placeholder = {
+      status: 200,
+      data: { fileName: 'bad-attachment.png', attachmentPath: 'http://minio/attachments/bad-attachment.png' },
+    };
+
+    it('warns with the source URL and project, and still returns the placeholder', async () => {
+      mockedAxios.post.mockResolvedValue({ ...placeholder, data: { ...placeholder.data } } as any);
+
+      const result = await newDm('http://ado/_apis/wit/attachments/abc').downloadFile();
+
+      expect(result.fileName).toBe('bad-attachment.png');
+      expect((logger as any).warn).toHaveBeenCalledTimes(1);
+      const message = (logger as any).warn.mock.calls[0][0];
+      expect(message).toContain('http://ado/_apis/wit/attachments/abc');
+      expect(message).toContain('project1');
+      expect(message).not.toContain(pat);
+    });
+
+    it('does not put an inline image into the log', async () => {
+      mockedAxios.post.mockResolvedValue({ ...placeholder, data: { ...placeholder.data } } as any);
+
+      await newDm('data:image/png;base64,AAAA').downloadFile();
+
+      const message = (logger as any).warn.mock.calls[0][0];
+      expect(message).toContain('inline image');
+      expect(message).not.toContain('AAAA');
+    });
+
+    it('does not warn for a normal download', async () => {
+      mockedAxios.post.mockResolvedValue({ status: 200, data: { fileName: 'guid.png' } } as any);
+
+      await newDm('http://ado/attachments/x').downloadFile();
+
+      expect((logger as any).warn).not.toHaveBeenCalled();
     });
   });
 
