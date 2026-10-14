@@ -2,6 +2,9 @@ import logger from './logger';
 import axios from 'axios';
 import { runAttachmentPath } from '../utils/runAttachmentDirectory';
 
+// The download service answers 200 with this file when it could not fetch an attachment (its own log has the reason).
+const BAD_ATTACHMENT_FILE_NAME = 'bad-attachment.png';
+
 export default class DownloadManager {
   bucketName: string;
   minioEndPoint: string;
@@ -78,11 +81,24 @@ export default class DownloadManager {
     return data;
   }
 
+  // The download service reports a failed download as a normal response carrying the placeholder file, so nothing
+  // else surfaces it. The reason is in that service's own log ("[attachment] attachment_failed ...").
+  private warnIfPlaceholder(data: any) {
+    if (data?.fileName !== BAD_ATTACHMENT_FILE_NAME) return;
+    const source = this.isBase64String(this.downloadUrl) ? 'inline image (data URL)' : this.downloadUrl;
+    logger.warn(
+      `Attachment download failed, the placeholder image is used instead: ${source} (project ${this.projectName}). ` +
+        `See "[attachment] attachment_failed" in the download service log for the reason.`
+    );
+  }
+
   async downloadFile() {
     try {
       this.minioEndPoint = this.minioEndPoint.replace(/^https?:\/\//, '');
       if (this.isBase64String(this.downloadUrl)) {
-        return this.withRunDirectory(await this.sendBase64Chunks(this.downloadUrl));
+        const base64Result = await this.sendBase64Chunks(this.downloadUrl);
+        this.warnIfPlaceholder(base64Result);
+        return this.withRunDirectory(base64Result);
       }
 
       let downloadManagerResponse = await axios.post(`${process.env.downloadManagerUrl}/uploadAttachment`, {
@@ -97,6 +113,7 @@ export default class DownloadManager {
       });
 
       logger.info('downloaded to', downloadManagerResponse.data);
+      this.warnIfPlaceholder(downloadManagerResponse.data);
       return downloadManagerResponse.status === 200 ? this.withRunDirectory(downloadManagerResponse.data) : null;
     } catch (e) {
       logger.error(`error downloading : ${this.downloadUrl}`);
