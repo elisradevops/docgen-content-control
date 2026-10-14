@@ -253,7 +253,10 @@ describe('TestResultsAttachmentDataFactory', () => {
 
     describe('downloadAttachment', () => {
         beforeEach(() => {
-            factory = new TestResultsAttachmentDataFactory(teamProject, templatePath, dgDataProvider, {});
+            factory = new TestResultsAttachmentDataFactory(teamProject, templatePath, dgDataProvider, {
+                lastRunId: '123',
+                lastResultId: '456',
+            });
         });
 
         it('should successfully download an attachment', async () => {
@@ -282,7 +285,8 @@ describe('TestResultsAttachmentDataFactory', () => {
                 'http://example.com',
                 'test.png',
                 teamProject,
-                PAT
+                PAT,
+                { workItem: 'test run 123, result 456' }
             );
 
             expect(result).toEqual(expectedResult);

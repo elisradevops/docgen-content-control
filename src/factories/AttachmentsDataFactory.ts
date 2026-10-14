@@ -133,7 +133,8 @@ export default class AttachmentsDataFactory {
         attachmentUrl,
         attachmentFileName,
         this.teamProject,
-        PAT
+        PAT,
+        { workItem: `work item ${this.wiId}` }
       );
       let res = await downloadManager.downloadFile();
       return res;

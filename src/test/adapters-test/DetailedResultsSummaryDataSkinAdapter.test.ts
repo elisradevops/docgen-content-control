@@ -57,6 +57,24 @@ describe('DetailedResultsSummaryDataSkinAdapter', () => {
     expect(fields[7]).toMatchObject({ name: 'Step Status', value: 'Passed' });
   });
 
+  it('names the test step for rich-text image logging', async () => {
+    const adapter = new DetailedResultsSummaryDataSkinAdapter(
+      '/tmp/template', 'MEWP', 'bucket', 'minio', 'key', 'secret', 'pat',
+      { trimAdditionalSpacingInTables: true }
+    );
+
+    await adapter.jsonSkinDataAdapter([
+      { stepAction: '<p>a</p>', stepExpected: '<p>e</p>' } as any,
+      { stepAction: '<p>b</p>', stepExpected: '<p>f</p>' } as any,
+    ]);
+
+    // Rows are processed concurrently, so the call order is not the row order.
+    const contexts = (RichTextDataFactory as unknown as jest.Mock).mock.calls.map((c) => c[9]).sort();
+    expect(contexts).toEqual([
+      'test step 1 action', 'test step 1 expected', 'test step 2 action', 'test step 2 expected',
+    ].sort());
+  });
+
   it('logs and returns undefined when adaptation fails', async () => {
     (HtmlUtils as jest.Mock).mockImplementation(() => ({
       cleanHtml: jest.fn().mockRejectedValue(new Error('clean failed')),

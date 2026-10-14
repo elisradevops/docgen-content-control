@@ -165,7 +165,9 @@ export default class RequirementDataSkinAdapter {
       this.minioEndPoint,
       this.minioAccessKey,
       this.minioSecretKey,
-      this.PAT
+      this.PAT,
+      false,
+      `work item ${id}`
     );
     const descriptionRichText = await richTextFactory.factorizeRichTextData();
     richTextFactory.attachmentMinioData.forEach((item) => {
@@ -251,7 +253,9 @@ export default class RequirementDataSkinAdapter {
         this.minioEndPoint,
         this.minioAccessKey,
         this.minioSecretKey,
-        this.PAT
+        this.PAT,
+        false,
+        `work item ${node.id}`
       );
       const descriptionRichText = await richTextFactory.factorizeRichTextData();
       richTextFactory.attachmentMinioData.forEach((item) => {

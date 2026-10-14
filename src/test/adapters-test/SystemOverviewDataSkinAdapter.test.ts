@@ -57,6 +57,23 @@ describe('SystemOverviewDataSkinAdapter', () => {
     );
   });
 
+  it('names the work item for rich-text image logging (link-ordered and recursive paths)', async () => {
+    const args: [string, string, string, string, string, string, string, any] = [
+      'MEWP', '/tmp/template', 'bucket', 'minio', 'key', 'secret', 'pat',
+      { trimAdditionalSpacingInDescriptions: false },
+    ];
+    await new SystemOverviewDataSkinAdapter(...args).jsonSkinAdapter({
+      systemOverviewQueryData: [{ id: 5, title: 'R', description: '<p>r</p>', htmlUrl: 'u' }],
+      systemOverviewLinksDebug: { sourceIds: [0], targetIds: [5] },
+    });
+    await new SystemOverviewDataSkinAdapter(...args).jsonSkinAdapter({
+      systemOverviewQueryData: [{ id: 6, title: 'R', description: '<p>r</p>', htmlUrl: 'u', children: [] }],
+    });
+
+    const calls = (RichTextDataFactory as unknown as jest.Mock).mock.calls;
+    expect(calls.map((c) => c[9])).toEqual(['work item 5', 'work item 6']);
+  });
+
   it('adapts recursively when links debug is not provided', async () => {
     const adapter = new SystemOverviewDataSkinAdapter(
       'MEWP',

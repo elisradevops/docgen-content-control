@@ -1013,6 +1013,7 @@ export default class RequirementsDataFactory {
               this.minioSecretKey,
               this.PAT,
               false, // excludeImages
+              `work item ${req.id}`,
             );
 
             descriptionRichText = await richTextFactory.factorizeRichTextData();

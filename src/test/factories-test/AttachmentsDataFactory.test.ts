@@ -228,6 +228,25 @@ describe('AttachmentsDataFactory', () => {
       });
     });
 
+    test('names the work item for the failed-download warning', async () => {
+      (DownloadManager.prototype.downloadFile as jest.Mock).mockResolvedValue({ fileName: 'a.png' });
+      (DownloadManager as jest.Mock).mockClear();
+
+      const factory = new AttachmentsDataFactory(teamProject, wiId, templatePath, mockDgDataProvider);
+      await factory.downloadAttachment(
+        attachmentsBucketName,
+        'http://example.com/attachments',
+        'a.png',
+        minioEndPoint,
+        minioAccessKey,
+        minioSecretKey,
+        PAT
+      );
+
+      const call = (DownloadManager as jest.Mock).mock.calls[0];
+      expect(call[8]).toEqual({ workItem: 'work item 12345' });
+    });
+
     test('should handle errors when downloading attachment', async () => {
       const attachmentUrl = 'http://example.com/attachments';
       const attachmentFileName = 'error-file.pdf';

@@ -336,7 +336,9 @@ export default class ChangesTableDataSkinAdapter {
       this.minioEndPoint,
       this.minioAccessKey,
       this.minioSecretKey,
-      this.PAT
+      this.PAT,
+      false,
+      `work item ${change.workItem.id}`
     );
 
     const descriptionRichText = await richTextFactory.factorizeRichTextData();
