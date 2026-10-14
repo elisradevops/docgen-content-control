@@ -155,6 +155,36 @@ describe('DownloadManager', () => {
       expect(message).not.toContain('AAAA');
     });
 
+    it('names the work item and the original src, including its query', async () => {
+      mockedAxios.post.mockResolvedValue({ ...placeholder, data: { ...placeholder.data } } as any);
+      const dm = new DownloadManager(
+        bucketName, endpoint, accessKey, secretKey,
+        'https://ado/org/proj/_apis/wit/attachments', 'x.png', projectName, pat,
+        { workItem: 'work item 42', src: 'https://ado/org/proj/_apis/wit/attachments?fileName=image.png' }
+      );
+
+      await dm.downloadFile();
+
+      const message = (logger as any).warn.mock.calls[0][0];
+      expect(message).toContain('(work item 42)');
+      expect(message).toContain('https://ado/org/proj/_apis/wit/attachments?fileName=image.png');
+    });
+
+    it('masks credentials and secret-looking query values in the logged src', async () => {
+      mockedAxios.post.mockResolvedValue({ ...placeholder, data: { ...placeholder.data } } as any);
+      const dm = new DownloadManager(
+        bucketName, endpoint, accessKey, secretKey, 'https://ado/x', 'x.png', projectName, pat,
+        { workItem: 'work item 1', src: 'https://user:pw@ado/x/attachments?fileName=a.png&sig=SUPERSECRET&access_token=T0K' }
+      );
+
+      await dm.downloadFile();
+
+      const message = (logger as any).warn.mock.calls[0][0];
+      for (const secret of ['SUPERSECRET', 'T0K', 'user:pw', 'pw@']) expect(message).not.toContain(secret);
+      expect(message).toContain('fileName=a.png');
+      expect(message).toContain('sig=***');
+    });
+
     it('does not warn for a normal download', async () => {
       mockedAxios.post.mockResolvedValue({ status: 200, data: { fileName: 'guid.png' } } as any);
 

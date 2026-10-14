@@ -33,7 +33,7 @@ export default class DetailedResultsSummaryDataSkinAdapter {
     this.formattingSettings = formattingSettings || {};
   }
 
-  private async htmlStrip(text): Promise<any> {
+  private async htmlStrip(text, logContext?: string): Promise<any> {
     const richTextFactory = new RichTextDataFactory(
       text,
       this.templatePath,
@@ -42,7 +42,9 @@ export default class DetailedResultsSummaryDataSkinAdapter {
       this.minioEndPoint,
       this.minioAccessKey,
       this.minioSecretKey,
-      this.PAT
+      this.PAT,
+      false,
+      logContext
     );
     const richText = await richTextFactory.factorizeRichTextData();
     return richText;
@@ -63,8 +65,8 @@ export default class DetailedResultsSummaryDataSkinAdapter {
             this.formattingSettings.trimAdditionalSpacingInTables
           );
 
-          const action = await this.htmlStrip(cleanedActionHtml);
-          const expected = await this.htmlStrip(cleanedExpectedHtml);
+          const action = await this.htmlStrip(cleanedActionHtml, `test step ${idx + 1} action`);
+          const expected = await this.htmlStrip(cleanedExpectedHtml, `test step ${idx + 1} expected`);
 
           const fields = [
             { name: '#', value: `${idx + 1}`, width: '3.8%' },

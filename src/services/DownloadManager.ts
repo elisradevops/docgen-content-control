@@ -5,6 +5,31 @@ import { runAttachmentPath } from '../utils/runAttachmentDirectory';
 // The download service answers 200 with this file when it could not fetch an attachment (its own log has the reason).
 const BAD_ATTACHMENT_FILE_NAME = 'bad-attachment.png';
 
+const SENSITIVE_QUERY_KEY = /sig|token|key|secret|pat|password|auth/i;
+const MAX_LOGGED_SOURCE_LENGTH = 400;
+
+// Where an image came from, for the log: no credentials in the URL, no secret-looking query values, bounded.
+function maskSourceUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.username = '';
+    parsed.password = '';
+    for (const key of Array.from(new Set(Array.from(parsed.searchParams.keys())))) {
+      if (SENSITIVE_QUERY_KEY.test(key)) parsed.searchParams.set(key, '***');
+    }
+    return parsed.toString().slice(0, MAX_LOGGED_SOURCE_LENGTH);
+  } catch {
+    return String(url).replace(/\/\/[^/@\s]*@/, '//').slice(0, MAX_LOGGED_SOURCE_LENGTH);
+  }
+}
+
+// What the caller knows about the image that the download service does not: which work item it belongs to and the
+// original src (the download itself is requested without the src's query string).
+export interface DownloadLogContext {
+  workItem?: string;
+  src?: string;
+}
+
 export default class DownloadManager {
   bucketName: string;
   minioEndPoint: string;
@@ -14,6 +39,7 @@ export default class DownloadManager {
   fileExtension: string;
   projectName: string;
   PAT: string;
+  logContext: DownloadLogContext;
 
   constructor(
     bucketName,
@@ -23,7 +49,8 @@ export default class DownloadManager {
     downloadUrl,
     fileName,
     projectName,
-    PAT
+    PAT,
+    logContext: DownloadLogContext = {}
   ) {
     this.bucketName = bucketName;
     this.minioEndPoint = minioEndPoint;
@@ -34,6 +61,7 @@ export default class DownloadManager {
     this.fileExtension = `.${fileNameArray[fileNameArray.length - 1]}`;
     this.projectName = projectName;
     this.PAT = PAT;
+    this.logContext = logContext;
   }
 
   private isBase64String(str: string): boolean {
@@ -85,9 +113,11 @@ export default class DownloadManager {
   // else surfaces it. The reason is in that service's own log ("[attachment] attachment_failed ...").
   private warnIfPlaceholder(data: any) {
     if (data?.fileName !== BAD_ATTACHMENT_FILE_NAME) return;
-    const source = this.isBase64String(this.downloadUrl) ? 'inline image (data URL)' : this.downloadUrl;
+    const originalSrc = this.logContext.src ?? this.downloadUrl;
+    const source = this.isBase64String(originalSrc) ? 'inline image (data URL)' : maskSourceUrl(originalSrc);
+    const workItem = this.logContext.workItem ? ` (${this.logContext.workItem})` : '';
     logger.warn(
-      `Attachment download failed, the placeholder image is used instead: ${source} (project ${this.projectName}). ` +
+      `Attachment download failed${workItem}, the placeholder image is used instead: ${source} (project ${this.projectName}). ` +
         `See "[attachment] attachment_failed" in the download service log for the reason.`
     );
   }

@@ -258,8 +258,20 @@ describe('RichTextDataFactory', () => {
         base64Data,
         expect.stringMatching(/base64-image-.*\.jpg/),
         'project1',
-        expect.any(String)
+        expect.any(String),
+        { workItem: undefined }
       );
+    });
+
+    test('passes the work item to the download manager for logging', async () => {
+      const factory = new RichTextDataFactory(
+        '<p>Test</p>', '/template', 'project1', 'bucket1', '', '', '', '', false, 'work item 42'
+      );
+
+      await factory['handleBase64Image']('data:image/png;base64,AAAA');
+
+      const mockCall = (DownloadManager as jest.Mock).mock.calls[0];
+      expect(mockCall[8]).toEqual({ workItem: 'work item 42' });
     });
 
     test('should handle different image types correctly', async () => {
@@ -395,8 +407,22 @@ describe('RichTextDataFactory', () => {
         url,
         'unknown.png',
         'project1',
-        expect.any(String)
+        expect.any(String),
+        { workItem: undefined, src: url }
       );
+    });
+
+    test('passes the work item and the original src (with its query) to the download manager', async () => {
+      const url = 'https://ado/org/proj/_apis/wit/attachments?fileName=image.png';
+      const factory = new RichTextDataFactory(
+        '<p>Test</p>', '/template', 'project1', 'bucket1', '', '', '', '', false, 'work item 42'
+      );
+
+      await factory['downloadImageAndReturnLocalPath'](url);
+
+      const mockCall = (DownloadManager as jest.Mock).mock.calls[0];
+      expect(mockCall[4]).toBe('https://ado/org/proj/_apis/wit/attachments'); // the request still drops the query
+      expect(mockCall[8]).toEqual({ workItem: 'work item 42', src: url });
     });
 
     test('should return original URL if no bucket name is provided', async () => {

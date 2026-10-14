@@ -5,6 +5,7 @@ import { diffHtmlContent } from '../services/htmlBlockDiffUtils';
 import { alignByKey } from '../services/hunkDiffUtils';
 import { COLOR_HISTORICAL_STEP_UPDATED, COLOR_HISTORICAL_STEP_PREVIOUS } from '../utils/tablePresentation';
 import logger from '../services/logger';
+import { workItemLogContext } from '../utils/logContext';
 
 /**
  * Cleans/renders the rich-text fields (Description, Steps) carried on a Historical Query compare
@@ -85,7 +86,7 @@ export default class HistoricalCompareDataSkinAdapter {
    * Cleans a single HTML fragment and embeds/downloads any images it contains, collecting the
    * resulting MinIO attachment data on this adapter instance.
    */
-  private async cleanAndEmbed(html: string): Promise<string> {
+  private async cleanAndEmbed(html: string, logContext?: string): Promise<string> {
     const cleaned = await this.htmlUtils.cleanHtml(
       html || '',
       false,
@@ -100,6 +101,8 @@ export default class HistoricalCompareDataSkinAdapter {
       this.minioAccessKey,
       this.minioSecretKey,
       this.PAT,
+      false,
+      logContext,
     );
     const richText = await richTextFactory.factorizeRichTextData();
     // RichTextDataFactory returns {attachmentPath, fileName, ...}; json-to-word's AttachmentsData
@@ -233,8 +236,8 @@ export default class HistoricalCompareDataSkinAdapter {
     baselineAsOf: any,
   ): Promise<{ tableRows: any[]; baseline: string; compareTo: string }> {
     const cleanStep = async (step: { action: string; expected: string }) => ({
-      action: await this.cleanAndEmbed(step.action || ''),
-      expected: await this.cleanAndEmbed(step.expected || ''),
+      action: await this.cleanAndEmbed(step.action || '', workItemLogContext(workItemId)),
+      expected: await this.cleanAndEmbed(step.expected || '', workItemLogContext(workItemId)),
     });
 
     const [cleanedBaseline, cleanedCompareTo] = await Promise.all([
@@ -388,13 +391,13 @@ export default class HistoricalCompareDataSkinAdapter {
                 // Fallback: the data provider couldn't parse either side into steps (malformed
                 // XML, shared-step lookup failure) - no per-step structure to hunk, so clean and
                 // diff the raw Steps XML as one blob per side, same as before that feature.
-                const cleanedBaseline = await this.cleanAndEmbed(diff?.baseline);
-                const cleanedCompareTo = await this.cleanAndEmbed(diff?.compareTo);
+                const cleanedBaseline = await this.cleanAndEmbed(diff?.baseline, workItemLogContext(row?.id));
+                const cleanedCompareTo = await this.cleanAndEmbed(diff?.compareTo, workItemLogContext(row?.id));
                 return { ...diff, ...this.buildDiffedDisplays(row, cleanedBaseline, cleanedCompareTo) };
               }
               if (HistoricalCompareDataSkinAdapter.HTML_FIELDS.has(diff?.field)) {
-                const cleanedBaseline = await this.cleanAndEmbed(diff?.baseline);
-                const cleanedCompareTo = await this.cleanAndEmbed(diff?.compareTo);
+                const cleanedBaseline = await this.cleanAndEmbed(diff?.baseline, workItemLogContext(row?.id));
+                const cleanedCompareTo = await this.cleanAndEmbed(diff?.compareTo, workItemLogContext(row?.id));
                 return { ...diff, ...this.buildDiffedDisplays(row, cleanedBaseline, cleanedCompareTo) };
               }
               const baselineText = diff?.baseline === null || diff?.baseline === undefined ? '' : String(diff.baseline);

@@ -19,6 +19,7 @@ export default class RichTextDataFactory {
   PAT: string = '';
   hasValues: boolean = false;
   excludeImages: boolean = false;
+  logContext: string = '';
   $: cheerio.Root;
   private imageCache: Map<string, string>;
   constructor(
@@ -30,13 +31,16 @@ export default class RichTextDataFactory {
     minioAccessKey: string = '',
     minioSecretKey: string = '',
     PAT: string = '',
-    excludeImages: boolean = false
+    excludeImages: boolean = false,
+    // Names the owner of this HTML in logs, e.g. "work item 1234" (optional).
+    logContext: string = ''
   ) {
     this.richTextString = startHtml;
     this.insideTableFlag = false;
     this.templatePath = templatePath;
     this.teamProject = teamProject;
     this.excludeImages = excludeImages;
+    this.logContext = logContext;
     this.attachmentsBucketName = attachmentsBucketName;
     this.minioEndPoint = minioEndPoint;
     this.minioAccessKey = minioAccessKey;
@@ -113,7 +117,8 @@ export default class RichTextDataFactory {
         dataUrl,
         fileName,
         this.teamProject,
-        this.PAT
+        this.PAT,
+        { workItem: this.logContext || undefined }
       );
       const attachmentData = await downloadManager.downloadFile();
       this.attachmentMinioData.push(attachmentData);
@@ -204,7 +209,8 @@ export default class RichTextDataFactory {
           rawUrl,
           imageFileName,
           this.teamProject,
-          this.PAT
+          this.PAT,
+          { workItem: this.logContext || undefined, src: originalUrl }
         );
         const attachmentData = await downloadManager.downloadFile();
         this.attachmentMinioData.push(attachmentData);

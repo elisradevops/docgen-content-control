@@ -1,5 +1,6 @@
 import RequirementDataSkinAdapter from '../../adapters/RequirementDataSkinAdapter';
 import logger from '../../services/logger';
+import RichTextDataFactory from '../../factories/RichTextDataFactory';
 
 jest.mock('../../services/htmlUtils', () => {
   return jest.fn().mockImplementation(() => ({
@@ -159,6 +160,27 @@ describe('RequirementDataSkinAdapter', () => {
     );
 
     expect((logger as any).error).toHaveBeenCalled();
+  });
+
+  test('names the work item for the rich-text image logging (recursive and link-driven paths)', async () => {
+    const adapter = new RequirementDataSkinAdapter(...baseArgs, false, true);
+    await adapter.jsonSkinAdapter({
+      requirementQueryData: [{ id: 7, title: 'R7', description: 'd', children: [], htmlUrl: 'http://7' }],
+    });
+
+    const linkAdapter = new RequirementDataSkinAdapter(...baseArgs, false, true);
+    await linkAdapter.jsonSkinAdapter({
+      requirementQueryData: [],
+      workItemLinksDebug: {
+        allItems: { 9: { id: 9, title: 'R9', description: 'd', htmlUrl: 'http://9', children: [] } },
+        workItemRelations: [{ rel: null, source: null, target: { id: 9 } }],
+      },
+    });
+
+    const calls = (RichTextDataFactory as unknown as jest.Mock).mock.calls;
+    // (startHtml, template, project, bucket, endpoint, access, secret, PAT, excludeImages, logContext)
+    expect(calls.map((c) => c[9])).toEqual(['work item 7', 'work item 9']);
+    expect(calls.every((c) => c[8] === false)).toBe(true);
   });
 
   test('adapts using link-driven workItemRelations and respects includeTFSLinks = false', async () => {

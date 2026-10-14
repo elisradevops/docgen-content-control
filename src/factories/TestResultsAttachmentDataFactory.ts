@@ -211,7 +211,8 @@ export default class TestResultsAttachmentDataFactory {
         attachmentUrl,
         attachmentFileName,
         this.teamProject,
-        PAT
+        PAT,
+        { workItem: `test run ${this.runResult?.lastRunId}, result ${this.runResult?.lastResultId}` }
       );
       let res = await downloadManager.downloadFile();
       return res;

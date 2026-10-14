@@ -21,6 +21,7 @@ import { buildGroupedHeader, COLOR_REQ_SYS, COLOR_TEST_SOFT } from '../utils/tab
 import { computeOutputSummary } from '../utils/outputSummary';
 import type { SvdResolvedRange, SvdFunnel } from '../factories/ChangeDataFactory';
 import { runContextStore } from '../services/runContext';
+import { workItemLogContext } from '../utils/logContext';
 
 let defaultStyles = {
   isBold: false,
@@ -900,6 +901,8 @@ export default class DgContentControls {
             this.minioAccessKey,
             this.minioSecretKey,
             this.PAT,
+            false,
+            workItemLogContext(wi.fields.find((f: any) => f?.name === 'ID')?.value),
           );
           const richText = await richTextFactory.factorizeRichTextData();
           // this.minioAttachmentData = this.minioAttachmentData.concat(richTextFactory.attachmentMinioData);

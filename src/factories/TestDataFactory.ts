@@ -598,7 +598,8 @@ export default class TestDataFactory {
                   try {
                     const descriptionRichText = await this.toRichTextDescription(
                       testCase.description,
-                      this.formattingSettings?.trimAdditionalSpacingInDescriptions
+                      this.formattingSettings?.trimAdditionalSpacingInDescriptions,
+                      `test case ${testCase.id}`
                     );
                     let testCaseHeaderSkinData = {
                       fields: [
@@ -657,7 +658,9 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT
+                              this.PAT,
+                              false,
+                              `test case ${testCase.id}, step ${i + 1} action`
                             );
 
                             let richTextFactoryExpected = new RichTextDataFactory(
@@ -668,7 +671,9 @@ export default class TestDataFactory {
                               this.minioEndPoint,
                               this.minioAccessKey,
                               this.minioSecretKey,
-                              this.PAT
+                              this.PAT,
+                              false,
+                              `test case ${testCase.id}, step ${i + 1} expected`
                             );
 
                             const richTextHtmlAction = await richTextFactoryAction.factorizeRichTextData();
@@ -1213,7 +1218,11 @@ export default class TestDataFactory {
 
     const suitesWithRichDescriptions = await Promise.all(
       suites.map(async (suite: any) => {
-        const suiteDescription = await this.toRichTextDescription(suite?.temp?.description, splitParagraphs);
+        const suiteDescription = await this.toRichTextDescription(
+          suite?.temp?.description,
+          splitParagraphs,
+          suite?.id !== undefined ? `test suite ${suite.id}` : undefined
+        );
         return {
           ...suite,
           temp: {
@@ -1292,7 +1301,11 @@ export default class TestDataFactory {
     });
   }
 
-  private async toRichTextDescription(rawDescription: any, splitParagraphsIntoSeparateElements: boolean) {
+  private async toRichTextDescription(
+    rawDescription: any,
+    splitParagraphsIntoSeparateElements: boolean,
+    logContext?: string
+  ) {
     const description = String(rawDescription || '').trim() || 'No description';
     const cleanedDescription = await this.htmlUtils.cleanHtml(
       description,
@@ -1308,7 +1321,9 @@ export default class TestDataFactory {
       this.minioEndPoint,
       this.minioAccessKey,
       this.minioSecretKey,
-      this.PAT
+      this.PAT,
+      false,
+      logContext
     );
 
     const descriptionRichText = await richTextFactory.factorizeRichTextData();
