@@ -372,6 +372,44 @@ describe('RichTextDataFactory', () => {
       expect(mockCall[5]).toBe('example.jpg'); // imageFileName
     });
 
+    test.each([
+      [
+        'FileNameGUID on the attachments route',
+        'https://ado.example/org/proj-guid/_apis/wit/attachments?FileNameGUID=6f1c1c1e-1111-2222-3333-444455556666&FileName=shot.Png',
+        'shot.Png',
+      ],
+      [
+        'a numeric FileID',
+        'https://org.visualstudio.com/proj-guid/_apis/wit/attachments?FileID=481805&FileName=System.Description.0.png',
+        'System.Description.0.png',
+      ],
+      [
+        'the legacy AttachFileHandler.ashx',
+        'https://tfs.example/tfs/Col/WorkItemTracking/v1.0/AttachFileHandler.ashx?FileNameGuid=6f1c1c1e-1111-2222-3333-444455556666&FileName=temp1.png',
+        'temp1.png',
+      ],
+    ])('requests %s as stored, keeping the id in the query', async (_label, url, expectedFileName) => {
+      const factory = new RichTextDataFactory('<p>Test</p>', '/template', 'project1', 'bucket1');
+
+      await factory['downloadImageAndReturnLocalPath'](url);
+
+      const mockCall = (DownloadManager as jest.Mock).mock.calls[0];
+      expect(mockCall[4]).toBe(url); // not cut at the first "?"
+      expect(mockCall[5]).toBe(expectedFileName);
+      expect(mockCall[8]).toEqual({ workItem: undefined, src: url });
+    });
+
+    test('still drops the query for the documented /attachments/<guid> route', async () => {
+      const url = 'https://ado.example/org/proj-guid/_apis/wit/attachments/6f1c1c1e-1111-2222-3333-444455556666?fileName=ok.png';
+      const factory = new RichTextDataFactory('<p>Test</p>', '/template', 'project1', 'bucket1');
+
+      await factory['downloadImageAndReturnLocalPath'](url);
+
+      const mockCall = (DownloadManager as jest.Mock).mock.calls[0];
+      expect(mockCall[4]).toBe('https://ado.example/org/proj-guid/_apis/wit/attachments/6f1c1c1e-1111-2222-3333-444455556666');
+      expect(mockCall[5]).toBe('ok.png');
+    });
+
     test('should extract filename correctly from URL without query string', async () => {
       const url = 'https://example.com/images/photo.png';
       const factory = new RichTextDataFactory('<p>Test</p>', '/template', 'project1', 'bucket1');
