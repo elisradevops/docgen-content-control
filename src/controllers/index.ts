@@ -2883,13 +2883,22 @@ export default class DgContentControls {
       fs.writeFile(localJsonPath, jsonObj, function (error) {
         if (error) {
           logger.error('issue writing to json due to : ' + error);
-          reject('issue writing to json due to: ' + error);
+          // An Error, not a string: the route reads error.message and error.code.
+          return reject(Object.assign(new Error('issue writing to json due to: ' + error), { code: (error as any)?.code }));
         }
         resolve({
           localJsonPath,
           jsonName,
         });
       });
+    });
+  }
+  // An Error (not a string) so the route's error.message / error.code reach the caller. The S3 error
+  // code (e.g. NoSuchBucket) is kept as `code`; only the bucket name is added, never the credentials.
+  private minioUploadError(error: any, bucketName: string): Error {
+    return Object.assign(new Error('issue uploading to minio due to : ' + error), {
+      code: typeof error?.code === 'string' ? error.code : undefined,
+      bucketName,
     });
   }
   async uploadToMinio(jsonLocalData, minioEndPoint, jsonFileBucketName) {
@@ -2926,11 +2935,11 @@ export default class DgContentControls {
           })
           .catch((error) => {
             logger.error('issue uploading to minio due to : ' + error);
-            reject('issue uploading to minio due to : ' + error);
+            reject(this.minioUploadError(error, jsonFileBucketName));
           });
       } catch (error) {
         logger.error('issue uploading to minio due to : ' + error);
-        reject('issue uploading to minio due to : ' + error);
+        reject(this.minioUploadError(error, jsonFileBucketName));
       }
     });
   }

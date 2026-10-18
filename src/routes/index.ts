@@ -9,6 +9,7 @@ import path from 'path';
 import logger from '../services/logger';
 import { logRelayedError } from '../services/relayedError';
 import { runContextStore, setRunStep } from '../services/runContext';
+import { errorMessage, errorResponseBody } from '../services/errorResponse';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
 import { extractWindowsIdentityHint } from '../utils/adoIdentity';
@@ -351,15 +352,12 @@ export class Routes {
         }
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`content control module error : ${error.message}`);
+        logger.error(`content control module error : ${errorMessage(error)}`);
         // `{ error }` on an Error instance serializes to `{"error":{}}` — own enumerable
         // props only, message/stack are non-enumerable — so this told the caller nothing.
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-          message: error.message,
-          code: error?.code,
-          step: 'generate-doc-template',
-          runId: runContextStore.getStore()?.runId,
-        });
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json(
+          errorResponseBody(error, 'generate-doc-template', { runId: runContextStore.getStore()?.runId })
+        );
       }
     });
 
@@ -394,16 +392,15 @@ export class Routes {
         resJson.isExcelSpreadsheet = isExcelSpreadsheet;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`content control module error : ${error.message}`);
-        res.status(resolveHttpErrorStatus(error)).json({
-          message: error.message,
-          code: error?.code,
-          step: 'generate-content-control',
-          contentControlType: body.contentControlOptions?.type,
-          contentControlTitle: body.contentControlOptions?.title,
-          runId: runContextStore.getStore()?.runId,
-          resolvedRange: dgContentControls?.resolvedRange,
-        });
+        logger.error(`content control module error : ${errorMessage(error)}`);
+        res.status(resolveHttpErrorStatus(error)).json(
+          errorResponseBody(error, 'generate-content-control', {
+            contentControlType: body.contentControlOptions?.type,
+            contentControlTitle: body.contentControlOptions?.title,
+            runId: runContextStore.getStore()?.runId,
+            resolvedRange: dgContentControls?.resolvedRange,
+          })
+        );
       }
     });
 
@@ -432,8 +429,8 @@ export class Routes {
         }
         res.status(StatusCodes.OK).json(result);
       } catch (error) {
-        logger.error(`validate mewp external files error : ${error.message}`);
-        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
+        logger.error(`validate mewp external files error : ${errorMessage(error)}`);
+        res.status(resolveHttpErrorStatus(error)).json({ message: errorMessage(error), code: error?.code });
       }
     });
 
@@ -462,8 +459,8 @@ export class Routes {
         resJson.isExcelSpreadsheet = true;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`flat test reporter module error : ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+        logger.error(`flat test reporter module error : ${errorMessage(error)}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: errorMessage(error) });
       }
     });
 

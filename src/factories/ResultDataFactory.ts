@@ -108,7 +108,7 @@ export default class ResultDataFactory {
       );
 
       if (combinedResultsItems.length === 0) {
-        throw `No test data found for the specified plan ${this.testPlanId}`;
+        throw new Error(`No test data found for the specified plan ${this.testPlanId}`);
       }
 
       if (openPcrToTestCaseTraceMap) {
@@ -159,7 +159,7 @@ export default class ResultDataFactory {
       const testResultsItems = await (resultDataProvider as any).getTestReporterResults(...testReporterArgs);
 
       if (testResultsItems.length === 0) {
-        throw `No test data found for the specified plan ${this.testPlanId}`;
+        throw new Error(`No test data found for the specified plan ${this.testPlanId}`);
       }
 
       this.adoptedResultDataArray = await Promise.all(
