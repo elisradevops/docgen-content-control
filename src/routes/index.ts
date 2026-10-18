@@ -9,6 +9,7 @@ import path from 'path';
 import logger from '../services/logger';
 import { logRelayedError } from '../services/relayedError';
 import { runContextStore, setRunStep } from '../services/runContext';
+import { boundedStack } from '../services/errorStack';
 import DgContentControls from '../controllers';
 import AzureDataService from '../services/AzureDataService';
 import { extractWindowsIdentityHint } from '../utils/adoIdentity';
@@ -66,6 +67,9 @@ const logTokenSummary = (endpoint: string, token: string) => {
   // Type only: neither the length nor a hash of a credential belongs in a persisted log.
   logger.info(`${endpoint} auth token: type=${kind}`);
 };
+
+// A thrown value is not always an Error (a string, a bare object): read its message without assuming one.
+const errorMessage = (error: any): string => error?.message || String(error);
 
 const resolveHttpErrorStatus = (error: any, fallback = StatusCodes.INTERNAL_SERVER_ERROR) => {
   const explicit = Number(error?.statusCode || error?.status || error?.response?.status || 0);
@@ -351,12 +355,13 @@ export class Routes {
         }
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`content control module error : ${error.message}`);
+        logger.error(`content control module error : ${errorMessage(error)}`);
         // `{ error }` on an Error instance serializes to `{"error":{}}` — own enumerable
         // props only, message/stack are non-enumerable — so this told the caller nothing.
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({
-          message: error.message,
+          message: errorMessage(error),
           code: error?.code,
+          stack: boundedStack(error),
           step: 'generate-doc-template',
           runId: runContextStore.getStore()?.runId,
         });
@@ -394,10 +399,11 @@ export class Routes {
         resJson.isExcelSpreadsheet = isExcelSpreadsheet;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`content control module error : ${error.message}`);
+        logger.error(`content control module error : ${errorMessage(error)}`);
         res.status(resolveHttpErrorStatus(error)).json({
-          message: error.message,
+          message: errorMessage(error),
           code: error?.code,
+          stack: boundedStack(error),
           step: 'generate-content-control',
           contentControlType: body.contentControlOptions?.type,
           contentControlTitle: body.contentControlOptions?.title,
@@ -432,8 +438,8 @@ export class Routes {
         }
         res.status(StatusCodes.OK).json(result);
       } catch (error) {
-        logger.error(`validate mewp external files error : ${error.message}`);
-        res.status(resolveHttpErrorStatus(error)).json({ message: error.message, code: error?.code });
+        logger.error(`validate mewp external files error : ${errorMessage(error)}`);
+        res.status(resolveHttpErrorStatus(error)).json({ message: errorMessage(error), code: error?.code });
       }
     });
 
@@ -462,8 +468,8 @@ export class Routes {
         resJson.isExcelSpreadsheet = true;
         res.status(StatusCodes.OK).json(resJson);
       } catch (error) {
-        logger.error(`flat test reporter module error : ${error.message}`);
-        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: error.message });
+        logger.error(`flat test reporter module error : ${errorMessage(error)}`);
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).json({ message: errorMessage(error) });
       }
     });
 

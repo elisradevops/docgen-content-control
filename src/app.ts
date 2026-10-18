@@ -2,6 +2,7 @@ import express from "express";
 import * as bodyParser from "body-parser";
 import { Routes } from "./routes";
 import { attachRunContext } from "./services/runContext";
+import { unhandledErrorHandler } from "./services/unhandledErrorHandler";
 
 //add metrics route , for monitoring
 const promBundle = require("express-prom-bundle");
@@ -28,6 +29,8 @@ export default class App {
     this.app = express();
     this.config();
     this.routePrv.routes(this.app);
+    // After the routes: it only sees errors they (or the middleware before them) did not handle.
+    this.app.use(unhandledErrorHandler);
   }
 
   private config(): void {
