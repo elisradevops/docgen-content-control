@@ -3,7 +3,15 @@
 import App from '../../app';
 import { unhandledErrorHandler } from '../../services/unhandledErrorHandler';
 
-jest.mock('../../controllers', () => jest.fn());
+// The real Routes file is large and nothing here depends on it: a stub that registers one route is enough
+// to prove the handler comes after the routes, and keeps the file out of the coverage totals.
+jest.mock('../../routes', () => ({
+  Routes: class {
+    routes(app: any) {
+      app.post('/stub', (_req: any, res: any) => res.sendStatus(204));
+    }
+  },
+}));
 jest.mock('../../services/logger', () => ({
   __esModule: true,
   default: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
