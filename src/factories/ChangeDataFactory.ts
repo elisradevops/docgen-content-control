@@ -1803,7 +1803,8 @@ export default class ChangeDataFactory {
                 let jFrogUrl = await this.getCachedServiceConnectionUrl(
                   jfrogDataProvider,
                   this.teamProject,
-                  fromRelArt.definitionReference.connection.id
+                  fromRelArt.definitionReference.connection.id,
+                  fromRelArt.definitionReference.connection.name
                 );
 
                 const toBuildName = toRelArt.definitionReference['definition'].name;
@@ -1821,12 +1822,11 @@ export default class ChangeDataFactory {
                     toBuildVersion
                   );
                   if (toCiUrl === '') {
+                    this.warnJfrogArtifactDropped('toCiUrl', artifactAlias, toBuildName, toBuildVersion, jFrogUrl, 'empty CI url');
                     continue;
                   }
                 } catch (e: any) {
-                  logger.warn(
-                    `[SVD] JFrog artifact dropped (toCiUrl): alias=${artifactAlias}, build=${toBuildName}@${toBuildVersion}, jFrogUrl=${jFrogUrl || 'undefined'}, reason=${e?.message}`
-                  );
+                  this.warnJfrogArtifactDropped('toCiUrl', artifactAlias, toBuildName, toBuildVersion, jFrogUrl, e?.message);
                   continue;
                 }
                 try {
@@ -1837,12 +1837,11 @@ export default class ChangeDataFactory {
                     fromBuildVersion
                   );
                   if (fromCiUrl === '') {
+                    this.warnJfrogArtifactDropped('fromCiUrl', artifactAlias, fromBuildName, fromBuildVersion, jFrogUrl, 'empty CI url');
                     continue;
                   }
                 } catch (e: any) {
-                  logger.warn(
-                    `[SVD] JFrog artifact dropped (fromCiUrl): alias=${artifactAlias}, build=${fromBuildName}@${fromBuildVersion}, jFrogUrl=${jFrogUrl || 'undefined'}, reason=${e?.message}`
-                  );
+                  this.warnJfrogArtifactDropped('fromCiUrl', artifactAlias, fromBuildName, fromBuildVersion, jFrogUrl, e?.message);
                   continue;
                 }
 
@@ -3963,12 +3962,33 @@ export default class ChangeDataFactory {
   private async getCachedServiceConnectionUrl(
     provider: any,
     teamProject: string,
-    connectionId: string
+    connectionId: string,
+    connectionName?: string
   ): Promise<string> {
     if (this.serviceConnectionUrlCache.has(connectionId)) return this.serviceConnectionUrlCache.get(connectionId)!;
-    const url = await provider.getServiceConnectionUrlByConnectionId(teamProject, connectionId);
+    let url: string;
+    try {
+      url = await provider.getServiceConnectionUrlByConnectionId(teamProject, connectionId);
+    } catch (e: any) {
+      // An admin fixing the permission needs the connection's name, not only its id.
+      throw new Error(`${e?.message ?? e} (service connection "${connectionName || 'unnamed'}", id ${connectionId})`);
+    }
     this.serviceConnectionUrlCache.set(connectionId, url || '');
     return url || '';
+  }
+
+  /** One wording for an Artifactory artifact left out of the SVD, so it is findable and groups as one Issue pattern. */
+  private warnJfrogArtifactDropped(
+    side: 'toCiUrl' | 'fromCiUrl',
+    artifactAlias: string,
+    buildName: string,
+    buildVersion: string,
+    jFrogUrl: string,
+    reason: string
+  ): void {
+    logger.warn(
+      `[SVD] JFrog artifact dropped (${side}): alias=${artifactAlias}, build=${buildName}@${buildVersion}, jFrogUrl=${jFrogUrl || 'undefined'}, reason=${reason}`
+    );
   }
 
   private async fetchAndParseServicesJson(
@@ -4330,7 +4350,8 @@ export default class ChangeDataFactory {
     let jFrogUrl = await this.getCachedServiceConnectionUrl(
       jfrogDataProvider,
       this.teamProject,
-      fromRelArt.definitionReference.connection.id
+      fromRelArt.definitionReference.connection.id,
+      fromRelArt.definitionReference.connection.name
     );
     const toBuildName = toRelArt.definitionReference['definition'].name;
     const toBuildVersion = toRelArt.definitionReference['version'].name;
@@ -4340,8 +4361,12 @@ export default class ChangeDataFactory {
     let fromCiUrl: string = '';
     try {
       toCiUrl = await this.getCachedJfrogCiUrl(jfrogDataProvider, jFrogUrl, toBuildName, toBuildVersion);
-      if (toCiUrl === '') return;
+      if (toCiUrl === '') {
+        this.warnJfrogArtifactDropped('toCiUrl', artifactAlias, toBuildName, toBuildVersion, jFrogUrl, 'empty CI url');
+        return;
+      }
     } catch (e: any) {
+      this.warnJfrogArtifactDropped('toCiUrl', artifactAlias, toBuildName, toBuildVersion, jFrogUrl, e?.message);
       return;
     }
     try {
@@ -4351,8 +4376,12 @@ export default class ChangeDataFactory {
         fromBuildName,
         fromBuildVersion
       );
-      if (fromCiUrl === '') return;
+      if (fromCiUrl === '') {
+        this.warnJfrogArtifactDropped('fromCiUrl', artifactAlias, fromBuildName, fromBuildVersion, jFrogUrl, 'empty CI url');
+        return;
+      }
     } catch (e: any) {
+      this.warnJfrogArtifactDropped('fromCiUrl', artifactAlias, fromBuildName, fromBuildVersion, jFrogUrl, e?.message);
       return;
     }
     const toParts = toCiUrl.split('/');

@@ -3429,6 +3429,57 @@ describe('ChangeDataFactory', () => {
         expect(groups[0].artifact.name).toBe(displayName);
       });
 
+      describe('processArtifactoryArtifactPair visibility of dropped artifacts', () => {
+        const fromRelease = { id: 1 };
+        const toRelease = { id: 2, name: '2.0.0', createdOn: '2024-01-02T00:00:00Z' };
+        const relArt = (version: string) => ({
+          definitionReference: {
+            connection: { id: 'conn-x', name: 'JFrog-Prod' },
+            definition: { name: 'build-art', id: '3' },
+            version: { name: version },
+          },
+        });
+        const run = (factory: any, provider: any, groups = new Map()) =>
+          factory.processArtifactoryArtifactPair(
+            'k', 'art1', 'Artifactory art1', fromRelease, toRelease, relArt('1.0.0'), relArt('2.0.0'),
+            '2.0.0', toRelease.createdOn, provider, groups
+          ).then(() => groups);
+
+        it('warns (and still drops the artifact) when the CI url lookup throws', async () => {
+          const factory = changeDataFactory as any;
+          const provider = { ...mockJfrogDataProvider, getCiDataFromJfrog: jest.fn().mockRejectedValue(new Error('jfrog 401')) };
+          (logger.warn as jest.Mock).mockClear();
+
+          const groups = await run(factory, provider);
+
+          expect(groups.size).toBe(0);
+          expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[SVD] JFrog artifact dropped (toCiUrl)'));
+          expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('jfrog 401'));
+        });
+
+        it('warns when JFrog answers with an empty CI url', async () => {
+          const factory = changeDataFactory as any;
+          const provider = { ...mockJfrogDataProvider, getCiDataFromJfrog: jest.fn().mockResolvedValue('') };
+          (logger.warn as jest.Mock).mockClear();
+
+          const groups = await run(factory, provider);
+
+          expect(groups.size).toBe(0);
+          expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('[SVD] JFrog artifact dropped (toCiUrl)'));
+        });
+
+        it('names the service connection when its url cannot be resolved', async () => {
+          const factory = changeDataFactory as any;
+          const provider = {
+            ...mockJfrogDataProvider,
+            getServiceConnectionUrlByConnectionId: jest.fn().mockRejectedValue(new Error('returned no URL')),
+          };
+
+          await expect(run(factory, provider)).rejects.toThrow(/JFrog-Prod/);
+          await expect(run(factory, provider)).rejects.toThrow(/conn-x/);
+        });
+      });
+
       it('processArtifactoryArtifactPair should reuse cached comparison results and annotate commits', async () => {
         const factory = changeDataFactory as any;
 

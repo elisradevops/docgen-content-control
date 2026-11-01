@@ -137,4 +137,15 @@ describe('TraceDataFactory', () => {
 
     await expect(factory.fetchTestData()).resolves.toEqual([]);
   });
+
+  it('reports a failed test-data fetch through the logger (not console) so the dashboard sees it', async () => {
+    const { factory, testDataProvider } = createFactory({ testPlanId: 7 });
+    testDataProvider.GetTestCasesBySuites.mockRejectedValueOnce(new Error('cases boom'));
+
+    await factory.fetchTestData();
+
+    expect((logger as any).error).toHaveBeenCalledWith(expect.stringContaining('test plan 7'));
+    expect((logger as any).error).toHaveBeenCalledWith(expect.stringContaining('cases boom'));
+    expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
 });

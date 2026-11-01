@@ -134,8 +134,9 @@ export default class TraceDataFactory {
         plan: filteredPlan,
         suites: SuitesAndTestCases,
       };
-    } catch (err) {
-      console.log(err);
+    } catch (err: any) {
+      // This section silently comes back empty, so the failure has to be visible somewhere other than stdout.
+      logger.error(`Failed to fetch test data for test plan ${this.testPlanId}: ${err?.message ?? err}`);
     }
 
     return [];
