@@ -23,7 +23,8 @@ export const TRACE_LINK_REL_TOKENS = ['Affects', 'CoveredBy'];
 export const UNCOVERED_PLACEHOLDER = '—';
 
 // Canonical work item types that count as "Requirement" for SysRS coverage tables.
-export const REQUIREMENT_WORK_ITEM_TYPES = ['requirement'];
+// Change Request sits at the same backlog level as Requirement and is managed as one.
+export const REQUIREMENT_WORK_ITEM_TYPES = ['requirement', 'change request'];
 
 export function isTraceabilityRel(rel: string | null | undefined): boolean {
   if (!rel) return false;

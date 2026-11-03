@@ -799,7 +799,7 @@ export default class RequirementsDataFactory {
   private isRequirementLike(row: any): boolean {
     const workItemType = String(row?.workItemType || '').toLowerCase();
     if (!workItemType) return false;
-    return workItemType.includes('requirement');
+    return workItemType.includes('requirement') || workItemType === 'change request';
   }
 
   private resolveSysRsHierarchyRowType(row: any): 'epic' | 'feature' | 'requirement' {

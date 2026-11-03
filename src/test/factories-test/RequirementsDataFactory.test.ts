@@ -1687,6 +1687,48 @@ describe('RequirementsDataFactory', () => {
         'sysrs',
       );
 
+    test('treats Change Request rows as requirements in critical and VCRM tables', async () => {
+      const sysRsFactory = createSysRsFactory({
+        systemRequirements: {
+          wiql: { href: 'system-requirements-query-url' },
+        },
+      });
+
+      mockProviders.ticketsDataProvider.GetQueryResultsFromWiql.mockResolvedValue({
+        roots: [
+          {
+            id: 20,
+            title: 'Epic-20',
+            htmlUrl: 'http://example.com/20',
+            workItemType: 'Epic',
+            fields: {},
+            children: [
+              {
+                id: 21,
+                title: 'CR-21',
+                htmlUrl: 'http://example.com/21',
+                workItemType: 'Change Request',
+                fields: {
+                  Priority: '1 - High',
+                  'Verification Comment': 'CR critical',
+                  'Verification Method': 'Test',
+                },
+                children: [],
+              },
+            ],
+          },
+        ],
+      });
+
+      await sysRsFactory.fetchRequirementsData();
+      const adoptedData: any = sysRsFactory.getAdoptedData();
+
+      expect(adoptedData.criticalRequirementsData.map((row: any) => row.fields[0].value)).toEqual([21]);
+      const crRow = adoptedData.vcrmData.find((row: any) => row.fields[0].value === 21);
+      expect(crRow.fields[2].value).toBe('CR-21');
+      expect(crRow.fields[3].value).toBe('Test');
+    });
+
     test('builds critical requirements only for requirement-like priority-1 rows and creates hierarchical sections', async () => {
       const sysRsFactory = createSysRsFactory({
         systemRequirements: {
