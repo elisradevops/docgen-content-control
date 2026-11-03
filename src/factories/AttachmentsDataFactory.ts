@@ -29,7 +29,8 @@ export default class AttachmentsDataFactory {
       try {
         let ticketsDataProvider = await this.dgDataProviderAzureDevOps.getTicketsDataProvider();
         rawAttachmentData = await ticketsDataProvider.GetWorkitemAttachments(this.teamProject, this.wiId);
-      } catch (e) {
+      } catch (e: any) {
+        logger.error(`Failed to fetch attachments for work item ${this.wiId}: ${e?.message ?? e}`);
         rawAttachmentData = [];
       }
     } else {

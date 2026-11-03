@@ -198,6 +198,16 @@ describe('AttachmentsDataFactory', () => {
       expect(mockGetWorkitemAttachments).toHaveBeenCalled();
       expect(result).toEqual([]);
     });
+
+    test('logs the failure (work item and reason) when GetWorkitemAttachments throws', async () => {
+      mockGetWorkitemAttachments.mockRejectedValue(new Error('network error'));
+
+      const factory = new AttachmentsDataFactory(teamProject, wiId, templatePath, mockDgDataProvider);
+      await factory.fetchWiAttachments(attachmentsBucketName, minioEndPoint, minioAccessKey, minioSecretKey, PAT);
+
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining(String(wiId)));
+      expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('network error'));
+    });
   });
 
   describe('downloadAttachment', () => {
